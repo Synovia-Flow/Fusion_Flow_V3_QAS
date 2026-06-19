@@ -54,6 +54,7 @@ def load_dotenv_file() -> None:
         "GRAPH.CLIENT_SECRET": "GRAPH_CLIENT_SECRET",
         "GRAPH.MAILBOX": "GRAPH_MAILBOX",
         "GRAPH.FOLDER": "GRAPH_FOLDER",
+        "GRAPH.HISTORIC_START_DATE": "GRAPH_HISTORIC_START_DATE",
     }
     candidates = [
         Path.cwd() / ".env",
@@ -104,6 +105,7 @@ GRAPH_CLIENT_ID = os.getenv("GRAPH_CLIENT_ID", "").strip()
 GRAPH_CLIENT_SECRET = os.getenv("GRAPH_CLIENT_SECRET", "").strip()
 GRAPH_MAILBOX = os.getenv("GRAPH_MAILBOX", "nexus@synoviaflow.cloud").strip()
 GRAPH_FOLDER = os.getenv("GRAPH_FOLDER", "inbox").strip() or "inbox"
+GRAPH_HISTORIC_START_DATE = os.getenv("GRAPH_HISTORIC_START_DATE", "2026-05-07").strip()
 
 GRAPH_API_ROOT = "https://graph.microsoft.com/v1.0"
 GRAPH_TOKEN_URL = (
@@ -293,6 +295,7 @@ def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, A
         ],
         "file_types": normalise_file_types(as_list(raw_config.get("file_types"))),
         "save_mode": str(raw_config.get("save_mode") or "attachments_only").strip().lower(),
+        "historic_start_date": str(raw_config.get("historic_start_date") or "").strip(),
         "destination_folder": Path(destination_folder),
         "config_file": str(path),
     }
@@ -607,6 +610,51 @@ def normalise_graph_date(value: str, end_of_day: bool = False) -> str:
     return parsed.isoformat().replace("+00:00", "Z")
 
 
+def utc_today() -> dt.date:
+    """Return today's date in UTC because Graph receivedDateTime is UTC."""
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+def date_only(value: str) -> str:
+    """Return YYYY-MM-DD from a YYYY-MM-DD or ISO datetime value."""
+    return normalise_graph_date(value)[:10]
+
+
+def historic_start_date_from_configs() -> str:
+    """Return the earliest configured historic start date across active customers."""
+    candidates = []
+    for config in TENANT_CONFIGS:
+        value = str(config.get("historic_start_date") or "").strip()
+        if value:
+            candidates.append(date_only(value))
+
+    if candidates:
+        return min(candidates)
+    return date_only(GRAPH_HISTORIC_START_DATE)
+
+
+def apply_run_mode_dates(args: argparse.Namespace) -> None:
+    """
+    Resolve the date window before the mailbox query is built.
+
+    Modes:
+        daily    - default; reads only today's Graph emails.
+        historic - reads from customer historic_start_date up to yesterday.
+        custom   - uses only the dates passed by the operator.
+    """
+    today = utc_today()
+
+    if args.run_mode == "daily":
+        args.received_from = args.received_from or today.isoformat()
+        args.received_to = args.received_to or today.isoformat()
+        return
+
+    if args.run_mode == "historic":
+        yesterday = today - dt.timedelta(days=1)
+        args.received_from = args.received_from or historic_start_date_from_configs()
+        args.received_to = args.received_to or yesterday.isoformat()
+
+
 # =============================================================================
 # STEP 8 - QUALITY REPORT HELPERS
 # =============================================================================
@@ -831,7 +879,7 @@ def run(args: argparse.Namespace) -> int:
     print("STEP 2 - Getting Microsoft Graph token")
     token = get_graph_token()
 
-    print("STEP 3 - Reading mailbox messages")
+    print(f"STEP 3 - Reading mailbox messages ({args.run_mode}: {args.received_from or 'no lower date'} to {args.received_to or 'no upper date'})")
     messages = read_messages(token, args)
     print(f"Found {len(messages)} message(s) to review")
 
@@ -873,9 +921,18 @@ def print_summary(stats: dict[str, Any], run_log_path: Path) -> None:
 # =============================================================================
 
 def build_parser() -> argparse.ArgumentParser:
-    """Define optional filters for historic downloads."""
+    """Define optional filters for daily and historic downloads."""
     parser = argparse.ArgumentParser(
         description="Simple Microsoft Graph downloader by tenant sender domain."
+    )
+    parser.add_argument(
+        "--run-mode",
+        choices=["daily", "historic", "custom"],
+        default="daily",
+        help=(
+            "daily reads today's emails only, historic reads from customer "
+            "historic_start_date to yesterday, custom uses the explicit date filters."
+        ),
     )
     parser.add_argument(
         "--received-from",
@@ -913,6 +970,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+
+    apply_run_mode_dates(args)
 
     if args.max_messages < 0:
         parser.error("--max-messages cannot be negative")

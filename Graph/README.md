@@ -40,3 +40,20 @@ Graph/config/customers/BKD.yml
 
 Each file defines the tenant code, sender domains or addresses, allowed file
 extensions, and the destination folder where attachments should be saved.
+## Daily and Historic Runs
+
+Run the one-off historic download first. It uses `historic_start_date` from the
+customer YML and reads up to yesterday:
+
+```powershell
+python Graph\graph_mail_customer_downloader.py --run-mode historic
+```
+
+Daily execution is the default. It reads only today's Graph emails:
+
+```powershell
+python Graph\graph_mail_customer_downloader.py
+```
+
+Use `--run-mode custom --received-from YYYY-MM-DD --received-to YYYY-MM-DD` for
+manual backfills or investigations.

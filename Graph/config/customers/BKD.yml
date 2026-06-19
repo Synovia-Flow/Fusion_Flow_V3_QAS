@@ -11,6 +11,8 @@ sender_addresses: []
 
 save_mode: attachments_only
 
+historic_start_date: 2026-05-07
+
 file_types:
   - .xlsx
 
