@@ -37,6 +37,51 @@ from pathlib import Path
 from typing import Any
 
 
+SCRIPT_FOLDER = Path(__file__).resolve().parent
+
+
+def load_dotenv_file() -> None:
+    """
+    Load .env values for simple manual execution.
+
+    Supported key styles:
+        GRAPH_TENANT_ID=...
+        GRAPH.TENANT_ID=...
+    """
+    aliases = {
+        "GRAPH.TENANT_ID": "GRAPH_TENANT_ID",
+        "GRAPH.CLIENT_ID": "GRAPH_CLIENT_ID",
+        "GRAPH.CLIENT_SECRET": "GRAPH_CLIENT_SECRET",
+        "GRAPH.MAILBOX": "GRAPH_MAILBOX",
+        "GRAPH.FOLDER": "GRAPH_FOLDER",
+    }
+    candidates = [
+        Path.cwd() / ".env",
+        SCRIPT_FOLDER / ".env",
+        SCRIPT_FOLDER.parent / ".env",
+    ]
+
+    for env_path in candidates:
+        if not env_path.exists():
+            continue
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip().lstrip("\ufeff")
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+            alias = aliases.get(key)
+            if alias and alias not in os.environ:
+                os.environ[alias] = value
+        return
+
+
+load_dotenv_file()
+
+
 # =============================================================================
 # STEP 1 - GRAPH CONFIGURATION
 # =============================================================================
@@ -71,7 +116,7 @@ GRAPH_TOKEN_URL = (
 # STEP 2 - SHARED DRIVE CONFIGURATION
 # =============================================================================
 
-GRAPH_SCRIPT_FOLDER = Path(__file__).resolve().parent
+GRAPH_SCRIPT_FOLDER = SCRIPT_FOLDER
 CUSTOMER_CONFIG_FOLDER = GRAPH_SCRIPT_FOLDER / "config" / "customers"
 
 INTEGRATION_LAYER_ROOT = Path(
