@@ -155,17 +155,19 @@ The initial model is intentionally minimal:
 
 | Layer | Table | Purpose |
 | --- | --- | --- |
-| `CFG` | `Graph` | Graph/customer/process configuration. |
-| `EXC` | `Graph` | One row per Graph execution. |
-| `ING` | `Graph` | Raw inbound Graph message/file trace. |
+| `CFG` | `Graph` | One active Graph route/configuration per tenant/customer. |
+| `EXC` | `Graph` | One row per Graph execution/run; a run can process multiple tenants. |
+| `ING` | `Graph` | First inbound Graph message/file trace, linked to `CFG.Graph` by `ConfigID`. |
 | `STG` | `SalesOrder` | Parsed sales order staging data from the future API/test processing stage. |
 | `TSS` | `Submission` | Future TSS submission/reference tracking. |
 
 The SQL script creates the schemas and tables and now includes foreign keys for
-the process flow:
+the process flow. ING.Graph is the first data-arrival table, so it stores
+TenantCode and links each inbound email/file back to CFG.Graph.ConfigID:
 
 ```text
-EXC.Graph -> ING.Graph -> STG.SalesOrder -> TSS.Submission
+CFG.Graph -> ING.Graph -> STG.SalesOrder -> TSS.Submission
+EXC.Graph -> ING.Graph
 ```
 
 No detailed log tables are included at this stage.
