@@ -11,9 +11,9 @@ Current confirmed behavior:
     - If the email has file attachments, save the attachments.
     - If the email has no file attachments, report it as pending confirmation.
 
-Body processing note:
-    Body extraction is intentionally disabled for now. Ask Aidan whether body
-    content should be saved later, and confirm the exact markers/rules first.
+No-attachment note:
+    Emails without file attachments are skipped by this script. Current BKD
+    processing is attachment-only.
 
 Important security note:
     This shared script does not store the real client secret in source code.
@@ -162,11 +162,9 @@ FALLBACK_BIRKDALE_CONFIG = {
     ),
 }
 
-# BODY TODO TO ASK AIDAN:
-# Earlier notes mentioned saving body text from "TSS FOR" or "DETAILS FOR"
-# until "customsadmin@primelineexpress.co.uk".
-# For the current historic task, we are downloading files only. Re-enable body
-# extraction only after Aidan confirms that rule is still required.
+# NO-ATTACHMENT BEHAVIOUR:
+# Current BKD processing is attachment-only. Emails without file attachments are
+# skipped and counted for visibility, but their body is not saved or parsed.
 
 
 # =============================================================================
@@ -179,7 +177,7 @@ FALLBACK_BIRKDALE_CONFIG = {
 #   2. Sender address(es), if one exact mailbox is required.
 #   3. Whether the order data arrives in the email body, in attachments, or both.
 #   4. Attachment file types and whether any file should be ignored.
-#   5. Body start marker and body end marker, if body extraction is required.
+#   5. Whether no-attachment emails should be ignored or handled separately.
 #   6. Exact Integration Layer destination folder.
 #   7. Whether the message can be marked as read after successful processing.
 #
@@ -667,7 +665,7 @@ def new_stats() -> dict[str, Any]:
         "unmatched": 0,
         "saved_attachments": 0,
         "skipped_existing": 0,
-        "no_file_attachments_pending_aidan": 0,
+        "no_file_attachments": 0,
         "failed": 0,
         "file_types": {},
     }
@@ -740,8 +738,8 @@ def write_run_log(
         writer.writerow({
             "action": "SUMMARY",
             "note": (
-                "No file attachments / body pending Aidan: "
-                f"{stats['no_file_attachments_pending_aidan']}"
+                "No file attachments: "
+                f"{stats['no_file_attachments']}"
             ),
         })
         writer.writerow({"action": "SUMMARY", "note": f"Failed: {stats['failed']}"})
@@ -827,15 +825,14 @@ def process_one_message(
             return
 
         # Step B: No file attachments.
-        # Body extraction is paused. Ask Aidan whether this tenant's body text
-        # should be saved later, and confirm the exact body markers first.
-        stats["no_file_attachments_pending_aidan"] += 1
+        # Current BKD processing is attachment-only, so no body is saved.
+        stats["no_file_attachments"] += 1
         rows.append(
             report_row(
                 message,
                 config,
-                "SKIPPED_NO_FILE_ATTACHMENTS_PENDING_AIDAN",
-                note="Files-only historic download. Body processing is pending Aidan confirmation.",
+                "SKIPPED_NO_FILE_ATTACHMENTS",
+                note="Attachment-only processing. No file attachments found.",
             )
         )
 
@@ -904,8 +901,8 @@ def print_summary(stats: dict[str, Any], run_log_path: Path) -> None:
     print(f"  Saved attachments: {stats['saved_attachments']}")
     print(f"  Skipped existing files: {stats['skipped_existing']}")
     print(
-        "  No file attachments / body pending Aidan: "
-        f"{stats['no_file_attachments_pending_aidan']}"
+        "  No file attachments: "
+        f"{stats['no_file_attachments']}"
     )
     print(f"  Failed messages: {stats['failed']}")
     print(f"  Technical run log: {run_log_path}")

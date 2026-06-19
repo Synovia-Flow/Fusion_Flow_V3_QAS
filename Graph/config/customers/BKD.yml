@@ -17,6 +17,3 @@ file_types:
   - .xlsx
 
 destination_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Production\Integration_Layer\BKD\Inbound\Sales_Order_files'
-
-body_extraction_enabled: false
-body_extraction_note: 'TODO - ask Aidan if body extraction from TSS FOR / DETAILS FOR is still required.'

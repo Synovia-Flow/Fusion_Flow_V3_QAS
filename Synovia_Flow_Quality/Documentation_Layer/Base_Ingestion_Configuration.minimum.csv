@@ -4,7 +4,7 @@ Application_Paramters,QAS,Fusion_Flow_V3_QAS,ALL,GRAPH,CLIENT_SECRET,<GRAPH_CLIE
 Application_Paramters,QAS,Fusion_Flow_V3_QAS,ALL,GRAPH,TENANT_ID,<GRAPH_TENANT_ID>,FALSE,Microsoft Azure tenant id placeholder.
 Application_Paramters,QAS,Fusion_Flow_V3_QAS,ALL,GRAPH,MAILBOX,nexus@synoviaflow.cloud,FALSE,Shared mailbox read by the Graph process.
 Application_Paramters,QAS,Fusion_Flow_V3_QAS,BKD,GRAPH,HISTORIC_START_UTC,2026-05-07T13:40:00Z,FALSE,Initial historic start for Birkdale attachment download.
-Application_Paramters,QAS,Fusion_Flow_V3_QAS,ALL,GRAPH,SAVE_MODE,ATTACHMENTS_ONLY,FALSE,Body extraction is not enabled until confirmed by Aidan.
+Application_Paramters,QAS,Fusion_Flow_V3_QAS,ALL,GRAPH,SAVE_MODE,ATTACHMENTS_ONLY,FALSE,Attachment-only processing for the current BKD flow.
 Application_Paramters,QAS,Fusion_Flow_V3_QAS,ALL,PATH,INTEGRATION_LAYER_ROOT,\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Production\Integration_Layer,FALSE,Base folder for tenant inbound files.
 Principals,QAS,Fusion_Flow_V3_QAS,BKD,TENANT,TENANT_NAME,Birkdale,FALSE,Implemented first tenant for Graph attachment download.
 Principals,QAS,Fusion_Flow_V3_QAS,CWH,TENANT,TENANT_NAME,Country Wide Homes,FALSE,Pending sender/source investigation.

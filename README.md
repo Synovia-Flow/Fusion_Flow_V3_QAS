@@ -2,36 +2,178 @@
 
 Version-controlled starting point for the Fusion Flow V3 QAS ingestion work.
 
-Current scope:
+The current objective is deliberately small: use Microsoft Graph to read customer
+emails, identify the customer/tenant from the sender rule, and save inbound files
+into the correct Integration Layer folder. The project is being kept simple so it
+can pass Quality review, be maintained easily, and later move configuration into
+`Fusion_Flow_V3_QAS` database tables.
 
-- Microsoft Graph mailbox ingestion.
-- Minimum configuration needed to read customer emails and save inbound files.
-- Simple database shape for `CFG -> EXC -> ING -> STG -> TSS`.
+## Current Scope
 
-The operational Excel configuration lives on the shared Quality drive:
+- Microsoft Graph mailbox ingestion for `nexus@synoviaflow.cloud`.
+- One customer configuration file per tenant/customer under `Graph/config/customers`.
+- Initial confirmed tenant: `BKD` / Birkdale.
+- Birkdale sender rule: `birkdalesales.com`.
+- Current save behaviour: attachments only, `.xlsx` files.
+- Emails without file attachments are skipped; current BKD processing is attachment-only.
+- Historic download has been run from `2026-05-07` to `2026-06-18`.
+- Daily mode is now the default and reads only today's Graph emails.
+
+## Repository Structure
+
+```text
+.env.example
+Graph/
+  graph_mail_customer_downloader.py
+  README.md
+  config/customers/BKD.yml
+Synovia_Flow_Quality/
+  Documentation_Layer/
+    Base_Ingestion_Configuration.md
+    Base_Ingestion_Configuration.minimum.csv
+Synovia_Flow_Production/
+  Configuration_Layer/SQL/
+    001_create_minimal_graph_tables.sql
+```
+
+## Operational Configuration
+
+The live operational workbook is kept on the Quality shared drive:
 
 ```text
 \\pl-az-sdf-plint\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer\Base_Ingestion_Configuration.xlsx
 ```
 
-Do not commit real Graph secrets to this repository. Use the Excel workbook,
-database `CFG.Graph`, environment variables, or secure deployment configuration
-for real values.
+The version-controlled CSV in this repo is sanitised and uses placeholders. Do
+not commit real Graph secrets to GitHub. Real values should live in the workbook,
+`CFG.Graph`, environment variables, or secure deployment configuration.
 
-## Structure
+The script accepts both configuration naming styles:
 
 ```text
-Graph/
-Synovia_Flow_Quality/Documentation_Layer/
-Synovia_Flow_Production/Configuration_Layer/SQL/
+GRAPH.TENANT_ID
+GRAPH.CLIENT_ID
+GRAPH.CLIENT_SECRET
+GRAPH.MAILBOX
+GRAPH.FOLDER
 ```
 
-## First Graph Scope
+or:
 
-Initial confirmed tenant: `BKD` / Birkdale.
+```text
+GRAPH_TENANT_ID
+GRAPH_CLIENT_ID
+GRAPH_CLIENT_SECRET
+GRAPH_MAILBOX
+GRAPH_FOLDER
+```
 
-- Mailbox: `nexus@synoviaflow.cloud`
-- Sender rule: domain `birkdalesales.com`
-- Current behaviour: save file attachments only
-- Destination: tenant folder under the Integration Layer
-- Body extraction: pending Aidan confirmation
+## Customer Configuration
+
+Each customer has one YML file. For BKD:
+
+```text
+Graph/config/customers/BKD.yml
+```
+
+That file defines:
+
+- tenant name and code;
+- whether the customer is active;
+- sender domains or sender addresses;
+- allowed file types;
+- historic start date;
+- destination folder;
+- no-attachment handling status.
+
+This keeps customer routing readable and makes it easy to add future tenants
+without changing the main script logic.
+
+## Current BKD Destination
+
+```text
+\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Production\Integration_Layer\BKD\Inbound\Sales_Order_files
+```
+
+## How To Run
+
+From the repository root:
+
+```powershell
+cd "\\pl-az-sdf-plint\Fusion_Production\Scratch\Fusion_Flow_V3_QAS"
+```
+
+Daily run, default behaviour:
+
+```powershell
+python Graph\graph_mail_customer_downloader.py
+```
+
+Historic one-off run:
+
+```powershell
+python Graph\graph_mail_customer_downloader.py --run-mode historic
+```
+
+Manual custom window:
+
+```powershell
+python Graph\graph_mail_customer_downloader.py --run-mode custom --received-from 2026-06-01 --received-to 2026-06-10
+```
+
+Dry-run check:
+
+```powershell
+python Graph\graph_mail_customer_downloader.py --dry-run --max-messages 5
+```
+
+## Daily Scheduling
+
+Use Windows Task Scheduler on a machine/server that has access to the shared
+Integration Layer path.
+
+Suggested action:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "cd '\\pl-az-sdf-plint\Fusion_Production\Scratch\Fusion_Flow_V3_QAS'; python Graph\graph_mail_customer_downloader.py"
+```
+
+Because daily mode is the default, no date arguments are required for normal
+scheduled execution.
+
+## Database Strategy
+
+The database name for the QAS design is:
+
+```text
+Fusion_Flow_V3_QAS
+```
+
+The initial model is intentionally minimal:
+
+| Layer | Table | Purpose |
+| --- | --- | --- |
+| `CFG` | `Graph` | Graph/customer/process configuration. |
+| `EXC` | `Graph` | One row per Graph execution. |
+| `ING` | `Graph` | Raw inbound Graph message/file trace. |
+| `STG` | `SalesOrder` | Parsed sales order staging data. |
+| `TSS` | `Submission` | Future TSS submission/reference tracking. |
+
+The SQL script creates the schemas and tables and now includes foreign keys for
+the process flow:
+
+```text
+EXC.Graph -> ING.Graph -> STG.SalesOrder -> TSS.Submission
+```
+
+No detailed log tables are included at this stage.
+
+## Quality Notes
+
+- The script is intentionally written as a single clear Python script.
+- Comments explain each step for Quality review and future maintenance.
+- Customer-specific routing is outside the code in YML files.
+- Failed Graph/API actions do not mark or move mailbox messages.
+- The current script does not mark messages as read; it relies on date windows
+  and existing-file checks to avoid duplicate saved files.
+- No-attachment emails are not parsed by the current BKD flow.
