@@ -9,11 +9,12 @@ Current confirmed tenant:
 Current confirmed behavior:
     - Emails from @birkdalesales.com go to BKD.
     - If the email has file attachments, save the attachments.
-    - If the email has no file attachments, report it as pending confirmation.
+    - If the email has no file attachments, keep it visible for the future API/body stage.
 
 No-attachment note:
-    Emails without file attachments are skipped by this script. Current BKD
-    processing is attachment-only.
+    Emails without file attachments are skipped by this script today. The email
+    body may be required later by the API/test stage to create ENS records and
+    consignments, so that logic must stay outside this Graph-only downloader for now.
 
 Important security note:
     This shared script does not store the real client secret in source code.
@@ -163,8 +164,9 @@ FALLBACK_BIRKDALE_CONFIG = {
 }
 
 # NO-ATTACHMENT BEHAVIOUR:
-# Current BKD processing is attachment-only. Emails without file attachments are
-# skipped and counted for visibility, but their body is not saved or parsed.
+# Current BKD Graph processing is attachment-only. Emails without file attachments
+# are skipped and counted for visibility. Body extraction belongs to the future
+# API/test stage because the body can contain the ENS/consignment source data.
 
 
 # =============================================================================
@@ -175,9 +177,9 @@ FALLBACK_BIRKDALE_CONFIG = {
 #
 #   1. Sender domain(s), for example @customer-domain.com.
 #   2. Sender address(es), if one exact mailbox is required.
-#   3. Whether the order data arrives in the email body, in attachments, or both.
+#   3. Whether the ENS/consignment source data arrives in the email body, in attachments, or both.
 #   4. Attachment file types and whether any file should be ignored.
-#   5. Whether no-attachment emails should be ignored or handled separately.
+#   5. Whether no-attachment emails should be routed to the API/test body-processing stage.
 #   6. Exact Integration Layer destination folder.
 #   7. Whether the message can be marked as read after successful processing.
 #
@@ -825,7 +827,8 @@ def process_one_message(
             return
 
         # Step B: No file attachments.
-        # Current BKD processing is attachment-only, so no body is saved.
+        # Current Graph scope is attachment-only, so no body is saved here.
+        # Future ENS/consignment creation from the body must run through the test API stage.
         stats["no_file_attachments"] += 1
         rows.append(
             report_row(
@@ -980,4 +983,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

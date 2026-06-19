@@ -61,7 +61,7 @@ The YML controls:
 - allowed file extensions;
 - historic start date;
 - destination folder;
-- no-attachment handling status.
+- future body/API processing status for ENS and consignments.
 
 The parser is intentionally simple and dependency-free. Keep customer YML files
 flat: key/value pairs and simple lists only.
@@ -113,7 +113,8 @@ python Graph\graph_mail_customer_downloader.py --dry-run --max-messages 5
 7. Filter attachments by the customer `file_types` list.
 8. Save files as original name plus received date `dd.mm.yyyy`.
 9. Skip files that already exist unless `--overwrite` is passed.
-10. Write a small technical run log under `Graph/run_logs`.
+10. Keep body-to-ENS/consignment logic out of the Graph downloader for now.
+11. Write a small technical run log under Graph/run_logs.
 
 The business output is the customer file in the Integration Layer. The CSV run
 log is only for support checks.
@@ -124,5 +125,7 @@ log is only for support checks.
 - Duplicate prevention is handled by the destination filename and existing-file
   checks.
 - Emails without file attachments are skipped and counted in the run summary.
+- Body data is treated as a future API/test environment concern because it can be
+  needed to create ENS records and consignments.
 - Future customers should be added as new YML files rather than hard-coded in
   the Python script.

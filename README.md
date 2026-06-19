@@ -15,7 +15,9 @@ can pass Quality review, be maintained easily, and later move configuration into
 - Initial confirmed tenant: `BKD` / Birkdale.
 - Birkdale sender rule: `birkdalesales.com`.
 - Current save behaviour: attachments only, `.xlsx` files.
-- Emails without file attachments are skipped; current BKD processing is attachment-only.
+- Emails without file attachments are skipped by the current Graph script.
+- The email body may be needed later for ENS and consignment creation, but that
+  execution must run through the test API environment first.
 - Historic download has been run from `2026-05-07` to `2026-06-18`.
 - Daily mode is now the default and reads only today's Graph emails.
 
@@ -84,7 +86,7 @@ That file defines:
 - allowed file types;
 - historic start date;
 - destination folder;
-- no-attachment handling status.
+- future body/API processing status for ENS and consignments.
 
 This keeps customer routing readable and makes it easy to add future tenants
 without changing the main script logic.
@@ -156,7 +158,7 @@ The initial model is intentionally minimal:
 | `CFG` | `Graph` | Graph/customer/process configuration. |
 | `EXC` | `Graph` | One row per Graph execution. |
 | `ING` | `Graph` | Raw inbound Graph message/file trace. |
-| `STG` | `SalesOrder` | Parsed sales order staging data. |
+| `STG` | `SalesOrder` | Parsed sales order staging data from the future API/test processing stage. |
 | `TSS` | `Submission` | Future TSS submission/reference tracking. |
 
 The SQL script creates the schemas and tables and now includes foreign keys for
@@ -176,4 +178,8 @@ No detailed log tables are included at this stage.
 - Failed Graph/API actions do not mark or move mailbox messages.
 - The current script does not mark messages as read; it relies on date windows
   and existing-file checks to avoid duplicate saved files.
-- No-attachment emails are not parsed by the current BKD flow.
+- No-attachment emails are not parsed by the current Graph flow.
+- Body extraction is documented as future downstream API/test processing because
+  the body can contain the data needed to create ENS records and consignments.
+- The focus of this repository section remains Graph configuration: mailbox,
+  sender rules, file types, destination folders, and tenant routing.

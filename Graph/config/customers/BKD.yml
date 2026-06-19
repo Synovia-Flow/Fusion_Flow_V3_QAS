@@ -11,6 +11,12 @@ sender_addresses: []
 
 save_mode: attachments_only
 
+# Future API stage: the email body may contain the data required to create
+# ENS records and consignments. That processing must run in the test API
+# environment first; this Graph script only collects/routes the inbound email data.
+body_source_for_ens: email_body
+ens_consignment_processing_environment: test_api_only
+
 historic_start_date: 2026-05-07
 
 file_types:
