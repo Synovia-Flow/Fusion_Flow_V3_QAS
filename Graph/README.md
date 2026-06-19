@@ -29,3 +29,14 @@ python Graph\graph_mail_customer_downloader.py --received-from 2026-05-07 --dry-
 
 Remove `--dry-run` only when the destination folder and configuration have been
 confirmed.
+
+## Customer Configuration
+
+Customer routing is stored as one YML file per tenant/customer:
+
+```text
+Graph/config/customers/BKD.yml
+```
+
+Each file defines the tenant code, sender domains or addresses, allowed file
+extensions, and the destination folder where attachments should be saved.

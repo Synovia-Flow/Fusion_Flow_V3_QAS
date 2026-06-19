@@ -71,6 +71,9 @@ GRAPH_TOKEN_URL = (
 # STEP 2 - SHARED DRIVE CONFIGURATION
 # =============================================================================
 
+GRAPH_SCRIPT_FOLDER = Path(__file__).resolve().parent
+CUSTOMER_CONFIG_FOLDER = GRAPH_SCRIPT_FOLDER / "config" / "customers"
+
 INTEGRATION_LAYER_ROOT = Path(
     r"\\PL-AZ-SDF-PLINT\Fusion_Production"
     r"\Synovia_Flow_Production\Integration_Layer"
@@ -78,7 +81,7 @@ INTEGRATION_LAYER_ROOT = Path(
 
 # Secondary technical log folder. The business objective is the tenant file
 # destination under Integration_Layer; this log only helps during support checks.
-RUN_LOG_FOLDER = Path(__file__).resolve().parent / "run_logs"
+RUN_LOG_FOLDER = GRAPH_SCRIPT_FOLDER / "run_logs"
 
 # Tracks destination names selected during the current run. This lets the script
 # save two same-name files received on the same date as "_2", while keeping
@@ -87,17 +90,26 @@ USED_DESTINATION_PATHS: set[Path] = set()
 
 
 # =============================================================================
-# STEP 3 - BIRKDALE GRAPH CONFIG
+# STEP 3 - CUSTOMER YML CONFIGURATION
 # =============================================================================
 #
-# This is the only tenant behavior currently confirmed by the business.
-# Add new tenant blocks only after investigating how each tenant sends data.
+# Customer routing is stored as one .yml file per customer:
+#
+#   Graph/config/customers/BKD.yml
+#   Graph/config/customers/CWH.yml
+#
+# The parser below is intentionally small. It supports key/value pairs and
+# list values using "- item". This keeps the script dependency-free while the
+# database CFG.Graph table is not ready.
 
-BIRKDALE_CONFIG = {
+FALLBACK_BIRKDALE_CONFIG = {
     "tenant_name": "Birkdale",
     "tenant_code": "BKD",
+    "active": True,
     "sender_domains": ["birkdalesales.com"],
     "sender_addresses": [],
+    "file_types": [".xlsx"],
+    "save_mode": "attachments_only",
     "destination_folder": (
         INTEGRATION_LAYER_ROOT / "BKD" / "Inbound" / "Sales_Order_files"
     ),
@@ -126,9 +138,140 @@ BIRKDALE_CONFIG = {
 #
 # When CFG tables are ready, this list should come from the database.
 
-TENANT_CONFIGS = [
-    BIRKDALE_CONFIG,
-]
+def parse_yml_value(value: str) -> Any:
+    """Parse one simple YML scalar value used by customer config files."""
+    value = value.strip()
+    if value in {"[]", ""}:
+        return []
+    if (
+        (value.startswith('"') and value.endswith('"'))
+        or (value.startswith("'") and value.endswith("'"))
+    ):
+        value = value[1:-1]
+
+    lower_value = value.lower()
+    if lower_value in {"true", "yes", "on"}:
+        return True
+    if lower_value in {"false", "no", "off"}:
+        return False
+    return value
+
+
+def read_simple_yml(path: Path) -> dict[str, Any]:
+    """
+    Read a small, dependency-free YML file.
+
+    Supported syntax:
+        key: value
+        key:
+          - value 1
+          - value 2
+    """
+    data: dict[str, Any] = {}
+    current_list_key = ""
+
+    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw_line.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            if not current_list_key:
+                raise ValueError(f"{path}:{line_number} list item without a key")
+            data.setdefault(current_list_key, []).append(parse_yml_value(stripped[2:]))
+            continue
+
+        if ":" not in stripped:
+            raise ValueError(f"{path}:{line_number} expected 'key: value'")
+
+        key, value = stripped.split(":", 1)
+        key = key.strip().lstrip("\ufeff")
+        value = value.strip()
+        if not key:
+            raise ValueError(f"{path}:{line_number} empty key")
+
+        if value:
+            data[key] = parse_yml_value(value)
+            current_list_key = ""
+        else:
+            data[key] = []
+            current_list_key = key
+
+    return data
+
+
+def as_list(value: Any) -> list[str]:
+    """Return config value as a clean list of strings."""
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [str(value).strip()]
+
+
+def normalise_file_types(values: list[str]) -> list[str]:
+    """Return file extensions in lowercase, always starting with a dot."""
+    file_types = []
+    for value in values:
+        text = value.lower().strip()
+        if not text:
+            continue
+        if not text.startswith("."):
+            text = "." + text
+        file_types.append(text)
+    return file_types
+
+
+def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate one customer YML file and convert it to the script config shape."""
+    active = bool(raw_config.get("active", True))
+    if not active:
+        return None
+
+    tenant_code = str(raw_config.get("tenant_code") or path.stem).strip().upper()
+    tenant_name = str(raw_config.get("tenant_name") or tenant_code).strip()
+    destination_folder = str(raw_config.get("destination_folder") or "").strip()
+
+    if not destination_folder:
+        raise ValueError(f"{path}: destination_folder is required")
+
+    return {
+        "tenant_name": tenant_name,
+        "tenant_code": tenant_code,
+        "active": active,
+        "sender_domains": [
+            domain.lower().lstrip("@") for domain in as_list(raw_config.get("sender_domains"))
+        ],
+        "sender_addresses": [
+            address.lower() for address in as_list(raw_config.get("sender_addresses"))
+        ],
+        "file_types": normalise_file_types(as_list(raw_config.get("file_types"))),
+        "save_mode": str(raw_config.get("save_mode") or "attachments_only").strip().lower(),
+        "destination_folder": Path(destination_folder),
+        "config_file": str(path),
+    }
+
+
+def load_tenant_configs() -> list[dict[str, Any]]:
+    """Load active customer configs from Graph/config/customers/*.yml."""
+    paths = sorted(CUSTOMER_CONFIG_FOLDER.glob("*.yml"))
+    configs = []
+
+    for path in paths:
+        config = build_customer_config(path, read_simple_yml(path))
+        if config:
+            configs.append(config)
+
+    if configs:
+        return configs
+
+    # Fallback keeps the script usable if the config folder has not been copied
+    # yet. Normal operation should use the customer YML files.
+    return [FALLBACK_BIRKDALE_CONFIG]
+
+
+TENANT_CONFIGS = load_tenant_configs()
 
 
 # =============================================================================
@@ -325,6 +468,16 @@ def file_attachments_only(attachments: list[dict[str, Any]]) -> list[dict[str, A
             files.append(attachment)
 
     return files
+
+
+def attachment_allowed_for_config(attachment: dict[str, Any], config: dict[str, Any]) -> bool:
+    """Return True when the attachment extension is allowed for this customer."""
+    allowed_file_types = [value.lower() for value in config.get("file_types", [])]
+    if not allowed_file_types:
+        return True
+
+    suffix = Path(str(attachment.get("name") or "")).suffix.lower()
+    return suffix in allowed_file_types
 
 
 def safe_filename(value: str, fallback: str) -> str:
@@ -534,7 +687,24 @@ def process_one_message(
         if message.get("hasAttachments"):
             attachments = read_attachments(token, message["id"])
 
-        file_attachments = file_attachments_only(attachments)
+        all_file_attachments = file_attachments_only(attachments)
+        file_attachments = [
+            attachment
+            for attachment in all_file_attachments
+            if attachment_allowed_for_config(attachment, config)
+        ]
+
+        if all_file_attachments and not file_attachments:
+            allowed = ", ".join(config.get("file_types", [])) or "any"
+            rows.append(
+                report_row(
+                    message,
+                    config,
+                    "SKIPPED_UNSUPPORTED_FILE_TYPE",
+                    note=f"No attachment matched allowed file types: {allowed}",
+                )
+            )
+            return
 
         if file_attachments:
             for attachment in file_attachments:
@@ -709,3 +879,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
