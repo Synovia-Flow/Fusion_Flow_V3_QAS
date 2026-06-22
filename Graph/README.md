@@ -11,7 +11,7 @@ Integration Layer destination folder.
 
 | Tenant | Code | Sender rule | File type | Destination |
 | --- | --- | --- | --- | --- |
-| Birkdale | BKD | `birkdalesales.com` | `.xlsx` | `\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Production\Integration_Layer\BKD\Inbound\Sales_Order_files` |
+| Birkdale | BKD | `birkdalesales.com` | `.xlsx` | `\\PL-AZ-SDF-PLINT\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Integration_Layer\BKD\Inbound\Sales_Order_files` |
 
 Emails without file attachments are skipped. Current BKD processing is
 attachment-only.
@@ -129,3 +129,4 @@ log is only for support checks.
   needed to create ENS records and consignments.
 - Future customers should be added as new YML files rather than hard-coded in
   the Python script.
+

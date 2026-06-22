@@ -3,7 +3,7 @@
 Operational workbook:
 
 ```text
-\\pl-az-sdf-plint\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer\Base_Ingestion_Configuration.xlsx
+\\pl-az-sdf-plint\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Documentation_Layer\Base_Ingestion_Configuration.xlsx
 ```
 
 Database for the current QAS design:
@@ -30,3 +30,4 @@ save files.
 The workbook may contain operational values and secrets, so the `.xlsx` file is
 not committed here. Use `Base_Ingestion_Configuration.minimum.csv` as the
 sanitised version for version control.
+

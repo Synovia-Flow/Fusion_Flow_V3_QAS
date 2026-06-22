@@ -39,6 +39,7 @@ from typing import Any
 
 
 SCRIPT_FOLDER = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_FOLDER.parent
 
 
 def load_dotenv_file() -> None:
@@ -91,7 +92,7 @@ load_dotenv_file()
 # These are the Microsoft Graph connection settings.
 #
 # Keep the real secret outside the script because this file is on a shared
-# production drive. For a manual test, set these in PowerShell before running:
+# QAS workspace. For a manual test, set these in PowerShell before running:
 #
 #   $env:GRAPH_TENANT_ID = "<tenant-id>"
 #   $env:GRAPH_CLIENT_ID = "<client-id>"
@@ -122,9 +123,9 @@ GRAPH_TOKEN_URL = (
 GRAPH_SCRIPT_FOLDER = SCRIPT_FOLDER
 CUSTOMER_CONFIG_FOLDER = GRAPH_SCRIPT_FOLDER / "config" / "customers"
 
+DEFAULT_INTEGRATION_LAYER_ROOT = REPO_ROOT / "Integration_Layer"
 INTEGRATION_LAYER_ROOT = Path(
-    r"\\PL-AZ-SDF-PLINT\Fusion_Production"
-    r"\Synovia_Flow_Production\Integration_Layer"
+    os.getenv("FUSION_INTEGRATION_LAYER_ROOT", str(DEFAULT_INTEGRATION_LAYER_ROOT))
 )
 
 # Secondary technical log folder. The business objective is the tenant file
@@ -283,6 +284,10 @@ def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, A
     if not destination_folder:
         raise ValueError(f"{path}: destination_folder is required")
 
+    destination_path = Path(destination_folder)
+    if not destination_path.is_absolute():
+        destination_path = REPO_ROOT / destination_path
+
     return {
         "tenant_name": tenant_name,
         "tenant_code": tenant_code,
@@ -296,7 +301,7 @@ def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, A
         "file_types": normalise_file_types(as_list(raw_config.get("file_types"))),
         "save_mode": str(raw_config.get("save_mode") or "attachments_only").strip().lower(),
         "historic_start_date": str(raw_config.get("historic_start_date") or "").strip(),
-        "destination_folder": Path(destination_folder),
+        "destination_folder": destination_path,
         "config_file": str(path),
     }
 
@@ -855,11 +860,11 @@ def run(args: argparse.Namespace) -> int:
 
     Main objective:
         Save inbound files into the correct tenant folder under:
-        \\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Production\Integration_Layer
+        \\PL-AZ-SDF-PLINT\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Integration_Layer
 
     Current confirmed example:
         BKD files are saved into:
-        \\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Production\Integration_Layer\BKD\Inbound\Sales_Order_files
+        \\PL-AZ-SDF-PLINT\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Integration_Layer\BKD\Inbound\Sales_Order_files
 
     This is the order the operator should understand:
         1. Validate Graph configuration.
@@ -983,3 +988,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+

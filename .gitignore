@@ -6,6 +6,12 @@
 __pycache__/
 *.py[cod]
 
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
 Graph/run_logs/
 Graph/reports/
 
@@ -15,3 +21,4 @@ Graph/reports/
 # Do not version operational Excel/Word files containing live values.
 *.xlsx
 *.docx
+

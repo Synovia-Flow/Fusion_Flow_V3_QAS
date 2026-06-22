@@ -29,21 +29,20 @@ Graph/
   graph_mail_customer_downloader.py
   README.md
   config/customers/BKD.yml
-Synovia_Flow_Quality/
-  Documentation_Layer/
-    Base_Ingestion_Configuration.md
-    Base_Ingestion_Configuration.minimum.csv
-Synovia_Flow_Production/
-  Configuration_Layer/SQL/
+Documentation_Layer/
+  Base_Ingestion_Configuration.md
+  Base_Ingestion_Configuration.minimum.csv
+Configuration_Layer/
+  SQL/
     001_create_minimal_graph_tables.sql
 ```
 
 ## Operational Configuration
 
-The live operational workbook is kept on the Quality shared drive:
+The QAS configuration workbook location is:
 
 ```text
-\\pl-az-sdf-plint\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer\Base_Ingestion_Configuration.xlsx
+\\pl-az-sdf-plint\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Documentation_Layer\Base_Ingestion_Configuration.xlsx
 ```
 
 The version-controlled CSV in this repo is sanitised and uses placeholders. Do
@@ -94,7 +93,7 @@ without changing the main script logic.
 ## Current BKD Destination
 
 ```text
-\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Production\Integration_Layer\BKD\Inbound\Sales_Order_files
+\\PL-AZ-SDF-PLINT\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Integration_Layer\BKD\Inbound\Sales_Order_files
 ```
 
 ## How To Run
@@ -185,3 +184,6 @@ No detailed log tables are included at this stage.
   the body can contain the data needed to create ENS records and consignments.
 - The focus of this repository section remains Graph configuration: mailbox,
   sender rules, file types, destination folders, and tenant routing.
+
+
+
