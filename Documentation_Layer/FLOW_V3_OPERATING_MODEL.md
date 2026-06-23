@@ -126,7 +126,7 @@ fails.
 
 ## Running The Flow
 
-All five steps are intended to run from this QAS repository. Step 01 uses the QAS Graph layer. Steps 02-05 use the local `app/` and `scripts/` folders copied from the proven V2 implementation and will be simplified/adapted here over time.
+All five steps are intended to run from this QAS repository. Step 01 uses the QAS Graph layer today. Steps 02-05 must be rebuilt as small local QAS services under `app/services/`; V2 is a reference only, not a runtime dependency.
 
 Commands:
 
