@@ -187,3 +187,24 @@ No detailed log tables are included at this stage.
 
 
 
+
+## FLOW V3 Automation Scope
+
+The QAS repository now contains the compact FLOW V3 orchestration layer and one
+single operating-model document derived from the FRD and Discovery PDFs.
+
+Key files:
+
+```text
+Integration_Layer/FLOW_V3/README.md
+Integration_Layer/FLOW_V3/01_graph_email_ing.py
+Integration_Layer/FLOW_V3/02_ens_details_auto_submit.py
+Integration_Layer/FLOW_V3/03_sales_orders_cargo_submit.py
+Integration_Layer/FLOW_V3/04_status_watcher_notify.py
+Integration_Layer/FLOW_V3/05_sdi_autosubmit.py
+Documentation_Layer/FLOW_V3_OPERATING_MODEL.md
+```
+
+The five scripts are the intended V3 operating sequence. Step 01 is QAS-native.
+Steps 02-05 call the existing Fusion application logic through
+`FUSION_FLOW_APP_ROOT` until the full app layer is brought into QAS.
