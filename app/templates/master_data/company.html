@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Company · Master Data{% endblock %}
+
+{% block content %}
+<div class="master-data-company-page">
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a href="{{ url_for('master_data.index') }}">Master Data</a></li>
+                <li class="breadcrumb-item active">Company</li>
+            </ol>
+        </nav>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <h4 class="mb-0 fw-bold" style="color: var(--fusion-navy);"><i class="bi bi-building"></i> Company</h4>
+            <span class="badge rounded-pill text-bg-light border">{{ tenant.code }} · {{ tenant.name }}</span>
+        </div>
+        <p class="text-muted small mb-0 mt-1">Primary operator record and tenant-level defaults for the active tenant context.</p>
+    </div>
+    <a href="{{ url_for('master_data.company_edit') }}" class="btn btn-primary btn-sm masterdata-advanced-only">
+        <i class="bi bi-pencil"></i> Edit Company & Defaults
+    </a>
+</div>
+
+{% if company %}
+<div class="row g-3">
+    <div class="col-12 col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white fw-semibold">Identity</div>
+            <div class="card-body">
+                <dl class="row mb-0 small">
+                    <dt class="col-sm-5 text-muted">Company Name</dt>
+                    <dd class="col-sm-7">{{ company.company_name or '—' }}</dd>
+                    <dt class="col-sm-5 text-muted">Trading Name</dt>
+                    <dd class="col-sm-7">{{ company.trading_name or '—' }}</dd>
+                    <dt class="col-sm-5 text-muted">XI EORI</dt>
+                    <dd class="col-sm-7 font-monospace">{{ company.eori_xi or '—' }}</dd>
+                    <dt class="col-sm-5 text-muted">GB EORI</dt>
+                    <dd class="col-sm-7 font-monospace">{{ company.eori_gb or '—' }}</dd>
+                    <dt class="col-sm-5 text-muted">UKIMS</dt>
+                    <dd class="col-sm-7">{{ company.ukims_authorisation or '—' }}</dd>
+                    <dt class="col-sm-5 text-muted">SCDP</dt>
+                    <dd class="col-sm-7">{{ company.scdp_authorisation or '—' }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white fw-semibold">Address & Contact</div>
+            <div class="card-body">
+                <dl class="row mb-0 small">
+                    <dt class="col-sm-5 text-muted">Address</dt>
+                    <dd class="col-sm-7">
+                        {{ company.address_line1 or '' }}{% if company.address_line2 %}, {{ company.address_line2 }}{% endif %}
+                    </dd>
+                    <dt class="col-sm-5 text-muted">City / Postcode</dt>
+                    <dd class="col-sm-7">{{ company.city or '' }} {{ company.postcode or '' }}</dd>
+                    <dt class="col-sm-5 text-muted">Country</dt>
+                    <dd class="col-sm-7">{{ company.country or '—' }}</dd>
+                    <dt class="col-sm-5 text-muted">Contact</dt>
+                    <dd class="col-sm-7">{{ company.contact_name or '—' }}</dd>
+                    <dt class="col-sm-5 text-muted">Email</dt>
+                    <dd class="col-sm-7">{{ company.contact_email or '—' }}</dd>
+                    <dt class="col-sm-5 text-muted">Phone</dt>
+                    <dd class="col-sm-7">{{ company.contact_phone or '—' }}</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-warning">
+    No company master record found.
+    <a href="{{ url_for('master_data.company_edit') }}" class="alert-link masterdata-advanced-only">Add company details</a>.
+</div>
+{% endif %}
+
+<div class="alert alert-light border mt-3 small masterdata-advanced-only">
+    Need carrier, movement or ingest defaults for just this tenant? Use <a href="{{ url_for('master_data.company_edit') }}" class="alert-link masterdata-advanced-only">Edit Company & Defaults</a>, then open <strong>More details</strong>.
+</div>
+</div>
+{% endblock %}

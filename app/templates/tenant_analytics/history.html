@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+{% block title %}Tenant Analytics — History{% endblock %}
+
+{% block content %}
+
+{% include 'analytics/_tabs.html' %}
+
+<div class="page-header">
+    <div>
+        <h4 class="page-title"><i class="bi bi-graph-up"></i> Tenant Analytics — Snapshots</h4>
+        <p class="page-subtitle">Daily snapshots from <code>SYD.TenantUsageSnapshot</code></p>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <a href="{{ url_for('tenant_analytics.index') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Live view
+        </a>
+    </div>
+</div>
+
+<form method="get" class="row g-2 mb-3">
+    <div class="col-auto">
+        <label class="form-label small mb-0">Window</label>
+        <select name="days" class="form-select form-select-sm">
+            {% for option in [7, 30, 60, 90, 180, 365] %}
+                <option value="{{ option }}" {% if days == option %}selected{% endif %}>{{ option }} days</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto">
+        <label class="form-label small mb-0">Tenant</label>
+        <select name="tenant" class="form-select form-select-sm">
+            <option value="">All tenants</option>
+            {% for t in tenants %}
+                <option value="{{ t }}" {% if tenant_filter == t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-auto align-self-end">
+        <button class="btn btn-sm btn-primary">Apply</button>
+    </div>
+</form>
+
+{% if not rows %}
+    <div class="alert alert-warning">
+        No snapshot rows. Either the snapshot cron has not run yet, or
+        <code>SYD.TenantUsageSnapshot</code> is empty. Run
+        <code>python scripts/snapshot_tenant_usage.py</code> manually to seed the
+        first row.
+    </div>
+{% else %}
+    <div class="card shadow-sm">
+        <div class="card-header bg-white">
+            <strong>{{ rows | length }} snapshot rows</strong>
+            {% if tenant_filter %} — filtered to <span class="badge bg-secondary">{{ tenant_filter }}</span>{% endif %}
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Date</th>
+                        <th>Tenant</th>
+                        <th class="text-end">ENS</th>
+                        <th class="text-end">Cons</th>
+                        <th class="text-end">Submitted</th>
+                        <th class="text-end">Failed</th>
+                        <th class="text-end">Goods</th>
+                        <th class="text-end">SFD</th>
+                        <th class="text-end">SDI</th>
+                        <th class="text-end">SDI Sub</th>
+                        <th class="text-end">GMR</th>
+                        <th class="text-end">API 7d</th>
+                        <th class="text-end">API 30d</th>
+                        <th class="text-end">Fail 30d</th>
+                        <th class="text-end">Rate</th>
+                        <th class="text-end">Invoice 30d</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td>{{ row.snapshot_date.strftime('%d/%m/%Y') if row.snapshot_date else '' }}</td>
+                            <td><strong>{{ row.tenant_code }}</strong></td>
+                            <td class="text-end">{{ row.ens_count }}</td>
+                            <td class="text-end">{{ row.consignment_count }}</td>
+                            <td class="text-end text-success">{{ row.consignment_submitted }}</td>
+                            <td class="text-end {% if row.consignment_failed %}text-danger{% endif %}">
+                                {{ row.consignment_failed }}
+                            </td>
+                            <td class="text-end">{{ row.goods_count }}</td>
+                            <td class="text-end">{{ row.sfd_count }}</td>
+                            <td class="text-end">{{ row.sdi_count }}</td>
+                            <td class="text-end">{{ row.sdi_submitted }}</td>
+                            <td class="text-end">{{ row.gmr_count }} <span class="text-muted small">/{{ row.gmr_active }}</span></td>
+                            <td class="text-end">{{ row.api_calls_7d if row.api_calls_7d is defined else '' }}</td>
+                            <td class="text-end">{{ row.api_calls_30d }}</td>
+                            <td class="text-end {% if row.api_failed_30d %}text-warning{% endif %}">
+                                {{ row.api_failed_30d }}
+                            </td>
+                            <td class="text-end">
+                                {{ row.invoice_currency or '' }} {{ '%.2f'|format(row.rate_per_consignment or 0) }}
+                            </td>
+                            <td class="text-end fw-semibold">
+                                {{ row.invoice_currency or '' }} {{ '{:,.2f}'.format(row.invoice_amount_30d or 0) }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endif %}
+
+{% endblock %}

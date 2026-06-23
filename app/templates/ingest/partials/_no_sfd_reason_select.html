@@ -1,0 +1,26 @@
+{% set options = no_sfd_reason_choices | default([]) %}
+{% set field_name = no_sfd_reason_name | default('no_sfd_reason') %}
+{% set field_value = no_sfd_reason_value | default('') %}
+{% set wrapper_class = no_sfd_reason_wrapper | default('') %}
+
+<div class="{{ wrapper_class }}">
+    <label class="form-label small fw-semibold mb-1">SFD / ENS-only path</label>
+    <select name="{{ field_name }}" class="form-select form-select-sm">
+        <option value="">Use SFD (default)</option>
+        {% set ns = namespace(found=false) %}
+        {% for opt in options %}
+        {% set opt_value = opt.value %}
+        {% set opt_name = opt.name %}
+        {% if opt_value == field_value %}{% set ns.found = true %}{% endif %}
+        <option value="{{ opt_value }}" {% if opt_value == field_value %}selected{% endif %}>
+            {{ opt_name }}{% if opt_name != opt_value %} ({{ opt_value }}){% endif %}
+        </option>
+        {% endfor %}
+        {% if field_value and not ns.found %}
+        <option value="{{ field_value }}" selected>{{ field_value }} (current)</option>
+        {% endif %}
+    </select>
+    <div class="form-text">
+        Use SFD by default. Select a No SFD reason only for ENS-only consignments, or when TSS requires it because the importer EORI is not registered for SFD creation.
+    </div>
+</div>

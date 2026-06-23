@@ -1,0 +1,2399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TSS Declaration API Reference v2.9.4</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg2: #111620;
+    --bg3: #161c2a;
+    --panel: #1a2235;
+    --border: #2a3550;
+    --accent: #3d7eff;
+    --accent2: #00d4aa;
+    --accent3: #ff6b35;
+    --text: #c8d4f0;
+    --text-dim: #6b7fa8;
+    --text-bright: #eef2ff;
+    --green: #22c55e;
+    --red: #ef4444;
+    --yellow: #f59e0b;
+    --purple: #a855f7;
+    --tag-get: #0d4a2e;
+    --tag-get-text: #22c55e;
+    --tag-post: #1a2d5a;
+    --tag-post-text: #60a5fa;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Syne', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* HEADER */
+  .app-header {
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    z-index: 100;
+  }
+  .app-header .logo {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo-badge {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff; font-weight: 800; font-size: 11px;
+    padding: 4px 10px; border-radius: 6px; letter-spacing: 0.5px;
+  }
+  .logo-title {
+    font-size: 14px; font-weight: 700; color: var(--text-bright);
+    letter-spacing: 0.3px;
+  }
+  .logo-version {
+    font-size: 11px; color: var(--text-dim);
+    background: var(--bg3); padding: 2px 8px; border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .header-meta {
+    display: flex; gap: 20px; align-items: center; font-size: 12px; color: var(--text-dim);
+  }
+  .env-badge {
+    padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .env-test { background: rgba(245,158,11,0.15); color: var(--yellow); border: 1px solid rgba(245,158,11,0.3); }
+  .env-prod { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+  .env-badge.active { opacity: 1; }
+  .env-badge:not(.active) { opacity: 0.5; }
+
+  /* LAYOUT */
+  .app-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    width: 290px;
+    flex-shrink: 0;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .sidebar-search {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-search input {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .sidebar-search input:focus { border-color: var(--accent); }
+  .sidebar-search input::placeholder { color: var(--text-dim); }
+
+  .sidebar-list {
+    overflow-y: auto;
+    flex: 1;
+  }
+  .sidebar-list::-webkit-scrollbar { width: 4px; }
+  .sidebar-list::-webkit-scrollbar-track { background: transparent; }
+  .sidebar-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .nav-group-header {
+    padding: 12px 14px 6px;
+    font-size: 9px;
+    font-weight: 800;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+  }
+  .nav-group-header:first-child { border-top: none; margin-top: 0; }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-radius: 0;
+  }
+  .nav-item:hover { background: var(--bg3); }
+  .nav-item.active { background: rgba(61,126,255,0.1); border-left: 2px solid var(--accent); }
+
+  .nav-method {
+    font-size: 9px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+    padding: 2px 6px; border-radius: 3px; min-width: 38px; text-align: center;
+    flex-shrink: 0;
+  }
+  .m-post { background: var(--tag-post); color: var(--tag-post-text); }
+  .m-get { background: var(--tag-get); color: var(--tag-get-text); }
+
+  .nav-label {
+    font-size: 12px; color: var(--text); line-height: 1.3;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .nav-item.active .nav-label { color: var(--text-bright); }
+
+  /* MAIN CONTENT */
+  .main-content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .content-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+  }
+  .content-area::-webkit-scrollbar { width: 6px; }
+  .content-area::-webkit-scrollbar-track { background: transparent; }
+  .content-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ENDPOINT CARD */
+  .endpoint-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  .endpoint-header {
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .method-badge {
+    font-size: 12px; font-weight: 700; font-family: 'JetBrains Mono', monospace;
+    padding: 4px 12px; border-radius: 6px; flex-shrink: 0; margin-top: 2px;
+  }
+  .method-post { background: rgba(96,165,250,0.15); color: #60a5fa; border: 1px solid rgba(96,165,250,0.3); }
+  .method-get { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+
+  .endpoint-title { font-size: 18px; font-weight: 700; color: var(--text-bright); }
+  .endpoint-url {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; color: var(--accent2);
+    margin-top: 6px;
+    word-break: break-all;
+  }
+  .endpoint-desc { font-size: 13px; color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
+
+  /* TABS */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    gap: 0;
+    background: var(--bg2);
+  }
+  .tab-btn {
+    padding: 10px 18px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+    font-family: 'Syne', sans-serif;
+    letter-spacing: 0.3px;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-panel { display: none; padding: 24px; }
+  .tab-panel.active { display: block; }
+
+  /* CODE BLOCK */
+  .code-block-wrap {
+    position: relative;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .code-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    background: var(--bg3);
+    border-bottom: 1px solid var(--border);
+  }
+  .code-lang {
+    font-size: 10px; font-weight: 700; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase;
+  }
+  .copy-btn {
+    font-size: 11px; font-weight: 600; color: var(--accent2);
+    background: rgba(0,212,170,0.1); border: 1px solid rgba(0,212,170,0.3);
+    padding: 3px 10px; border-radius: 4px; cursor: pointer; font-family: 'Syne', sans-serif;
+    transition: all 0.2s;
+  }
+  .copy-btn:hover { background: rgba(0,212,170,0.2); }
+  .copy-btn.copied { color: var(--green); border-color: var(--green); background: rgba(34,197,94,0.1); }
+
+  pre {
+    padding: 16px;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text);
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  pre::-webkit-scrollbar { height: 4px; width: 4px; }
+  pre::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .json-key { color: #60a5fa; }
+  .json-str { color: #86efac; }
+  .json-num { color: #f9a8d4; }
+  .json-bool { color: #fde68a; }
+  .json-null { color: var(--text-dim); }
+
+  /* SCHEMA TABLE */
+  .schema-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .schema-table th {
+    background: var(--bg3);
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .schema-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid rgba(42,53,80,0.5);
+    vertical-align: top;
+    line-height: 1.5;
+  }
+  .schema-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .schema-table tr:last-child td { border-bottom: none; }
+
+  .field-name { font-family: 'JetBrains Mono', monospace; color: var(--accent2); font-size: 11px; }
+  .field-type { font-family: 'JetBrains Mono', monospace; color: var(--purple); font-size: 11px; }
+
+  .badge-req { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); font-size: 10px; padding: 1px 7px; border-radius: 3px; font-weight: 700; }
+  .badge-opt { background: rgba(107,127,168,0.15); color: var(--text-dim); border: 1px solid var(--border); font-size: 10px; padding: 1px 7px; border-radius: 3px; }
+  .badge-cond { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); font-size: 10px; padding: 1px 7px; border-radius: 3px; }
+  .badge-na { background: rgba(107,127,168,0.1); color: var(--text-dim); border: 1px solid var(--border); font-size: 10px; padding: 1px 7px; border-radius: 3px; opacity: 0.5; }
+
+  /* SQL styling */
+  .sql-keyword { color: #7dd3fc; font-weight: 600; }
+  .sql-string { color: #86efac; }
+  .sql-comment { color: #4b5563; font-style: italic; }
+  .sql-table { color: #fde68a; }
+  .sql-field { color: var(--accent2); }
+
+  /* Response section */
+  .response-section { margin-top: 16px; }
+  .section-label {
+    font-size: 11px; font-weight: 700; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .section-label::before {
+    content: '';
+    width: 3px; height: 12px;
+    background: var(--accent);
+    border-radius: 2px;
+    display: inline-block;
+  }
+
+  /* Welcome screen */
+  .welcome {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; text-align: center; padding: 40px;
+  }
+  .welcome-icon { font-size: 48px; margin-bottom: 20px; }
+  .welcome h2 { font-size: 24px; font-weight: 800; color: var(--text-bright); margin-bottom: 10px; }
+  .welcome p { font-size: 13px; color: var(--text-dim); max-width: 400px; line-height: 1.7; }
+  .welcome-stats {
+    display: flex; gap: 24px; margin-top: 32px;
+  }
+  .stat-box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 24px; text-align: center;
+  }
+  .stat-num { font-size: 28px; font-weight: 800; color: var(--accent); }
+  .stat-label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+  /* Hidden */
+  .hidden { display: none !important; }
+
+  /* Scrollbar global */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* Nested indicator */
+  .nested-badge {
+    font-size: 9px; background: rgba(168,85,247,0.15); color: var(--purple);
+    border: 1px solid rgba(168,85,247,0.3); padding: 1px 6px; border-radius: 3px;
+  }
+
+  /* Search highlight */
+  .nav-item.hidden-search { display: none; }
+
+  /* URL params display */
+  .url-params { margin-top: 10px; }
+  .param-chip {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 2px 8px;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--accent);
+    margin: 2px;
+  }
+  .param-chip.required { border-color: rgba(239,68,68,0.3); color: #f87171; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="app-header">
+  <div class="logo">
+    <span class="logo-badge">TSS API</span>
+    <span class="logo-title">Declaration API Reference</span>
+    <span class="logo-version">v2.9.4 · Feb 2026</span>
+  </div>
+  <div class="header-meta">
+    <span style="font-size:12px;color:var(--text-dim)">Environment:</span>
+    <span class="env-badge env-test active" id="env-test" onclick="setEnv('test')">TEST</span>
+    <span class="env-badge env-prod" id="env-prod" onclick="setEnv('prod')">PROD</span>
+    <span style="font-size:12px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;" id="env-url">api.tsstestenv.co.uk</span>
+  </div>
+</div>
+
+<div class="app-body">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-search">
+      <input type="text" id="search-input" placeholder="Search endpoints..." oninput="filterNav(this.value)" />
+    </div>
+    <div class="sidebar-list" id="sidebar-list">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main-content">
+    <div class="content-area" id="content-area">
+      <div class="welcome" id="welcome-screen">
+        <div class="welcome-icon">📡</div>
+        <h2>TSS Declaration API Reference</h2>
+        <p>Select any API endpoint from the sidebar to view its details, generate schema, and copy sample JSON payloads and SQL queries.</p>
+        <div class="welcome-stats">
+          <div class="stat-box"><div class="stat-num">50</div><div class="stat-label">Endpoints</div></div>
+          <div class="stat-box"><div class="stat-num">12</div><div class="stat-label">Resources</div></div>
+          <div class="stat-box"><div class="stat-num">2</div><div class="stat-label">Environments</div></div>
+        </div>
+      </div>
+      <div id="endpoint-detail" class="hidden"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// =============================================
+// DATA
+// =============================================
+const BASE_URLS = {
+  test: 'https://api.tsstestenv.co.uk',
+  prod: 'https://api.tradersupportservice.co.uk'
+};
+let currentEnv = 'test';
+
+function getBase() { return BASE_URLS[currentEnv]; }
+function getPath(resource) {
+  return `${getBase()}/api/x_fhmrc_tss_api/v1/tss_api/${resource}`;
+}
+
+const endpoints = [
+  // ── DECLARATION HEADER ──────────────────────────────────────────────────
+  {
+    id: 'hdr-create',
+    group: 'Declaration Header',
+    label: 'Create / Update',
+    method: 'POST',
+    resource: 'headers',
+    title: 'Declaration Header – Create / Update',
+    desc: 'Creates a new or updates an existing ENS Declaration Header. op_type must be "create" or "update". For updates, all required fields must be resent.',
+    fields: [
+      { name:'op_type',          type:'String',    req:'Required', note:'Value: "create" or "update"' },
+      { name:'declaration_number',type:'String(40)', req:'Conditional', note:'No for create; Yes for update' },
+      { name:'movement_type',    type:'String(40)', req:'Required', note:'Choice field — see Section 13' },
+      { name:'type_of_passive_transport', type:'String(40)', req:'Conditional', note:'Required if movement_type is "RoRo Accompanied" (3a)' },
+      { name:'identity_no_of_transport', type:'String(27)', req:'Required', note:'IMO+7digits for Maritime; IMO+7digits#4-16alpha for RoRo' },
+      { name:'nationality_of_transport', type:'Alpha(2)', req:'Required', note:'Choice field' },
+      { name:'conveyance_ref',   type:'String(35)', req:'Conditional', note:'Required if movement_type is "Air"; max 8 chars for Air' },
+      { name:'arrival_date_time',type:'DateTime',  req:'Required', note:'dd/mm/yyyy hh:mm:ss UTC; not in past; max 14 days future' },
+      { name:'arrival_port',     type:'String(200)',req:'Required', note:'Choice field' },
+      { name:'place_of_loading', type:'String(33)', req:'Required', note:'Regex validation for Maritime/RoRo' },
+      { name:'place_of_unloading',type:'String(33)',req:'Required', note:'Regex validation for Maritime/RoRo' },
+      { name:'place_of_acceptance_same_as_loading', type:'yes/no', req:'Conditional', note:'Required if RoRo Accompanied' },
+      { name:'place_of_acceptance',type:'String(33)',req:'Conditional', note:'Required if RoRo Accompanied and not same as loading' },
+      { name:'place_of_delivery_same_as_unloading',type:'yes/no',req:'Conditional', note:'Required if RoRo Accompanied' },
+      { name:'place_of_delivery', type:'String(33)',req:'Conditional', note:'Required if RoRo Accompanied and not same as unloading' },
+      { name:'seal_number',      type:'String(20)', req:'Optional', note:'Identification of seals on transport' },
+      { name:'route',            type:'String(20)', req:'Optional', note:'Read-only; auto-set from arrival_port' },
+      { name:'transport_charges',type:'String(40)', req:'Required', note:'Choice field' },
+      { name:'carrier_eori',     type:'String(200)',req:'Required', note:'Use XI EORI, not GB' },
+      { name:'carrier_name',     type:'String(35)', req:'Conditional', note:'Required if Maritime/RoRo Unaccompanied/RoRo Accompanied' },
+      { name:'carrier_street_number',type:'String(35)',req:'Conditional', note:'Required for Maritime/RoRo movement types' },
+      { name:'carrier_city',     type:'String(35)', req:'Conditional', note:'Required for Maritime/RoRo movement types' },
+      { name:'carrier_postcode', type:'String(9)',  req:'Conditional', note:'Required for Maritime/RoRo movement types' },
+      { name:'carrier_country',  type:'Alpha(2)',   req:'Conditional', note:'Choice field; required for Maritime/RoRo' },
+      { name:'haulier_eori',     type:'String(200)',req:'Optional', note:'Haulier EORI if different from carrier' },
+    ],
+    sample: `{
+  "op_type": "create",
+  "declaration_number": "",
+  "movement_type": "1a",
+  "identity_no_of_transport": "IMO1234567#A1234567",
+  "nationality_of_transport": "GB",
+  "conveyance_ref": "",
+  "arrival_date_time": "25/06/2025 11:00:00",
+  "arrival_port": "GBAUBELBELBEL",
+  "place_of_loading": "Birkenhead",
+  "place_of_acceptance_same_as_loading": "yes",
+  "place_of_acceptance": "",
+  "place_of_unloading": "Belfast",
+  "place_of_delivery_same_as_unloading": "yes",
+  "place_of_delivery": "",
+  "seal_number": "s123456",
+  "route": "gb-ni",
+  "transport_charges": "Y",
+  "carrier_eori": "XI000012340005",
+  "carrier_name": "Goods By Goods",
+  "carrier_street_number": "10",
+  "carrier_city": "London",
+  "carrier_postcode": "N1 8LN",
+  "carrier_country": "gb",
+  "haulier_eori": ""
+}`,
+    response: `{
+  "result": {
+    "status": "created",
+    "process_message": "SUCCESS",
+    "reference": "ENS000000000001152"
+  }
+}`,
+    sqlTable: 'declaration_header',
+    sqlFields: ['declaration_number','movement_type','identity_no_of_transport','nationality_of_transport','arrival_date_time','arrival_port','place_of_loading','place_of_unloading','carrier_eori','transport_charges'],
+  },
+  {
+    id: 'hdr-cancel',
+    group: 'Declaration Header',
+    label: 'Cancel',
+    method: 'POST',
+    resource: 'headers',
+    title: 'Declaration Header – Cancel',
+    desc: 'Cancels an existing Declaration Header. op_type must be "cancel". Can only be performed under certain conditions.',
+    fields: [
+      { name:'op_type',           type:'String',    req:'Required', note:'Value must be "cancel"' },
+      { name:'declaration_number',type:'String(40)', req:'Required', note:'Reference number of the Declaration Header' },
+    ],
+    sample: `{
+  "op_type": "cancel",
+  "declaration_number": "ENS000000000001152"
+}`,
+    response: `{
+  "result": {
+    "status": "cancelled",
+    "process_message": "SUCCESS",
+    "reference": "ENS000000000001152"
+  }
+}`,
+    sqlTable: 'declaration_header',
+    sqlFields: ['declaration_number','status'],
+  },
+  {
+    id: 'hdr-read',
+    group: 'Declaration Header',
+    label: 'Read',
+    method: 'GET',
+    resource: 'headers',
+    title: 'Declaration Header – Read',
+    desc: 'Reads an existing Declaration Header. Requires reference and at least one field name. Additional fields: status, error_message.',
+    params: [
+      { name:'reference', req:true, note:'Reference number of the declaration header' },
+      { name:'fields',    req:true, note:'Comma-separated list of field names to return' },
+      { name:'actAs',     req:false, note:'customer_account_sys_id for agent acting on behalf of customer' },
+    ],
+    fields: [
+      { name:'status',       type:'String', req:'Optional', note:'Draft | Submitted | Processing | Trader Input Required | Authorised for Movement | Arrived | Cancelled' },
+      { name:'error_message',type:'String', req:'Optional', note:'Details if related Consignments require attention' },
+      { name:'(all create fields)', type:'–', req:'Optional', note:'Any field from the create payload' },
+    ],
+    sample: `GET ${getPath('headers')}?reference=ENS000000000001152&fields=status,arrival_port,seal_number,route,carrier_eori`,
+    response: `{
+  "result": {
+    "reference": "ENS000000000001152",
+    "status": "cancelled",
+    "arrival_port": "GBAUBELBELBEL",
+    "seal_number": "s123456",
+    "route": "gb-ni",
+    "carrier_eori": "XI123456789012"
+  }
+}`,
+    sqlTable: 'declaration_header',
+    sqlFields: ['declaration_number','status','arrival_port','seal_number','route','carrier_eori'],
+    isGet: true,
+  },
+
+  // ── CONSIGNMENT ──────────────────────────────────────────────────────────
+  {
+    id: 'con-create',
+    group: 'Consignment',
+    label: 'Create / Update',
+    method: 'POST',
+    resource: 'consignments',
+    title: 'Consignment – Create / Update',
+    desc: 'Adds a consignment to an existing registered Declaration Header or updates an existing consignment. Max 99 goods per consignment.',
+    fields: [
+      { name:'op_type',          type:'String',    req:'Required', note:'"create" or "update"' },
+      { name:'declaration_number',type:'String(40)',req:'Conditional', note:'Yes for create; blank/omit for update' },
+      { name:'consignment_number',type:'String(40)',req:'Conditional', note:'No for create; Yes for update' },
+      { name:'no_sfd_reason',    type:'String(4)',  req:'Conditional', note:'Required if unregistered Importer EORI or Importer is SCDP Restricted' },
+      { name:'goods_description',type:'String(254)',req:'Required', note:'Description of goods in the consignment' },
+      { name:'trader_reference', type:'String(100)',req:'Optional', note:'Passed between ENS, SFD and supplementary declarations' },
+      { name:'transport_document_number', type:'String(35)',req:'Required', note:'Regex validation for Maritime/RoRo movement types' },
+      { name:'controlled_goods', type:'yes/no',    req:'Required', note:'"yes" if controlled goods present' },
+      { name:'goods_domestic_status',type:'String(1)',req:'Conditional', note:'Required if controlled_goods is "yes"; choice field' },
+      { name:'destination_country',type:'Alpha(2)', req:'Optional', note:'Choice field' },
+      { name:'supervising_customs_office',type:'String(8)',req:'Optional', note:'Required if declaration_choice is H2, H3 or H4' },
+      { name:'customs_warehouse_identifier',type:'String(18)',req:'Optional', note:'Required if declaration_choice is H2' },
+      { name:'ducr',             type:'String(35)', req:'Optional', note:'Declaration Unique Consignment Reference' },
+      { name:'consignor_eori',   type:'String(200)',req:'Required', note:'Use XI EORI; if absent, consignor address fields all mandatory' },
+      { name:'consignor_name',   type:'String(35)', req:'Conditional', note:'Required if EORI not supplied or Maritime/RoRo' },
+      { name:'consignor_street_number',type:'String(35)',req:'Conditional', note:'As above' },
+      { name:'consignor_city',   type:'String(35)', req:'Conditional', note:'As above' },
+      { name:'consignor_postcode',type:'String(9)', req:'Conditional', note:'As above' },
+      { name:'consignor_country',type:'Alpha(2)',   req:'Conditional', note:'Choice field' },
+      { name:'consignee_eori',   type:'String(200)',req:'Required', note:'Use XI EORI; if absent, consignee address fields all mandatory' },
+      { name:'consignee_name',   type:'String(35)', req:'Conditional', note:'Required if EORI not supplied' },
+      { name:'consignee_street_number',type:'String(35)',req:'Conditional', note:'As above' },
+      { name:'consignee_city',   type:'String(35)', req:'Conditional', note:'As above' },
+      { name:'consignee_postcode',type:'String(9)', req:'Conditional', note:'As above' },
+      { name:'consignee_country',type:'Alpha(2)',   req:'Conditional', note:'Choice field' },
+      { name:'importer_eori',    type:'String(200)',req:'Required', note:'XI or EU EORIs accepted; GB also accepted' },
+      { name:'importer_name',    type:'String(35)', req:'Conditional', note:'Required if GB-prefixed EORI or Maritime/RoRo' },
+      { name:'importer_street_number',type:'String(35)',req:'Conditional', note:'As above' },
+      { name:'importer_city',    type:'String(35)', req:'Conditional', note:'As above' },
+      { name:'importer_postcode',type:'String(35)', req:'Conditional', note:'As above' },
+      { name:'importer_country', type:'Alpha(2)',   req:'Conditional', note:'As above' },
+      { name:'exporter_eori',    type:'String(200)',req:'Conditional', note:'If absent, exporter address fields mandatory' },
+      { name:'align_ukims',      type:'yes/no',    req:'Optional', note:'Check if importer holds UKIMS-aligned EORI' },
+      { name:'use_importer_sde', type:'yes/no',    req:'Optional', note:'SDE CFSP authorisation indicator' },
+      { name:'declaration_choice',type:'String(2)', req:'Conditional', note:'Required if use_importer_sde is yes' },
+      { name:'generate_SD',      type:'yes/no',    req:'Conditional', note:'Required if declaration_choice is H1/H3/H4 and use_importer_sde is yes' },
+      { name:'container_indicator',type:'String(2)',req:'Conditional', note:'0=Uncontainerised; 1=Containerised; required for Maritime/RoRo' },
+      { name:'buyer_same_as_importer',type:'yes/no',req:'Conditional', note:'Required for Maritime/RoRo' },
+      { name:'seller_same_as_exporter',type:'yes/no',req:'Conditional', note:'Required for Maritime/RoRo' },
+      { name:'header_previous_document',type:'Nested[]',req:'Optional', note:'Array: op_type, previous_document_ref, previous_document_class, previous_document_type' },
+      { name:'holder_of_authorisation',type:'Nested[]',req:'Optional', note:'Array: op_type, auth_role_id, auth_type_code' },
+    ],
+    sample: `{
+  "op_type": "create",
+  "declaration_number": "ENS000000000005977",
+  "consignment_number": "",
+  "goods_description": "Car parts",
+  "trader_reference": "ABC12345",
+  "transport_document_number": "REF12345",
+  "controlled_goods": "no",
+  "goods_domestic_status": "D",
+  "consignor_eori": "XI000012340005",
+  "consignee_eori": "XI000012340005",
+  "importer_eori": "XI000012340005",
+  "buyer_same_as_importer": "yes",
+  "exporter_eori": "XI000012340005",
+  "seller_same_as_exporter": "no",
+  "seller_name": "Seller Goods",
+  "seller_street_and_number": "12",
+  "seller_city": "Liverpool",
+  "seller_postcode": "L1 8UI",
+  "seller_country": "gb",
+  "container_indicator": "1",
+  "header_previous_document": [
+    {
+      "op_type": "create",
+      "previous_document_class": "",
+      "previous_document_type": "",
+      "previous_document_ref": ""
+    }
+  ],
+  "holder_of_authorisation": [
+    {
+      "op_type": "create",
+      "auth_role_id": "XI000012340005",
+      "auth_type_code": "CW1"
+    }
+  ]
+}`,
+    response: `{
+  "result": {
+    "status": "created",
+    "process_message": "SUCCESS",
+    "reference": "DEC000000000001425"
+  }
+}`,
+    sqlTable: 'consignment',
+    sqlFields: ['consignment_number','declaration_number','goods_description','transport_document_number','controlled_goods','consignor_eori','consignee_eori','importer_eori','status'],
+  },
+  {
+    id: 'con-submit-cancel',
+    group: 'Consignment',
+    label: 'Submit / Cancel',
+    method: 'POST',
+    resource: 'consignments',
+    title: 'Consignment – Submit / Cancel',
+    desc: 'Submits or cancels an existing consignment. op_type must be "submit" or "cancel".',
+    fields: [
+      { name:'op_type',           type:'String', req:'Required', note:'"submit" or "cancel"' },
+      { name:'consignment_number',type:'String(40)', req:'Required', note:'The consignment reference number' },
+    ],
+    sample: `{
+  "op_type": "cancel",
+  "consignment_number": "DEC000000000001425"
+}`,
+    response: `{
+  "result": {
+    "status": "cancelled",
+    "process_message": "SUCCESS",
+    "reference": "DEC000000000001425"
+  }
+}`,
+    sqlTable: 'consignment',
+    sqlFields: ['consignment_number','status'],
+  },
+  {
+    id: 'con-read',
+    group: 'Consignment',
+    label: 'Read',
+    method: 'GET',
+    resource: 'consignments',
+    title: 'Consignment – Read',
+    desc: 'Reads an existing consignment. Additional read-only fields include: status, movement_reference_number, eori_for_eidr, error_message, total_packages, gross_mass_kg, control_status.',
+    params: [
+      { name:'reference', req:true, note:'Reference number of the consignment' },
+      { name:'fields',    req:true, note:'Comma-separated field names to return' },
+      { name:'actAs',     req:false, note:'Agent customer_account_sys_id' },
+    ],
+    fields: [
+      { name:'status',        type:'String', req:'Optional', note:'Draft | Submitted | Processing | Trader Input Required | Authorised for Movement | Arrived | Cancelled | Do Not Load' },
+      { name:'movement_reference_number',type:'String',req:'Optional', note:'MRN for the consignment' },
+      { name:'error_message', type:'String', req:'Optional', note:'Error message if in error state' },
+      { name:'total_packages',type:'Numeric', req:'Optional', note:'Total packages in consignment' },
+      { name:'gross_mass_kg', type:'Numeric', req:'Optional', note:'Total mass in KG' },
+      { name:'control_status',type:'String', req:'Optional', note:'Comma-separated list of statuses' },
+    ],
+    sample: `GET ${getPath('consignments')}?reference=DEC000000000001425&fields=status,transport_document_number,consignor_eori,importer_eori,holder_of_authorisation`,
+    response: `{
+  "result": {
+    "reference": "DEC000000000001425",
+    "status": "draft",
+    "transport_document_number": "REF12345",
+    "consignor_eori": "XI123456789012",
+    "importer_eori": "GB1234567890123",
+    "holder_of_authorisation": [
+      {
+        "auth_role_id": "GB000012340001",
+        "auth_type_code": "CW1"
+      }
+    ]
+  }
+}`,
+    sqlTable: 'consignment',
+    sqlFields: ['consignment_number','status','transport_document_number','consignor_eori','importer_eori','movement_reference_number'],
+    isGet: true,
+  },
+
+  // ── GOODS ITEM ────────────────────────────────────────────────────────────
+  {
+    id: 'goods-create',
+    group: 'Goods Item',
+    label: 'Create / Update',
+    method: 'POST',
+    resource: 'goods',
+    title: 'Goods Item – Create / Update',
+    desc: 'Creates or updates goods items for ENS, SFD, Supplementary Declarations, and FFD. Max 99 goods per consignment. Nested fields: additional_procedures, document_references, additional_information, detail_previous_document, item_add_ded, national_additional_codes, tax_bases.',
+    fields: [
+      { name:'op_type',          type:'String(6)',  req:'Required', note:'"create" or "update"' },
+      { name:'consignment_number',type:'String(40)',req:'Conditional', note:'Yes for create; blank/omit for update' },
+      { name:'goods_id',         type:'String(32)', req:'Conditional', note:'No for create; Yes for update' },
+      { name:'equipment_number', type:'AlphaNum(17)',req:'Conditional', note:'Required if containerised Maritime/RoRo' },
+      { name:'un_dangerous_goods_code',type:'String(4)',req:'Optional', note:'ENS/SFD only' },
+      { name:'type_of_packages', type:'String(40)', req:'Required', note:'Choice field' },
+      { name:'number_of_packages',type:'Numeric(5)', req:'Required', note:'Min 1' },
+      { name:'number_of_individual_pieces',type:'Numeric(5)',req:'Optional', note:'ENS/SFD only; min 1' },
+      { name:'package_marks',    type:'String(140)', req:'Required', note:'Enter "ADDR" if not known' },
+      { name:'gross_mass_kg',    type:'Numeric(13.2)',req:'Required', note:'Gross mass in KG' },
+      { name:'net_mass_kg',      type:'Numeric(13.2)',req:'Conditional', note:'Required if controlled_goods is "yes"; cannot exceed gross_mass_kg' },
+      { name:'goods_description',type:'String(255)', req:'Required', note:'No unacceptable EU terms' },
+      { name:'controlled_goods', type:'yes/no',     req:'Required', note:'ENS/SFD only' },
+      { name:'controlled_goods_type',type:'String(40)',req:'Conditional', note:'Required if controlled_goods is "yes"; choice field' },
+      { name:'commodity_code',   type:'String(10)', req:'Conditional', note:'Required if controlled; or Maritime/RoRo; choice field' },
+      { name:'preference',       type:'Alpha(4)',   req:'Conditional', note:'Sup Dec/FFD; choice field' },
+      { name:'country_of_origin',type:'Alpha(2)',   req:'Conditional', note:'Choice field; various conditions' },
+      { name:'country_of_preferential_origin',type:'Alpha(2)',req:'Conditional', note:'Choice field; when preference not 100–199' },
+      { name:'item_invoice_amount',type:'String(13.2)',req:'Conditional', note:'Required for controlled goods; max 2 decimal places' },
+      { name:'item_invoice_currency',type:'String(8)',req:'Conditional', note:'Choice field' },
+      { name:'procedure_code',   type:'String(4)',  req:'Conditional', note:'Required if controlled or use_importer_sde; choice field' },
+      { name:'additional_procedure_code',type:'String(3)',req:'Conditional', note:'Choice field' },
+      { name:'taric_code',       type:'String(20)', req:'Optional', note:'Check usage against commodity codes' },
+      { name:'cus_code',         type:'String(8)',  req:'Optional', note:'Check usage e.g. for chemicals' },
+      { name:'national_additional_code',type:'String(4)',req:'Optional', note:'Choice field' },
+      { name:'valuation_method', type:'String(2)',  req:'Conditional', note:'Sup Dec/FFD; choice field' },
+      { name:'valuation_indicator',type:'String(4)',req:'Conditional', note:'Required if valuation_method is "1"' },
+      { name:'invoice_number',   type:'String(35)', req:'Conditional', note:'Required if valuation_method is "1"' },
+      { name:'nature_of_transaction',type:'String(40)',req:'Conditional', note:'Sup Dec; choice field' },
+      { name:'additional_procedures',type:'Nested[]',req:'Conditional', note:'op_type + additional_procedure_code' },
+      { name:'document_references',type:'Nested[]', req:'Optional', note:'op_type, document_code, document_reference, document_status, document_part, document_reason, date_of_validity, issuing_authority, amount, currency, measurement_unit, quantity' },
+      { name:'additional_information',type:'Nested[]',req:'Optional', note:'op_type, additional_info_code, additional_info_description' },
+      { name:'detail_previous_document',type:'Nested[]',req:'Optional', note:'op_type, previous_document_ref, previous_document_type, previous_document_class, previous_item_identifier' },
+      { name:'item_add_ded',     type:'Nested[]',  req:'Optional', note:'op_type, item_add_ded_code, item_add_ded_value' },
+      { name:'national_additional_codes',type:'Nested[]',req:'Optional', note:'op_type, national_additional_code' },
+      { name:'tax_bases',        type:'Nested[]',  req:'Optional', note:'op_type, tax_base_unit, tax_base_quantity, payable_tax_amount, payable_tax_currency, tax_type' },
+    ],
+    sample: `{
+  "op_type": "create",
+  "consignment_number": "DEC000000000002051",
+  "goods_id": "",
+  "equipment_number": "",
+  "un_dangerous_goods_code": "",
+  "type_of_packages": "boxes",
+  "number_of_packages": "1",
+  "package_marks": "ADDR",
+  "gross_mass_kg": "400",
+  "net_mass_kg": "",
+  "goods_description": "Car parts",
+  "controlled_goods": "yes",
+  "controlled_goods_type": "weapons",
+  "commodity_code": "0105130000",
+  "country_of_origin": "ES",
+  "item_invoice_amount": "100.00",
+  "item_invoice_currency": "GBP",
+  "procedure_code": "0100",
+  "additional_procedure_code": "1CG",
+  "additional_procedures": [
+    { "op_type": "create", "additional_procedure_code": "D11" },
+    { "op_type": "create", "additional_procedure_code": "D21" }
+  ],
+  "document_references": [
+    {
+      "op_type": "create",
+      "document_code": "D019",
+      "document_reference": "doc12345",
+      "document_status": "AT"
+    }
+  ],
+  "additional_information": [
+    {
+      "op_type": "create",
+      "additional_info_code": "AG202",
+      "additional_info_description": ""
+    }
+  ],
+  "detail_previous_document": [
+    {
+      "op_type": "create",
+      "previous_document_ref": "Ref1234",
+      "previous_document_type": "740",
+      "previous_document_class": "X"
+    }
+  ],
+  "item_add_ded": [
+    { "op_type": "create", "item_add_ded_code": "AM", "item_add_ded_value": "100" }
+  ],
+  "national_additional_codes": [
+    { "op_type": "create", "national_additional_code": "X633" }
+  ]
+}`,
+    response: `{
+  "result": {
+    "status": "created",
+    "process_message": "SUCCESS",
+    "reference": "00991e871bcd24107a49db5be54bcbf3"
+  }
+}`,
+    sqlTable: 'goods_item',
+    sqlFields: ['goods_id','consignment_number','goods_description','commodity_code','type_of_packages','number_of_packages','gross_mass_kg','net_mass_kg','country_of_origin','item_invoice_amount','procedure_code'],
+  },
+  {
+    id: 'goods-delete',
+    group: 'Goods Item',
+    label: 'Delete',
+    method: 'POST',
+    resource: 'goods',
+    title: 'Goods Item – Delete',
+    desc: 'Deletes a goods item from an existing consignment. All nested records are automatically deleted with it.',
+    fields: [
+      { name:'op_type',  type:'String', req:'Required', note:'Value must be "delete"' },
+      { name:'goods_id', type:'String(32)', req:'Required', note:'Reference ID of the goods item to delete' },
+    ],
+    sample: `{
+  "op_type": "delete",
+  "goods_id": "ff48d6ab2fc82c50aa92d5ccf699b65a"
+}`,
+    response: `{
+  "result": {
+    "status": "deleted",
+    "process_message": "SUCCESS",
+    "reference": "00991e871bcd24107a49db5be54bcbf3"
+  }
+}`,
+    sqlTable: 'goods_item',
+    sqlFields: ['goods_id'],
+  },
+  {
+    id: 'goods-lookup',
+    group: 'Goods Item',
+    label: 'Lookup',
+    method: 'GET',
+    resource: 'goods',
+    title: 'Goods Item – Lookup',
+    desc: 'Identifies reference numbers of goods items under SFDs, supplementary declarations, ENS consignments, or IMMI. Returns goods_id, goods_description and package_marks.',
+    params: [
+      { name:'sfd_number',     req:false, note:'Reference of the SFD' },
+      { name:'sup_dec_number', req:false, note:'Reference of the supplementary declaration' },
+      { name:'ens_number',     req:false, note:'Reference of the ENS consignment' },
+      { name:'glr_number',     req:false, note:'Reference of the IMMI consignment' },
+    ],
+    fields: [],
+    sample: `GET ${getPath('goods')}?sfd_number=DEC000000000001106`,
+    response: `{
+  "result": {
+    "sfd_number": "DEC000000000001106",
+    "goods": [
+      {
+        "goods_id": "576435dc1b8da450e159620be54bcbec",
+        "goods_description": "Car parts",
+        "package_marks": "345"
+      },
+      {
+        "goods_id": "03a9efc01b256c1004473325464bcb09",
+        "goods_description": "Body panels",
+        "package_marks": "A91262"
+      }
+    ]
+  }
+}`,
+    sqlTable: 'goods_item',
+    sqlFields: ['goods_id','consignment_number','goods_description','package_marks'],
+    isGet: true,
+  },
+  {
+    id: 'goods-read',
+    group: 'Goods Item',
+    label: 'Read',
+    method: 'GET',
+    resource: 'goods',
+    title: 'Goods Item – Read',
+    desc: 'Reads the full details of an existing goods item. Additional fields: tariff_requirements, method_of_payment (FFD only).',
+    params: [
+      { name:'reference', req:true, note:'The goods item ID' },
+      { name:'fields',    req:true, note:'Comma-separated field names to return' },
+    ],
+    fields: [
+      { name:'tariff_requirements', type:'String', req:'Optional', note:'Required documents, units and tax bases' },
+      { name:'method_of_payment',   type:'String', req:'Optional', note:'FFD only' },
+    ],
+    sample: `GET ${getPath('goods')}?reference=00991e871bcd24107a49db5be54bcbf3&fields=gross_mass_kg,commodity_code,item_invoice_amount,additional_information`,
+    response: `{
+  "result": {
+    "reference": "00991e871bcd24107a49db5be54bcbf3",
+    "gross_mass_kg": "400",
+    "commodity_code": "0105130000",
+    "item_invoice_amount": "100.00",
+    "additional_information": [
+      {
+        "additional_info_code": "AG202",
+        "additional_info_description": ""
+      }
+    ]
+  }
+}`,
+    sqlTable: 'goods_item',
+    sqlFields: ['goods_id','gross_mass_kg','commodity_code','item_invoice_amount','country_of_origin','procedure_code'],
+    isGet: true,
+  },
+
+  // ── SFD HEADER ────────────────────────────────────────────────────────────
+  {
+    id: 'sfd-hdr-create',
+    group: 'SFD Header',
+    label: 'Create / Update',
+    method: 'POST',
+    resource: 'sfd_headers',
+    title: 'SFD Header – Create / Update',
+    desc: 'Creates or updates a standalone Simplified Frontier Declaration header. Do NOT use for SFD headers created as part of an ENS-initiated journey.',
+    fields: [
+      { name:'op_type',          type:'String',    req:'Required', note:'"create" or "update"' },
+      { name:'sfd_number',       type:'String(40)', req:'Conditional', note:'No for create; Yes for update' },
+      { name:'movement_type',    type:'String(40)', req:'Required', note:'Choice field — sfd_movement_type' },
+      { name:'identity_no_of_transport',type:'String(27)',req:'Required', note:'Transport identity number' },
+      { name:'conveyance_ref',   type:'String(35)', req:'Conditional', note:'Required if Air; must be IATA number; max 8 chars' },
+      { name:'arrival_port',     type:'String(200)',req:'Required', note:'Choice field' },
+      { name:'nationality_of_transport',type:'Alpha(2)',req:'Required', note:'Choice field' },
+      { name:'arrival_date_time',type:'DateTime',  req:'Required', note:'dd/mm/yyyy hh:mm:ss UTC; not in past; max 14 days future' },
+      { name:'place_of_loading', type:'String(33)', req:'Optional', note:'Place where goods loaded' },
+      { name:'place_of_unloading',type:'String(33)',req:'Optional', note:'Place where unloading occurs' },
+      { name:'seal_number',      type:'String(20)', req:'Optional', note:'Seal identification numbers' },
+      { name:'route',            type:'String(20)', req:'Optional', note:'Read-only; auto-set from arrival_port' },
+      { name:'transport_charges',type:'String(40)', req:'Optional', note:'Choice field' },
+      { name:'carrier_eori',     type:'String(200)',req:'Conditional', note:'Mandatory if movement_type is RoRo; use GB EORI' },
+      { name:'haulier_eori',     type:'String(200)',req:'Optional', note:'Use GB EORI; provide if different from carrier' },
+    ],
+    sample: `POST ${getPath('sfd_headers')}
+
+{
+  "op_type": "create",
+  "sfd_number": "",
+  "movement_type": "-3",
+  "conveyance_ref": "Test 101",
+  "identity_no_of_transport": "34353",
+  "arrival_port": "GBAUBELBELBEL",
+  "arrival_date_time": "19/01/2022 15:42:40",
+  "nationality_of_transport": "GB",
+  "place_of_loading": "Test Load",
+  "place_of_unloading": "Test Unload",
+  "seal_number": "3423",
+  "transport_charges": "B",
+  "carrier_eori": "GB1234556432145",
+  "haulier_eori": ""
+}`,
+    response: `{
+  "result": {
+    "status": "created",
+    "process_message": "SUCCESS",
+    "reference": "SFD000000000002491"
+  }
+}`,
+    sqlTable: 'sfd_header',
+    sqlFields: ['sfd_number','movement_type','identity_no_of_transport','arrival_port','arrival_date_time','nationality_of_transport','carrier_eori','status'],
+  },
+  {
+    id: 'sfd-hdr-cancel',
+    group: 'SFD Header',
+    label: 'Cancel',
+    method: 'POST',
+    resource: 'sfd_headers',
+    title: 'SFD Header – Cancel',
+    desc: 'Cancels an existing SFD Header.',
+    fields: [
+      { name:'op_type',    type:'String',    req:'Required', note:'Value must be "cancel"' },
+      { name:'sfd_number', type:'String(40)', req:'Required', note:'The reference number of the SFD' },
+    ],
+    sample: `{
+  "op_type": "cancel",
+  "sfd_number": "SFD000000000002444"
+}`,
+    response: `{
+  "result": {
+    "status": "cancelled",
+    "process_message": "SUCCESS",
+    "reference": "SFD000000000002444"
+  }
+}`,
+    sqlTable: 'sfd_header',
+    sqlFields: ['sfd_number','status'],
+  },
+  {
+    id: 'sfd-hdr-read',
+    group: 'SFD Header',
+    label: 'Read',
+    method: 'GET',
+    resource: 'sfd_headers',
+    title: 'SFD Header – Read',
+    desc: 'Reads an existing SFD header. Additional fields: status.',
+    params: [
+      { name:'reference', req:true, note:'Reference number of the SFD header' },
+      { name:'fields',    req:true, note:'Comma-separated field names to return' },
+    ],
+    fields: [
+      { name:'status', type:'String', req:'Optional', note:'Draft | Submitted | Processing | Trader Input Required | Authorised for Movement | Arrived | Cancelled' },
+    ],
+    sample: `GET ${getPath('sfd_headers')}?reference=SFD000000000002443&fields=status,arrival_port,route,seal_number`,
+    response: `{
+  "result": {
+    "reference": "SFD000000000002443",
+    "status": "Draft",
+    "arrival_port": "GBAUBELBELBEL",
+    "route": "gb-ni",
+    "seal_number": "3423"
+  }
+}`,
+    sqlTable: 'sfd_header',
+    sqlFields: ['sfd_number','status','arrival_port','route','seal_number'],
+    isGet: true,
+  },
+
+  // ── SIMPLIFIED FRONTIER DECLARATION ──────────────────────────────────────
+  {
+    id: 'sfd-lookup',
+    group: 'Simplified Frontier Declaration',
+    label: 'Lookup',
+    method: 'GET',
+    resource: 'simplified_frontier_declarations',
+    title: 'SFD – Lookup',
+    desc: 'Identifies the SFD reference number using either an ENS consignment number or a supplementary declaration number.',
+    params: [
+      { name:'consignment_number', req:false, note:'ENS consignment reference' },
+      { name:'sup_dec_number',     req:false, note:'Supplementary declaration reference' },
+    ],
+    fields: [],
+    sample: `GET ${getPath('simplified_frontier_declarations')}?consignment_number=DEC000000000002051`,
+    response: `{
+  "result": {
+    "consignment_number": "DEC000000000002051",
+    "sfd_number": "DEC000000000001182"
+  }
+}`,
+    sqlTable: 'simplified_frontier_declaration',
+    sqlFields: ['sfd_number','consignment_number','sup_dec_number','status'],
+    isGet: true,
+  },
+  {
+    id: 'sfd-read',
+    group: 'Simplified Frontier Declaration',
+    label: 'Read / Filter',
+    method: 'GET',
+    resource: 'simplified_frontier_declarations',
+    title: 'SFD – Read / Filter',
+    desc: 'Reads a specific SFD by reference+fields, or lists SFDs by filter. These are mutually exclusive. Filter field: status.',
+    params: [
+      { name:'reference', req:false, note:'SFD reference number (use with fields)' },
+      { name:'fields',    req:false, note:'Comma-separated field names (use with reference)' },
+      { name:'filter',    req:false, note:'e.g. filter=status=amendment required' },
+    ],
+    fields: [
+      { name:'status',           type:'String', req:'Optional', note:'Draft | Submitted | Processing | Trader Input Required | Authorised for Movement | Amendment Required | Arrived | Cancelled' },
+      { name:'movement_reference_number',type:'String',req:'Optional', note:'MRN for the consignment' },
+      { name:'eori_for_eidr',    type:'String', req:'Optional', note:'EIDR reference' },
+      { name:'error_message',    type:'String', req:'Optional', note:'Error if consignment in error' },
+      { name:'trader_reference', type:'String', req:'Optional', note:'Info from ENS' },
+      { name:'ens_consignment_reference',type:'String',req:'Optional', note:'The ENS consignment number linked to this SFD' },
+      { name:'control_status',   type:'String', req:'Optional', note:'Comma-separated statuses' },
+    ],
+    sample: `GET ${getPath('simplified_frontier_declarations')}?reference=DEC000000000001182&fields=status,goods_description,transport_document_number,importer_eori,ducr`,
+    response: `{
+  "result": {
+    "reference": "DEC000000000001182",
+    "status": "Authorised for movement",
+    "goods_description": "Car parts",
+    "transport_document_number": "123456",
+    "importer_eori": "XI123456789012",
+    "controlled_goods": "yes",
+    "ducr": ""
+  }
+}`,
+    sqlTable: 'simplified_frontier_declaration',
+    sqlFields: ['sfd_number','status','goods_description','transport_document_number','importer_eori','movement_reference_number','ens_consignment_reference'],
+    isGet: true,
+  },
+  {
+    id: 'sfd-submit',
+    group: 'Simplified Frontier Declaration',
+    label: 'Submit',
+    method: 'POST',
+    resource: 'simplified_frontier_declarations',
+    title: 'SFD – Submit',
+    desc: 'Submits an existing SFD for processing.',
+    fields: [
+      { name:'op_type',    type:'String',    req:'Required', note:'Value must be "submit"' },
+      { name:'sfd_number', type:'String(40)', req:'Required', note:'SFD reference number' },
+    ],
+    sample: `{
+  "op_type": "submit",
+  "sfd_number": "DEC000000000001182"
+}`,
+    response: `{
+  "result": {
+    "status": "submitted",
+    "process_message": "SUCCESS",
+    "reference": "DEC000000000001182"
+  }
+}`,
+    sqlTable: 'simplified_frontier_declaration',
+    sqlFields: ['sfd_number','status'],
+  },
+
+  // ── SUPPLEMENTARY DECLARATION ─────────────────────────────────────────────
+  {
+    id: 'sup-lookup',
+    group: 'Supplementary Declaration',
+    label: 'Lookup',
+    method: 'GET',
+    resource: 'supplementary_declarations',
+    title: 'Supplementary Declaration – Lookup',
+    desc: 'Identifies the supplementary declaration number from an SFD number or ENS consignment number.',
+    params: [
+      { name:'sfd_number',         req:false, note:'SFD reference number' },
+      { name:'consignment_number', req:false, note:'ENS consignment reference' },
+    ],
+    fields: [],
+    sample: `GET ${getPath('supplementary_declarations')}?sfd_number=DEC000000000001182`,
+    response: `{
+  "result": {
+    "sfd_number": "DEC000000000001182",
+    "sup_dec_number": "SUP000000000001077"
+  }
+}`,
+    sqlTable: 'supplementary_declaration',
+    sqlFields: ['sup_dec_number','sfd_number','consignment_number','status'],
+    isGet: true,
+  },
+  {
+    id: 'sup-read',
+    group: 'Supplementary Declaration',
+    label: 'Read / Filter',
+    method: 'GET',
+    resource: 'supplementary_declarations',
+    title: 'Supplementary Declaration – Read / Filter',
+    desc: 'Reads a specific supplementary declaration or lists them by filter. Mutually exclusive.',
+    params: [
+      { name:'reference', req:false, note:'Sup dec reference number' },
+      { name:'fields',    req:false, note:'Comma-separated field names' },
+      { name:'filter',    req:false, note:'e.g. filter=status=trader input required' },
+    ],
+    fields: [
+      { name:'status',          type:'String', req:'Optional', note:'Draft | Submitted | Accepted | Rejected | Trader Input Required | Cleared | Cancelled | Amendment Required' },
+      { name:'movement_reference_number',type:'String',req:'Optional', note:'MRN allocated' },
+      { name:'error_message',   type:'String', req:'Optional', note:'Error message if in error' },
+      { name:'control_status',  type:'String', req:'Optional', note:'Comma-separated statuses' },
+    ],
+    sample: `GET ${getPath('supplementary_declarations')}?reference=SUP000000000001077&fields=status,importer_eori,movement_reference_number`,
+    response: `{
+  "result": {
+    "reference": "SUP000000000001077",
+    "status": "Cleared",
+    "importer_eori": "XI123456789012",
+    "movement_reference_number": "24GB123456789ABC01"
+  }
+}`,
+    sqlTable: 'supplementary_declaration',
+    sqlFields: ['sup_dec_number','status','importer_eori','movement_reference_number','sfd_number'],
+    isGet: true,
+  },
+  {
+    id: 'sup-standalone-create',
+    group: 'Supplementary Declaration',
+    label: 'Standalone Create/Update',
+    method: 'POST',
+    resource: 'supplementary_declarations',
+    title: 'Supplementary Declaration Standalone – Create / Update',
+    desc: 'Creates or updates a standalone supplementary declaration (not linked to an ENS journey).',
+    fields: [
+      { name:'op_type',          type:'String',    req:'Required', note:'"create" or "update"' },
+      { name:'sup_dec_number',   type:'String(40)', req:'Conditional', note:'No for create; Yes for update' },
+      { name:'movement_type',    type:'String(40)', req:'Required', note:'Choice field' },
+      { name:'arrival_date_time',type:'DateTime',  req:'Required', note:'dd/mm/yyyy hh:mm:ss UTC' },
+      { name:'arrival_port',     type:'String(200)',req:'Required', note:'Choice field' },
+      { name:'importer_eori',    type:'String(200)',req:'Required', note:'Legal responsible party EORI' },
+      { name:'goods_description',type:'String(254)',req:'Required', note:'Description of goods' },
+      { name:'transport_document_number',type:'String(35)',req:'Required', note:'Transport document reference' },
+      { name:'trader_reference', type:'String(100)',req:'Optional', note:'Your internal reference' },
+    ],
+    sample: `{
+  "op_type": "create",
+  "sup_dec_number": "",
+  "movement_type": "3",
+  "arrival_date_time": "25/06/2025 11:00:00",
+  "arrival_port": "GBAUBELBELBEL",
+  "importer_eori": "XI000012340005",
+  "goods_description": "Electronic components",
+  "transport_document_number": "TD123456",
+  "trader_reference": "MY-REF-001"
+}`,
+    response: `{
+  "result": {
+    "status": "created",
+    "process_message": "SUCCESS",
+    "reference": "SUP000000000001100"
+  }
+}`,
+    sqlTable: 'supplementary_declaration',
+    sqlFields: ['sup_dec_number','movement_type','arrival_date_time','arrival_port','importer_eori','goods_description','transport_document_number','status'],
+  },
+  {
+    id: 'sup-submit',
+    group: 'Supplementary Declaration',
+    label: 'Submit',
+    method: 'POST',
+    resource: 'supplementary_declarations',
+    title: 'Supplementary Declaration – Submit',
+    desc: 'Submits an existing supplementary declaration.',
+    fields: [
+      { name:'op_type',      type:'String',    req:'Required', note:'Value must be "submit"' },
+      { name:'sup_dec_number',type:'String(40)',req:'Required', note:'Supplementary declaration reference' },
+    ],
+    sample: `{
+  "op_type": "submit",
+  "sup_dec_number": "SUP000000000001077"
+}`,
+    response: `{
+  "result": {
+    "status": "submitted",
+    "process_message": "SUCCESS",
+    "reference": "SUP000000000001077"
+  }
+}`,
+    sqlTable: 'supplementary_declaration',
+    sqlFields: ['sup_dec_number','status'],
+  },
+  {
+    id: 'sup-recall',
+    group: 'Supplementary Declaration',
+    label: 'Recall',
+    method: 'POST',
+    resource: 'supplementary_declarations',
+    title: 'Supplementary Declaration – Recall',
+    desc: 'Recalls a submitted supplementary declaration to allow amendment.',
+    fields: [
+      { name:'op_type',       type:'String',    req:'Required', note:'Value must be "recall"' },
+      { name:'sup_dec_number',type:'String(40)', req:'Required', note:'Supplementary declaration reference' },
+    ],
+    sample: `{
+  "op_type": "recall",
+  "sup_dec_number": "SUP000000000001077"
+}`,
+    response: `{
+  "result": {
+    "status": "recalled",
+    "process_message": "SUCCESS",
+    "reference": "SUP000000000001077"
+  }
+}`,
+    sqlTable: 'supplementary_declaration',
+    sqlFields: ['sup_dec_number','status'],
+  },
+  {
+    id: 'sup-duty-read',
+    group: 'Supplementary Declaration',
+    label: 'Duty Lines Read',
+    method: 'GET',
+    resource: 'supplementary_declarations',
+    title: 'Supplementary Declaration – Goods Item Duty Lines Read',
+    desc: 'Reads duty line information for goods items under a supplementary declaration.',
+    params: [
+      { name:'reference', req:true, note:'Supplementary declaration reference' },
+      { name:'fields',    req:true, note:'Duty-line fields to return' },
+    ],
+    fields: [
+      { name:'duty_lines', type:'Nested', req:'Optional', note:'Duty calculation breakdown per goods item' },
+    ],
+    sample: `GET ${getPath('supplementary_declarations')}?reference=SUP000000000001077&fields=duty_lines`,
+    response: `{
+  "result": {
+    "reference": "SUP000000000001077",
+    "duty_lines": [
+      {
+        "goods_id": "00991e871bcd24107a49db5be54bcbf3",
+        "duty_amount": "120.50",
+        "tax_type": "A00",
+        "tax_base": "500.00"
+      }
+    ]
+  }
+}`,
+    sqlTable: 'duty_line',
+    sqlFields: ['sup_dec_number','goods_id','duty_amount','tax_type','tax_base'],
+    isGet: true,
+  },
+
+  // ── FULL FRONTIER DECLARATION ─────────────────────────────────────────────
+  {
+    id: 'ffd-create',
+    group: 'Full Frontier Declaration',
+    label: 'Create / Update',
+    method: 'POST',
+    resource: 'full_frontier_declarations',
+    title: 'Full Frontier Declaration – Create / Update',
+    desc: 'Creates or updates a Full Frontier Declaration (FFD). Supports H1–H4 declaration categories.',
+    fields: [
+      { name:'op_type',          type:'String',    req:'Required', note:'"create" or "update"' },
+      { name:'ffd_number',       type:'String(40)', req:'Conditional', note:'No for create; Yes for update' },
+      { name:'movement_type',    type:'String(40)', req:'Required', note:'Choice field' },
+      { name:'declaration_category',type:'String(2)',req:'Required', note:'H1, H2, H3, or H4' },
+      { name:'arrival_date_time',type:'DateTime',  req:'Required', note:'dd/mm/yyyy hh:mm:ss UTC' },
+      { name:'arrival_port',     type:'String(200)',req:'Required', note:'Choice field' },
+      { name:'importer_eori',    type:'String(200)',req:'Required', note:'Legal responsible EORI' },
+      { name:'goods_description',type:'String(254)',req:'Required', note:'Description of goods' },
+      { name:'location_of_goods',type:'String(32)', req:'Conditional', note:'Choice field: ffd_location_of_goods' },
+    ],
+    sample: `{
+  "op_type": "create",
+  "ffd_number": "",
+  "movement_type": "3",
+  "declaration_category": "H1",
+  "arrival_date_time": "25/06/2025 11:00:00",
+  "arrival_port": "GBAUBELBELBEL",
+  "importer_eori": "XI000012340005",
+  "goods_description": "Industrial machinery",
+  "location_of_goods": "GBAUDYLBFSAGE"
+}`,
+    response: `{
+  "result": {
+    "status": "created",
+    "process_message": "SUCCESS",
+    "reference": "FFD000000000000101"
+  }
+}`,
+    sqlTable: 'full_frontier_declaration',
+    sqlFields: ['ffd_number','movement_type','declaration_category','arrival_date_time','arrival_port','importer_eori','goods_description','location_of_goods','status'],
+  },
+  {
+    id: 'ffd-read',
+    group: 'Full Frontier Declaration',
+    label: 'Read',
+    method: 'GET',
+    resource: 'full_frontier_declarations',
+    title: 'Full Frontier Declaration – Read',
+    desc: 'Reads an existing FFD record.',
+    params: [
+      { name:'reference', req:true, note:'FFD reference number' },
+      { name:'fields',    req:true, note:'Comma-separated field names' },
+    ],
+    fields: [
+      { name:'status', type:'String', req:'Optional', note:'Draft | Submitted | Accepted | Rejected | Cleared | Cancelled' },
+      { name:'error_message', type:'String', req:'Optional', note:'Error message if in error' },
+    ],
+    sample: `GET ${getPath('full_frontier_declarations')}?reference=FFD000000000000101&fields=status,importer_eori,declaration_category`,
+    response: `{
+  "result": {
+    "reference": "FFD000000000000101",
+    "status": "Submitted",
+    "importer_eori": "XI000012340005",
+    "declaration_category": "H1"
+  }
+}`,
+    sqlTable: 'full_frontier_declaration',
+    sqlFields: ['ffd_number','status','declaration_category','importer_eori','movement_reference_number'],
+    isGet: true,
+  },
+  {
+    id: 'ffd-submit',
+    group: 'Full Frontier Declaration',
+    label: 'Submit',
+    method: 'POST',
+    resource: 'full_frontier_declarations',
+    title: 'Full Frontier Declaration – Submit',
+    desc: 'Submits an existing Full Frontier Declaration.',
+    fields: [
+      { name:'op_type',    type:'String',    req:'Required', note:'Value must be "submit"' },
+      { name:'ffd_number', type:'String(40)', req:'Required', note:'FFD reference number' },
+    ],
+    sample: `{
+  "op_type": "submit",
+  "ffd_number": "FFD000000000000101"
+}`,
+    response: `{
+  "result": {
+    "status": "submitted",
+    "process_message": "SUCCESS",
+    "reference": "FFD000000000000101"
+  }
+}`,
+    sqlTable: 'full_frontier_declaration',
+    sqlFields: ['ffd_number','status'],
+  },
+
+  // ── MARITIME INVENTORY CLAIM ──────────────────────────────────────────────
+  {
+    id: 'icr-create',
+    group: 'Maritime Inventory Claim',
+    label: 'Create / Update',
+    method: 'POST',
+    resource: 'inventory_claim',
+    title: 'Maritime Inventory Claim – Create / Update',
+    desc: 'Creates or updates a Maritime Inventory Claim record.',
+    fields: [
+      { name:'op_type',           type:'String',    req:'Required', note:'"create" or "update"' },
+      { name:'icr_number',        type:'String(40)', req:'Conditional', note:'No for create; Yes for update' },
+      { name:'container_number',  type:'String(11)', req:'Required', note:'Container identification number' },
+      { name:'bill_of_lading',    type:'String(40)', req:'Required', note:'Bill of lading reference' },
+      { name:'final_destination_location_code',type:'String(32)',req:'Required', note:'Choice field' },
+      { name:'package_count',     type:'Numeric',   req:'Required', note:'Number of packages' },
+      { name:'load_type',         type:'String(10)', req:'Required', note:'e.g. "mix", "full"' },
+      { name:'cargo_or_consignment',type:'String(10)',req:'Required', note:'"cargo" or "consignment"' },
+      { name:'weight',            type:'Numeric',   req:'Required', note:'Weight in KG' },
+    ],
+    sample: `{
+  "op_type": "create",
+  "icr_number": "",
+  "container_number": "12345675589",
+  "bill_of_lading": "Test Bill",
+  "final_destination_location_code": "GBAULDYLDYLDY",
+  "package_count": "24",
+  "load_type": "mix",
+  "cargo_or_consignment": "cargo",
+  "weight": "44"
+}`,
+    response: `{
+  "result": {
+    "status": "created",
+    "process_message": "SUCCESS",
+    "reference": "ICR000000000001294"
+  }
+}`,
+    sqlTable: 'inventory_claim',
+    sqlFields: ['icr_number','container_number','bill_of_lading','final_destination_location_code','package_count','load_type','cargo_or_consignment','weight','status'],
+  },
+  {
+    id: 'icr-submit-cancel',
+    group: 'Maritime Inventory Claim',
+    label: 'Submit / Cancel',
+    method: 'POST',
+    resource: 'inventory_claim',
+    title: 'Maritime Inventory Claim – Submit / Cancel',
+    desc: 'Submits or cancels an existing inventory claim.',
+    fields: [
+      { name:'op_type',    type:'String',    req:'Required', note:'"submit" or "cancel"' },
+      { name:'icr_number', type:'String(40)', req:'Required', note:'Inventory claim reference number' },
+    ],
+    sample: `{
+  "op_type": "cancel",
+  "icr_number": "ICR000000000001294"
+}`,
+    response: `{
+  "result": {
+    "status": "cancelled",
+    "process_message": "SUCCESS",
+    "reference": "ICR000000000001294"
+  }
+}`,
+    sqlTable: 'inventory_claim',
+    sqlFields: ['icr_number','status'],
+  },
+  {
+    id: 'icr-read',
+    group: 'Maritime Inventory Claim',
+    label: 'Read',
+    method: 'GET',
+    resource: 'inventory_claim',
+    title: 'Maritime Inventory Claim – Read',
+    desc: 'Reads an existing inventory claim. Additional fields: status, lrn, date_of_claim, hold_reason, ucn, error_text.',
+    params: [
+      { name:'reference', req:true, note:'ICR reference number' },
+      { name:'fields',    req:true, note:'Comma-separated field names' },
+    ],
+    fields: [
+      { name:'status',       type:'String', req:'Optional', note:'Draft | On hold | Processing | In claiming | Claimed | Linked | Released | Seized | Customs cleared | Input required | Cancelled' },
+      { name:'lrn',         type:'String', req:'Optional', note:'Local Reference Number' },
+      { name:'date_of_claim',type:'DateTime',req:'Optional', note:'dd/mm/yyyy hh:mm UTC' },
+      { name:'hold_reason', type:'String', req:'Optional', note:'Reason the claim is on hold' },
+      { name:'ucn',         type:'String', req:'Optional', note:'Unique Consignment Note' },
+      { name:'error_text',  type:'String', req:'Optional', note:'Error message if in error' },
+    ],
+    sample: `GET ${getPath('inventory_claim')}?reference=ICR000000000001295&fields=package_count,weight,status,container_number,ucn,error_text,date_of_claim,lrn`,
+    response: `{
+  "result": {
+    "reference": "ICR000000000001295",
+    "status": "Draft",
+    "container_number": "12345675589",
+    "bill_of_lading": "TEST BILL",
+    "package_count": "24",
+    "weight": "25",
+    "ucn": "",
+    "hold_reason": "",
+    "date_of_claim": "",
+    "lrn": "",
+    "error_text": ""
+  }
+}`,
+    sqlTable: 'inventory_claim',
+    sqlFields: ['icr_number','status','container_number','bill_of_lading','package_count','weight','lrn','ucn','date_of_claim','hold_reason','error_text'],
+    isGet: true,
+  },
+
+  // ── AGENT ─────────────────────────────────────────────────────────────────
+  {
+    id: 'agent-rel',
+    group: 'Agent',
+    label: 'Agent Relationships',
+    method: 'GET',
+    resource: 'agent_relationships',
+    title: 'Agent Relationships',
+    desc: 'Lists all customer accounts and their sys_id for agents acting on behalf of customers. Registration is portal-only.',
+    params: [],
+    fields: [],
+    sample: `GET ${getPath('agent_relationships')}`,
+    response: `{
+  "result": [
+    {
+      "agent_account": "Goods by Good",
+      "customer_account": "Method of Payment Inc",
+      "customer_account_sys_id": "6db250371bcdf01004473325464bcbf0"
+    },
+    {
+      "agent_account": "Goods by Good",
+      "customer_account": "Safety First Ltd",
+      "customer_account_sys_id": "82ec74a41ba9ac1052e37c95464bcbf0"
+    }
+  ]
+}`,
+    sqlTable: 'agent_relationship',
+    sqlFields: ['agent_account','customer_account','customer_account_sys_id'],
+    isGet: true,
+  },
+  {
+    id: 'agent-actas',
+    group: 'Agent',
+    label: 'Agent actAs',
+    method: 'GET',
+    resource: 'headers',
+    title: 'Agent actAs',
+    desc: 'Adds the actAs parameter to any resource request to act on behalf of a customer. Use the customer_account_sys_id from Agent Relationships.',
+    params: [
+      { name:'actAs', req:false, note:'customer_account_sys_id from agent_relationships response' },
+      { name:'reference', req:false, note:'Any resource reference' },
+      { name:'fields', req:false, note:'Fields to return' },
+    ],
+    fields: [],
+    sample: `GET ${getPath('headers')}?reference=ENS000000000003295&actAs=6db250371bcdf01004473325464bcbf0&fields=status,movement_type`,
+    response: `{
+  "result": {
+    "reference": "ENS000000000003295",
+    "status": "Draft",
+    "movement_type": "3"
+  }
+}`,
+    sqlTable: 'declaration_header',
+    sqlFields: ['declaration_number','status','movement_type'],
+    isGet: true,
+  },
+
+  // ── GVMS ──────────────────────────────────────────────────────────────────
+  {
+    id: 'gvms-create',
+    group: 'GVMS GMR',
+    label: 'Create',
+    method: 'POST',
+    resource: 'gvms_gmr',
+    title: 'GVMS GMR – Create',
+    desc: 'Creates a Goods Movement Record (GMR) linking Authorised for Movement or Arrived consignments. TSS must be authorised to generate GMRs on your behalf.',
+    fields: [
+      { name:'op_type',            type:'String',    req:'Required', note:'Value must be "create"' },
+      { name:'ens_lrn',            type:'String(40)', req:'Required', note:'ENS header reference; cannot already have an active GMR' },
+      { name:'route_id',           type:'String(3)',  req:'Required', note:'GVMS route; choice field' },
+      { name:'is_unaccompanied',   type:'yes/no',    req:'Required', note:'"yes" or "no"' },
+      { name:'vehicle_reg_num',    type:'String(32)', req:'Conditional', note:'Required if is_unaccompanied is "no"; Regex: ^[A-Z0-9-]...$' },
+      { name:'trailer_registration_nums',type:'Array',req:'Conditional', note:'Required if is_unaccompanied is "yes"; min 1, max 2' },
+      { name:'external_contacts',  type:'Nested[]',  req:'Optional', note:'op_type + contact_email (valid email format)' },
+    ],
+    sample: `{
+  "op_type": "create",
+  "ens_lrn": "ENS000000000004042",
+  "route_id": "2",
+  "is_unaccompanied": "no",
+  "vehicle_reg_num": "LA21VVY",
+  "trailer_registration_nums": "",
+  "external_contacts": [
+    { "op_type": "create", "contact_email": "driver@example.com" },
+    { "op_type": "create", "contact_email": "manager@example.com" }
+  ]
+}`,
+    response: `{
+  "result": {
+    "status": "created",
+    "process_message": "SUCCESS",
+    "reference": "GMR000000000001081"
+  }
+}`,
+    sqlTable: 'gvms_gmr',
+    sqlFields: ['gmr_number','ens_lrn','route_id','is_unaccompanied','vehicle_reg_num','trailer_registration_nums','gmr_status'],
+  },
+  {
+    id: 'gvms-update',
+    group: 'GVMS GMR',
+    label: 'Update',
+    method: 'POST',
+    resource: 'gvms_gmr',
+    title: 'GVMS GMR – Update',
+    desc: 'Updates an existing Goods Movement Record.',
+    fields: [
+      { name:'op_type',          type:'String',    req:'Required', note:'Value must be "update"' },
+      { name:'gmr_lrn',          type:'String(40)', req:'Required', note:'GMR reference number' },
+      { name:'route_id',         type:'String(3)',  req:'Required', note:'GVMS route; choice field' },
+      { name:'is_unaccompanied', type:'yes/no',    req:'Required', note:'"yes" or "no"' },
+      { name:'vehicle_reg_num',  type:'String(32)', req:'Conditional', note:'Required if is_unaccompanied is "no"' },
+      { name:'trailer_registration_nums',type:'Array',req:'Conditional', note:'Required if is_unaccompanied is "yes"' },
+      { name:'external_contacts',type:'Nested[]',  req:'Optional', note:'op_type + contact_email' },
+    ],
+    sample: `{
+  "op_type": "update",
+  "gmr_lrn": "GMR000000000001081",
+  "route_id": "178",
+  "is_unaccompanied": "yes",
+  "vehicle_reg_num": "",
+  "trailer_registration_nums": ["LA12VVY", "BA12VVL"]
+}`,
+    response: `{
+  "result": {
+    "status": "updated",
+    "process_message": "SUCCESS",
+    "reference": "GMR000000000001081"
+  }
+}`,
+    sqlTable: 'gvms_gmr',
+    sqlFields: ['gmr_number','route_id','is_unaccompanied','vehicle_reg_num','trailer_registration_nums','gmr_status'],
+  },
+  {
+    id: 'gvms-submit',
+    group: 'GVMS GMR',
+    label: 'Submit',
+    method: 'POST',
+    resource: 'gvms_gmr',
+    title: 'GVMS GMR – Submit',
+    desc: 'Submits an existing GMR. Record must be Draft, Open or Trader Input Required.',
+    fields: [
+      { name:'op_type', type:'String',    req:'Required', note:'Value must be "submit"' },
+      { name:'gmr_lrn', type:'String(40)', req:'Required', note:'GMR reference number' },
+    ],
+    sample: `{
+  "op_type": "submit",
+  "gmr_lrn": "GMR000000000001081"
+}`,
+    response: `{
+  "result": {
+    "status": "submitted",
+    "process_message": "SUCCESS",
+    "reference": "GMR000000000001081"
+  }
+}`,
+    sqlTable: 'gvms_gmr',
+    sqlFields: ['gmr_number','gmr_status'],
+  },
+  {
+    id: 'gvms-read',
+    group: 'GVMS GMR',
+    label: 'Read',
+    method: 'GET',
+    resource: 'gvms_gmr',
+    title: 'GVMS GMR – Read',
+    desc: 'Reads an existing GMR record. Additional fields: gmr_id, gmr_status, direction, inspection_required, report_to_locations, error_reason.',
+    params: [
+      { name:'reference', req:true, note:'GMR reference number' },
+      { name:'fields',    req:true, note:'Comma-separated field names' },
+    ],
+    fields: [
+      { name:'gmr_id',             type:'String', req:'Optional', note:'Reference generated by GVMS' },
+      { name:'gmr_status',         type:'String', req:'Optional', note:'Draft | Submitted | Processing | Trader Input Required | Open | Finalised | Checked In | Embarked | Complete | Pending Cancellation | Cancelled' },
+      { name:'direction',          type:'String', req:'Optional', note:'Route direction e.g. GB_TO_NI' },
+      { name:'inspection_required',type:'yes/no', req:'Optional', note:'Whether inspection is required' },
+      { name:'report_to_locations',type:'String', req:'Optional', note:'Inspection location details' },
+      { name:'error_reason',       type:'String', req:'Optional', note:'Error message if GMR in error' },
+    ],
+    sample: `GET ${getPath('gvms_gmr')}?reference=GMR000000000001083&fields=route_id,direction,ens_lrn,gmr_lrn,vehicle_reg_num,gmr_id,gmr_status,error_reason,inspection_required`,
+    response: `{
+  "result": {
+    "reference": "GMR000000000001083",
+    "ens_lrn": "ENS000000000004042",
+    "route_id": "178",
+    "is_unaccompanied": "yes",
+    "trailer_registration_nums": "LA122VVY, BA12VVL",
+    "gmr_id": "GMRC7SMLS4KS",
+    "gmr_status": "Checked In",
+    "direction": "GB_TO_NI",
+    "inspection_required": "no"
+  }
+}`,
+    sqlTable: 'gvms_gmr',
+    sqlFields: ['gmr_number','ens_lrn','route_id','is_unaccompanied','vehicle_reg_num','trailer_registration_nums','gmr_id','gmr_status','direction','inspection_required'],
+    isGet: true,
+  },
+  {
+    id: 'gvms-cancel',
+    group: 'GVMS GMR',
+    label: 'Cancel',
+    method: 'POST',
+    resource: 'gvms_gmr',
+    title: 'GVMS GMR – Cancel',
+    desc: 'Cancels an existing GMR. Record must be Draft, Open or Trader Input Required. Cancellation of Open/TIR GMRs will delete the record from GVMS.',
+    fields: [
+      { name:'op_type', type:'String',    req:'Required', note:'Value must be "cancel"' },
+      { name:'gmr_lrn', type:'String(40)', req:'Required', note:'GMR reference number' },
+    ],
+    sample: `{
+  "op_type": "cancel",
+  "gmr_lrn": "GMR000000000001086"
+}`,
+    response: `{
+  "result": {
+    "status": "cancelled",
+    "process_message": "SUCCESS",
+    "reference": "GMR000000000001086"
+  }
+}`,
+    sqlTable: 'gvms_gmr',
+    sqlFields: ['gmr_number','gmr_status'],
+  },
+
+  // ── INTERNAL MARKET MOVEMENT ──────────────────────────────────────────────
+  {
+    id: 'imm-create',
+    group: 'Internal Market Movement',
+    label: 'Create / Update',
+    method: 'POST',
+    resource: 'internal_market_movement',
+    title: 'Internal Market Movement – Create / Update',
+    desc: 'Creates or updates a standalone Internal Market Movement (IMMI / GLR). Supports IMD (pre-movement) and IMZ (post-movement) declaration categories.',
+    fields: [
+      { name:'op_type',          type:'String(6)',  req:'Required', note:'"create" or "update"' },
+      { name:'glr_number',       type:'String(40)', req:'Conditional', note:'No for create; Yes for update' },
+      { name:'internal_market',  type:'String(40)', req:'Conditional', note:'Must be "confirmed" on create' },
+      { name:'free_circulation_home_use',type:'String(3)',req:'Required', note:'"Yes" or "No"' },
+      { name:'declaration_category',type:'String(3)',req:'Required', note:'IMD, IMA, or IMZ; choice field' },
+      { name:'arrival_date_time',type:'DateTime',  req:'Conditional', note:'Required unless category is IMA; must be past if IMZ' },
+      { name:'importer_eori',    type:'String(200)',req:'Optional', note:'Defaults to UKIMS-associated EORI of API user' },
+      { name:'exporter_eori',    type:'String(200)',req:'Optional', note:'If absent, exporter address fields mandatory' },
+      { name:'representation_type',type:'String(2)',req:'Required', note:'Choice field' },
+      { name:'mode_of_transport',type:'String(2)', req:'Required', note:'Choice field' },
+      { name:'transport_document_reference',type:'String(35)',req:'Conditional', note:'Required if mode_of_transport is not "9"' },
+      { name:'transport_document_type',type:'String(35)',req:'Conditional', note:'Required if mode_of_transport is not "9"; choice field' },
+      { name:'location_of_goods_border',type:'String(32)',req:'Conditional', note:'Required if declaration_category is IMD; choice field' },
+      { name:'location_of_goods_other',type:'String(100)',req:'Conditional', note:'Use either this or location_of_goods_border' },
+      { name:'icr',              type:'String(25)', req:'Conditional', note:'Required if mode_of_transport is "4" (air)' },
+      { name:'house_airway_bill',type:'String(40)', req:'Optional', note:'Only for mode_of_transport "4"' },
+      { name:'maritime_inventory',type:'String(32)',req:'Conditional', note:'Required if mode_of_transport is "1" (maritime)' },
+      { name:'trader_reference', type:'String(100)',req:'Optional', note:'Internal reference' },
+      { name:'customs_warehouse_identifier',type:'String(18)',req:'Optional', note:'Required if free_circulation_home_use is "No"' },
+      { name:'header_previous_document',type:'Nested[]',req:'Optional', note:'op_type, previous_document_class, previous_document_ref, previous_document_type; CLE & DCR required if IMZ' },
+      { name:'holder_of_authorisation',type:'Nested[]',req:'Optional', note:'op_type, auth_role_id, auth_role_type, auth_type_code' },
+    ],
+    sample: `{
+  "op_type": "create",
+  "glr_number": "",
+  "declaration_category": "IMD",
+  "representation_type": "2",
+  "free_circulation_home_use": "Yes",
+  "mode_of_transport": "3",
+  "arrival_date_time": "27/04/2025 18:00:00",
+  "internal_market": "confirmed",
+  "importer_eori": "XI1234556432145",
+  "exporter_eori": "XI1234556432145",
+  "location_of_goods_border": "GBAUDYLBFSAGE",
+  "transport_document_reference": "101101",
+  "transport_document_type": "N730",
+  "trader_reference": "GLR Test",
+  "holder_of_authorisation": [
+    {
+      "op_type": "create",
+      "auth_role_id": "23",
+      "auth_type_code": "TST"
+    }
+  ],
+  "header_previous_document": [
+    {
+      "op_type": "create",
+      "previous_document_class": "X",
+      "previous_document_ref": "1234",
+      "previous_document_type": "235"
+    }
+  ]
+}`,
+    response: `{
+  "result": {
+    "status": "created",
+    "process_message": "SUCCESS",
+    "reference": "GLR000000000001730"
+  }
+}`,
+    sqlTable: 'internal_market_movement',
+    sqlFields: ['glr_number','declaration_category','arrival_date_time','importer_eori','exporter_eori','mode_of_transport','transport_document_reference','location_of_goods_border','status'],
+  },
+  {
+    id: 'imm-submit-cancel',
+    group: 'Internal Market Movement',
+    label: 'Submit / Cancel',
+    method: 'POST',
+    resource: 'internal_market_movement',
+    title: 'Internal Market Movement – Submit / Cancel',
+    desc: 'Submits or cancels an Internal Market Movement. Record must be in Draft or Trader Input Required state.',
+    fields: [
+      { name:'op_type',    type:'String',    req:'Required', note:'"submit" or "cancel"' },
+      { name:'glr_number', type:'String(40)', req:'Required', note:'GLR reference number' },
+    ],
+    sample: `{
+  "op_type": "submit",
+  "glr_number": "GLR000000000001824"
+}`,
+    response: `{
+  "result": {
+    "status": "submitted",
+    "process_message": "SUCCESS",
+    "reference": "GLR000000000001824"
+  }
+}`,
+    sqlTable: 'internal_market_movement',
+    sqlFields: ['glr_number','status'],
+  },
+  {
+    id: 'imm-read',
+    group: 'Internal Market Movement',
+    label: 'Read / Filter',
+    method: 'GET',
+    resource: 'internal_market_movement',
+    title: 'Internal Market Movement – Read / Filter',
+    desc: 'Reads a specific IMM or lists IMMs by filter status. Mutually exclusive.',
+    params: [
+      { name:'reference', req:false, note:'GLR reference number' },
+      { name:'fields',    req:false, note:'Comma-separated field names' },
+      { name:'filter',    req:false, note:'e.g. filter=status=draft' },
+    ],
+    fields: [
+      { name:'status',            type:'String', req:'Optional', note:'Draft | Submitted | Processing | Trader Input Required | Authorised for Movement | Amendment Required | Arrived | Cancelled | Do Not Load' },
+      { name:'movement_reference_number',type:'String',req:'Optional', note:'MRN allocated' },
+      { name:'immi_confirmation_date',type:'DateTime',req:'Optional', note:'IMMI confirmation date/time UTC' },
+      { name:'tax_point',         type:'DateTime', req:'Optional', note:'Tax point date/time UTC' },
+      { name:'error_message',     type:'String',   req:'Optional', note:'Error if in error state' },
+      { name:'supplementary_declaration',type:'Yes/No',req:'Optional', note:'Whether a sup dec exists' },
+    ],
+    sample: `GET ${getPath('internal_market_movement')}?reference=GLR000000000001730&fields=status,importer_eori,declaration_category,movement_reference_number`,
+    response: `{
+  "result": {
+    "reference": "GLR000000000001730",
+    "status": "Authorised for Movement",
+    "importer_eori": "XI1234556432145",
+    "declaration_category": "IMD",
+    "movement_reference_number": "24GB123456789ABC01"
+  }
+}`,
+    sqlTable: 'internal_market_movement',
+    sqlFields: ['glr_number','status','importer_eori','declaration_category','movement_reference_number','immi_confirmation_date','tax_point'],
+    isGet: true,
+  },
+  {
+    id: 'imm-reclassify-h1h8',
+    group: 'Internal Market Movement',
+    label: 'Reclassify H1→H8',
+    method: 'POST',
+    resource: 'supplementary_declarations',
+    title: 'Reclassify – H1 to H8 (SUP DEC to IMMI)',
+    desc: 'Reclassifies a supplementary declaration (H1) to an IMMI supplementary declaration (H8).',
+    fields: [
+      { name:'op_type',       type:'String',    req:'Required', note:'Value must be "reclassify"' },
+      { name:'sup_dec_number',type:'String(40)', req:'Required', note:'Supplementary declaration reference to reclassify' },
+    ],
+    sample: `{
+  "op_type": "reclassify",
+  "sup_dec_number": "SUP000000000001077"
+}`,
+    response: `{
+  "result": {
+    "status": "reclassified",
+    "process_message": "SUCCESS",
+    "reference": "GLR000000000001850"
+  }
+}`,
+    sqlTable: 'supplementary_declaration',
+    sqlFields: ['sup_dec_number','status','glr_number'],
+  },
+  {
+    id: 'imm-reclassify-h8h1',
+    group: 'Internal Market Movement',
+    label: 'Reclassify H8→H1',
+    method: 'POST',
+    resource: 'internal_market_movement',
+    title: 'Reclassify – H8 to H1 (IMMI to SUP DEC)',
+    desc: 'Reverts an IMMI supplementary declaration (H8) back to a red lane supplementary declaration (H1).',
+    fields: [
+      { name:'op_type',    type:'String',    req:'Required', note:'Value must be "reclassify"' },
+      { name:'glr_number', type:'String(40)', req:'Required', note:'Internal Market Movement reference to revert' },
+    ],
+    sample: `{
+  "op_type": "reclassify",
+  "glr_number": "GLR000000000001850"
+}`,
+    response: `{
+  "result": {
+    "status": "reclassified",
+    "process_message": "SUCCESS",
+    "reference": "SUP000000000001200"
+  }
+}`,
+    sqlTable: 'internal_market_movement',
+    sqlFields: ['glr_number','status','sup_dec_number'],
+  },
+
+  // ── PERMISSION GRANT ──────────────────────────────────────────────────────
+  {
+    id: 'permission-grant',
+    group: 'Permission Grant',
+    label: 'Permission Grant',
+    method: 'GET',
+    resource: 'permission_grant',
+    title: 'Permission Grant',
+    desc: 'Shows permission and access details for a provided Importer EORI.',
+    params: [
+      { name:'importer_eori', req:true, note:'The Importer EORI to check permissions for' },
+    ],
+    fields: [],
+    sample: `GET ${getPath('permission_grant')}?importer_eori=XI000012340005`,
+    response: `{
+  "result": {
+    "importer_eori": "XI000012340005",
+    "permissions": [
+      {
+        "permission_type": "UKIMS",
+        "granted": true,
+        "expiry_date": "31/12/2026"
+      }
+    ]
+  }
+}`,
+    sqlTable: 'permission_grant',
+    sqlFields: ['importer_eori','permission_type','granted','expiry_date'],
+    isGet: true,
+  },
+];
+
+// =============================================
+// ENV SWITCHING
+// =============================================
+function setEnv(env) {
+  currentEnv = env;
+  document.getElementById('env-test').classList.toggle('active', env === 'test');
+  document.getElementById('env-prod').classList.toggle('active', env === 'prod');
+  document.getElementById('env-url').textContent = env === 'test' ? 'api.tsstestenv.co.uk' : 'api.tradersupportservice.co.uk';
+  // Refresh current endpoint if GET
+  if (currentEndpointId) {
+    const ep = endpoints.find(e => e.id === currentEndpointId);
+    if (ep && ep.isGet) showEndpoint(ep.id);
+  }
+}
+
+// =============================================
+// BUILD SIDEBAR
+// =============================================
+function buildSidebar() {
+  const container = document.getElementById('sidebar-list');
+  const groups = [...new Set(endpoints.map(e => e.group))];
+  groups.forEach(g => {
+    const header = document.createElement('div');
+    header.className = 'nav-group-header';
+    header.textContent = g;
+    container.appendChild(header);
+    endpoints.filter(e => e.group === g).forEach(ep => {
+      const item = document.createElement('div');
+      item.className = 'nav-item';
+      item.id = 'nav-' + ep.id;
+      item.dataset.id = ep.id;
+      item.dataset.label = ep.label.toLowerCase();
+      item.dataset.group = ep.group.toLowerCase();
+      item.innerHTML = `<span class="nav-method m-${ep.method.toLowerCase()}">${ep.method}</span><span class="nav-label">${ep.label}</span>`;
+      item.addEventListener('click', () => showEndpoint(ep.id));
+      container.appendChild(item);
+    });
+  });
+}
+
+// =============================================
+// FILTER
+// =============================================
+function filterNav(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('.nav-item').forEach(el => {
+    const match = !q || el.dataset.label.includes(q) || el.dataset.group.includes(q);
+    el.classList.toggle('hidden', !match);
+  });
+  document.querySelectorAll('.nav-group-header').forEach(h => {
+    const sibs = [];
+    let n = h.nextElementSibling;
+    while (n && !n.classList.contains('nav-group-header')) {
+      sibs.push(n);
+      n = n.nextElementSibling;
+    }
+    const anyVisible = sibs.some(s => !s.classList.contains('hidden'));
+    h.classList.toggle('hidden', !anyVisible);
+  });
+}
+
+// =============================================
+// SYNTAX HIGHLIGHTING
+// =============================================
+function highlightJSON(json) {
+  return json
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"((?:[^"\\]|\\.)*)"\s*:/g, '<span class="json-key">"$1"</span>:')
+    .replace(/:\s*"((?:[^"\\]|\\.)*)"/g, ': <span class="json-str">"$1"</span>')
+    .replace(/:\s*(\d+\.?\d*)/g, ': <span class="json-num">$1</span>')
+    .replace(/:\s*(true|false)/g, ': <span class="json-bool">$1</span>')
+    .replace(/:\s*(null)/g, ': <span class="json-null">$1</span>');
+}
+
+function highlightSQL(sql) {
+  const kws = ['SELECT','INSERT','INTO','VALUES','UPDATE','SET','DELETE','FROM','WHERE','AND','OR','NOT','IN','IS','NULL','CREATE','TABLE','DROP','ALTER','ADD','COLUMN','INDEX','ON','PRIMARY','KEY','DEFAULT','VARCHAR','INT','NUMERIC','DATE','TIMESTAMP','JOIN','LEFT','INNER','ORDER','BY','GROUP','HAVING','LIMIT','OFFSET','AS','DISTINCT'];
+  let out = sql.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  kws.forEach(kw => {
+    out = out.replace(new RegExp('\\b' + kw + '\\b', 'g'), `<span class="sql-keyword">${kw}</span>`);
+  });
+  out = out.replace(/'([^']*)'/g, "<span class='sql-string'>'$1'</span>");
+  out = out.replace(/--[^\n]*/g, m => `<span class='sql-comment'>${m}</span>`);
+  return out;
+}
+
+// =============================================
+// GENERATE SQL
+// =============================================
+function generateSQL(ep) {
+  const table = ep.sqlTable;
+  const fields = ep.sqlFields;
+  let sql = '';
+
+  if (ep.isGet) {
+    sql = `-- SELECT query for ${ep.title}\nSELECT\n  ${fields.join(',\n  ')}\nFROM ${table}\nWHERE 1=1\n  -- Add your filter conditions here\n  -- AND status = 'Draft'\nORDER BY sys_created_on DESC\nLIMIT 100;`;
+  } else if (ep.method === 'POST') {
+    const firstField = fields[0] || 'id';
+    const isCreate = (ep.sample || '').includes('"create"');
+    const isDelete = (ep.sample || '').includes('"delete"') || ep.label.includes('Delete');
+    const isCancel = (ep.sample || '').includes('"cancel"') || ep.label.includes('Cancel');
+
+    if (isDelete) {
+      sql = `-- DELETE record from ${table}\nDELETE FROM ${table}\nWHERE ${firstField} = '<reference>';\n\n-- Audit log insert\nINSERT INTO ${table}_audit_log (table_name, operation, record_id, timestamp)\nVALUES ('${table}', 'DELETE', '<reference>', CURRENT_TIMESTAMP);`;
+    } else if (isCancel || (ep.sample||'').includes('"cancel"')) {
+      sql = `-- UPDATE status to cancelled in ${table}\nUPDATE ${table}\nSET status = 'cancelled',\n    sys_updated_on = CURRENT_TIMESTAMP\nWHERE ${firstField} = '<reference>';\n\n-- Verify update\nSELECT ${firstField}, status FROM ${table}\nWHERE ${firstField} = '<reference>';`;
+    } else if (isCreate) {
+      const vals = fields.map(f => `'<${f}>'`).join(',\n  ');
+      sql = `-- INSERT into ${table}\nINSERT INTO ${table} (\n  ${fields.join(',\n  ')}\n) VALUES (\n  ${vals}\n);\n\n-- Retrieve created record\nSELECT ${firstField}, status, sys_created_on\nFROM ${table}\nORDER BY sys_created_on DESC LIMIT 1;`;
+    } else {
+      // update/submit
+      const setClause = fields.slice(1).map(f => `    ${f} = '<${f}>'`).join(',\n');
+      sql = `-- UPDATE ${table}\nUPDATE ${table}\nSET\n${setClause},\n    sys_updated_on = CURRENT_TIMESTAMP\nWHERE ${firstField} = '<reference>';\n\n-- Check the result\nSELECT ${fields.join(', ')}\nFROM ${table}\nWHERE ${firstField} = '<reference>';`;
+    }
+  }
+  return sql;
+}
+
+// =============================================
+// SHOW ENDPOINT
+// =============================================
+let currentEndpointId = null;
+let currentTab = 'payload';
+
+function showEndpoint(id) {
+  currentEndpointId = id;
+  const ep = endpoints.find(e => e.id === id);
+  if (!ep) return;
+
+  // Sidebar active state
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const navEl = document.getElementById('nav-' + id);
+  if (navEl) navEl.classList.add('active');
+
+  document.getElementById('welcome-screen').classList.add('hidden');
+  const detail = document.getElementById('endpoint-detail');
+  detail.classList.remove('hidden');
+
+  const urlPath = getPath(ep.resource);
+  const methodClass = ep.method === 'GET' ? 'method-get' : 'method-post';
+
+  // Build params chips for GET
+  let paramsHtml = '';
+  if (ep.params && ep.params.length > 0) {
+    paramsHtml = `<div class="url-params">` + ep.params.map(p =>
+      `<span class="param-chip${p.req ? ' required' : ''}">${p.name}${p.req ? '*' : ''}</span>`
+    ).join('') + `</div>`;
+  }
+
+  // Build schema table
+  const schemaRows = (ep.fields || []).map(f => {
+    const reqClass = f.req === 'Required' ? 'badge-req' : f.req === 'Optional' ? 'badge-opt' : f.req === 'Conditional' ? 'badge-cond' : 'badge-na';
+    const isNested = f.type && (f.type.includes('Nested') || f.type.includes('[]'));
+    return `<tr>
+      <td><span class="field-name">${f.name}</span>${isNested ? ' <span class="nested-badge">nested</span>' : ''}</td>
+      <td><span class="field-type">${f.type || '–'}</span></td>
+      <td><span class="${reqClass}">${f.req}</span></td>
+      <td style="color:var(--text-dim);font-size:12px;">${f.note || ''}</td>
+    </tr>`;
+  }).join('');
+
+  // Build params table for GET
+  let paramTableRows = '';
+  if (ep.params && ep.params.length > 0) {
+    paramTableRows = ep.params.map(p =>
+      `<tr>
+        <td><span class="field-name">${p.name}</span></td>
+        <td><span class="field-type">String</span></td>
+        <td><span class="${p.req ? 'badge-req' : 'badge-opt'}">${p.req ? 'Required' : 'Optional'}</span></td>
+        <td style="color:var(--text-dim);font-size:12px;">${p.note || ''}</td>
+      </tr>`
+    ).join('');
+  }
+
+  const sqlCode = generateSQL(ep);
+  const sampleIsGetUrl = ep.isGet && ep.sample && ep.sample.startsWith('GET');
+  const sampleDisplay = sampleIsGetUrl
+    ? ep.sample.replace('<instance_name>', currentEnv === 'test' ? 'api.tsstestenv.co.uk' : 'api.tradersupportservice.co.uk')
+    : ep.sample;
+
+  detail.innerHTML = `
+    <div class="endpoint-card">
+      <div class="endpoint-header">
+        <span class="method-badge ${methodClass}">${ep.method}</span>
+        <div>
+          <div class="endpoint-title">${ep.title}</div>
+          <div class="endpoint-url">${urlPath}</div>
+          ${paramsHtml}
+          <div class="endpoint-desc">${ep.desc}</div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn ${currentTab==='payload'?'active':''}" onclick="switchTab('payload')">📦 Payload</button>
+        <button class="tab-btn ${currentTab==='schema'?'active':''}" onclick="switchTab('schema')">🔍 Schema</button>
+        <button class="tab-btn ${currentTab==='sql'?'active':''}" onclick="switchTab('sql')">🗄️ SQL</button>
+        <button class="tab-btn ${currentTab==='response'?'active':''}" onclick="switchTab('response')">✅ Response</button>
+      </div>
+
+      <!-- PAYLOAD TAB -->
+      <div class="tab-panel ${currentTab==='payload'?'active':''}" id="tab-payload">
+        <div class="section-label">Sample Request</div>
+        <div class="code-block-wrap">
+          <div class="code-block-header">
+            <span class="code-lang">${ep.isGet ? 'HTTP GET' : 'JSON'}</span>
+            <button class="copy-btn" onclick="copyCode('sample-code-${id}', this)">Copy</button>
+          </div>
+          <pre id="sample-code-${id}">${sampleDisplay ? highlightJSON(sampleDisplay) : '<span style="color:var(--text-dim)">No sample available</span>'}</pre>
+        </div>
+
+        ${ep.params && ep.params.length > 0 ? `
+        <div class="section-label" style="margin-top:20px">Query Parameters</div>
+        <div class="code-block-wrap">
+          <table class="schema-table">
+            <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+            <tbody>${paramTableRows}</tbody>
+          </table>
+        </div>` : ''}
+      </div>
+
+      <!-- SCHEMA TAB -->
+      <div class="tab-panel ${currentTab==='schema'?'active':''}" id="tab-schema">
+        ${ep.fields && ep.fields.length > 0 ? `
+        <div class="section-label">Field Schema</div>
+        <div class="code-block-wrap">
+          <div class="code-block-header">
+            <span class="code-lang">Schema</span>
+            <button class="copy-btn" onclick="copySchemaJSON('${id}', this)">Copy as JSON Schema</button>
+          </div>
+          <table class="schema-table">
+            <thead><tr><th>Field Name</th><th>Type</th><th>Mandatory</th><th>Description</th></tr></thead>
+            <tbody>${schemaRows}</tbody>
+          </table>
+        </div>` : `<div style="color:var(--text-dim);text-align:center;padding:40px">No schema fields defined for this endpoint.</div>`}
+
+        ${ep.fields && ep.fields.length > 0 ? `
+        <div class="section-label" style="margin-top:20px">Generated JSON Schema</div>
+        <div class="code-block-wrap">
+          <div class="code-block-header">
+            <span class="code-lang">JSON Schema</span>
+            <button class="copy-btn" onclick="copyCode('schema-json-${id}', this)">Copy</button>
+          </div>
+          <pre id="schema-json-${id}">${highlightJSON(buildJSONSchema(ep))}</pre>
+        </div>` : ''}
+      </div>
+
+      <!-- SQL TAB -->
+      <div class="tab-panel ${currentTab==='sql'?'active':''}" id="tab-sql">
+        <div class="section-label">Generated SQL</div>
+        <div class="code-block-wrap">
+          <div class="code-block-header">
+            <span class="code-lang">SQL</span>
+            <button class="copy-btn" onclick="copyCode('sql-code-${id}', this)">Copy</button>
+          </div>
+          <pre id="sql-code-${id}">${highlightSQL(sqlCode)}</pre>
+        </div>
+
+        <div class="section-label" style="margin-top:20px">Table: ${ep.sqlTable}</div>
+        <div class="code-block-wrap">
+          <div class="code-block-header">
+            <span class="code-lang">SQL DDL</span>
+            <button class="copy-btn" onclick="copyCode('ddl-code-${id}', this)">Copy</button>
+          </div>
+          <pre id="ddl-code-${id}">${highlightSQL(buildDDL(ep))}</pre>
+        </div>
+      </div>
+
+      <!-- RESPONSE TAB -->
+      <div class="tab-panel ${currentTab==='response'?'active':''}" id="tab-response">
+        <div class="section-label">Example Response</div>
+        <div class="code-block-wrap">
+          <div class="code-block-header">
+            <span class="code-lang">JSON</span>
+            <button class="copy-btn" onclick="copyCode('response-code-${id}', this)">Copy</button>
+          </div>
+          <pre id="response-code-${id}">${ep.response ? highlightJSON(ep.response) : '<span style="color:var(--text-dim)">No response example</span>'}</pre>
+        </div>
+
+        <div class="response-section">
+          <div class="section-label">Response Fields</div>
+          <div class="code-block-wrap">
+            <table class="schema-table">
+              <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><span class="field-name">status</span></td><td><span class="field-type">String</span></td><td style="color:var(--text-dim);font-size:12px">created | updated | cancelled | deleted | submitted | reclassified</td></tr>
+                <tr><td><span class="field-name">process_message</span></td><td><span class="field-type">String</span></td><td style="color:var(--text-dim);font-size:12px">SUCCESS or error detail</td></tr>
+                <tr><td><span class="field-name">reference</span></td><td><span class="field-type">String</span></td><td style="color:var(--text-dim);font-size:12px">Reference number of the created/updated record</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="response-section">
+          <div class="section-label">Error Response Format</div>
+          <div class="code-block-wrap">
+            <div class="code-block-header">
+              <span class="code-lang">JSON</span>
+              <button class="copy-btn" onclick="copyCode('err-code-${id}', this)">Copy</button>
+            </div>
+            <pre id="err-code-${id}">${highlightJSON(`{
+  "result": {
+    "status": "error",
+    "process_message": "Validation error: arrival_date_time cannot be in the past",
+    "reference": ""
+  }
+}`)}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// =============================================
+// BUILD JSON SCHEMA
+// =============================================
+function buildJSONSchema(ep) {
+  const props = {};
+  const required = [];
+  (ep.fields || []).forEach(f => {
+    if (f.name.startsWith('(')) return;
+    const isNested = f.type && (f.type.includes('Nested') || f.type.includes('[]'));
+    let jsonType = 'string';
+    if (f.type && f.type.toLowerCase().includes('numeric')) jsonType = 'number';
+    if (f.type && (f.type.toLowerCase().includes('yes/no') || f.type.toLowerCase().includes('boolean'))) jsonType = 'string';
+    if (isNested) jsonType = 'array';
+
+    props[f.name] = { type: jsonType };
+    if (f.note) props[f.name].description = f.note;
+    if (f.req === 'Required') required.push(f.name);
+  });
+
+  const schema = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": ep.title,
+    "type": "object",
+    "properties": props
+  };
+  if (required.length) schema.required = required;
+  return JSON.stringify(schema, null, 2);
+}
+
+// =============================================
+// BUILD DDL
+// =============================================
+function buildDDL(ep) {
+  const cols = ep.sqlFields.map(f => {
+    let type = 'VARCHAR(200)';
+    if (f.includes('date') || f.includes('time')) type = 'TIMESTAMP';
+    if (f.includes('amount') || f.includes('mass') || f.includes('weight') || f.includes('count')) type = 'NUMERIC(15,2)';
+    return `  ${f} ${type}`;
+  }).join(',\n');
+
+  return `CREATE TABLE IF NOT EXISTS ${ep.sqlTable} (\n  id VARCHAR(40) PRIMARY KEY,\n${cols},\n  status VARCHAR(50),\n  sys_created_on TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  sys_updated_on TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);\n\nCREATE INDEX idx_${ep.sqlTable}_status ON ${ep.sqlTable}(status);\nCREATE INDEX idx_${ep.sqlTable}_created ON ${ep.sqlTable}(sys_created_on);`;
+}
+
+// =============================================
+// TAB SWITCHING
+// =============================================
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const panel = document.getElementById('tab-' + tab);
+  if (panel) panel.classList.add('active');
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    if (b.textContent.toLowerCase().includes(tab) || b.getAttribute('onclick')?.includes(tab)) b.classList.add('active');
+  });
+}
+
+// =============================================
+// COPY HELPERS
+// =============================================
+function copyCode(elId, btn) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const text = el.innerText;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓ Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+function copySchemaJSON(id, btn) {
+  const ep = endpoints.find(e => e.id === id);
+  if (!ep) return;
+  const text = buildJSONSchema(ep);
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓ Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy as JSON Schema'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// =============================================
+// INIT
+// =============================================
+buildSidebar();
+</script>
+</body>
+</html>

@@ -5,7 +5,7 @@ Runs the tenant SDI sync path: discover SUP records exposed by TSS, enrich from
 source/masterdata, update goods, update header, submit when the SDI_AUTO submit
 toggle is enabled, then re-read TSS status for official outcome.
 
-Set FUSION_FLOW_APP_ROOT when this QAS folder does not contain the Flask app.
+Uses the local QAS scripts/ package copied into this repository.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from pathlib import Path
 
 
 def _app_root() -> Path:
-    candidate = Path(os.environ.get("FUSION_FLOW_APP_ROOT") or Path(__file__).resolve().parents[2])
+    candidate = Path(__file__).resolve().parents[2]
     if not (candidate / "scripts" / "run_tenant_syncs.py").exists():
         raise SystemExit(
-            "Fusion app root not found. Set FUSION_FLOW_APP_ROOT to the repo that contains scripts/run_tenant_syncs.py."
+            "Local QAS script root not found. Expected scripts/run_tenant_syncs.py in this repository."
         )
     return candidate
 

@@ -1,0 +1,27 @@
+{% set key = (d.status or '') | string | replace('_', ' ') | upper %}
+{% set status_classes = {
+    'DRAFT':                    'badge-status-pending',
+    'INSERTED':                 'badge-status-pending',
+    'QUEUED':                   'badge-status-warning',
+    'PROCESSING':               'badge-status-draft',
+    'CREATED':                  'badge-status-created',
+    'VALIDATED':                'badge-status-draft',
+    'SUBMITTED':                'badge-status-success',
+    'SUCCESS':                  'badge-status-success',
+    'ACCEPTED':                 'badge-status-success',
+    'CLEARED':                  'badge-status-success',
+    'ARRIVED':                  'badge-status-success',
+    'AUTHORISED FOR MOVEMENT':  'badge-status-success',
+    'AUTHORISED':               'badge-status-success',
+    'SYNCED':                   'badge-status-automation',
+    'FAILED':                   'badge-status-danger',
+    'VALIDATION ERROR':         'badge-status-danger',
+    'SUBMIT ERROR':             'badge-status-danger',
+    'TRADER INPUT REQUIRED':    'badge-status-warning',
+    'AMENDMENT REQUIRED':       'badge-status-warning',
+    'PENDING PAYMENT':          'badge-status-automation',
+    'DO NOT LOAD':              'badge-status-danger',
+    'CANCELLED':                'badge-status-cancelled',
+    'RESUBMIT':                 'badge-status-warning',
+} %}
+<span class="badge {{ status_classes.get(key, 'badge-status-pending') }}">{{ d.status | status_display }}</span>

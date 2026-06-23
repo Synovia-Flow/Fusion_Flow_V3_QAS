@@ -1,0 +1,105 @@
+{# Manual test/backfill intake. The main production path is Graph email fetch. #}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body p-4">
+        <form id="intakeDropzoneForm" method="POST"
+              action="{{ url_for('ingest.preview_batch') }}"
+              enctype="multipart/form-data"
+              data-loading-toast
+              data-loading-message="Uploading files for ingest review..."
+              data-loading-meta="Fusion is parsing the files and preparing the review workspace."
+              data-loading-button-text="Staging...">
+            <div id="intakeDropzone" class="intake-dropzone position-relative text-center py-5">
+                <input id="intakeDropzoneInput" type="file" name="files" multiple required
+                       class="intake-dropzone-input"
+                       accept=".pdf,.csv,.zip,.xlsx,application/pdf,text/csv,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                <i class="bi bi-cloud-arrow-up display-3 text-primary"></i>
+                <h5 class="mt-3 mb-1">Drop files here</h5>
+                <div class="text-muted">or click to browse</div>
+                <div id="intakeDropzoneCount" class="small text-success mt-3" hidden></div>
+            </div>
+            <div class="row g-2 mt-3 text-start">
+                {% set creation_mode_wrapper = 'col-md-5' %}
+                {% include 'ingest/partials/_creation_mode_select.html' %}
+                {% set no_sfd_reason_wrapper = 'col-md-7' %}
+                {% include 'ingest/partials/_no_sfd_reason_select.html' %}
+            </div>
+            <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="{{ url_for('static', filename='templates/SynoviaFlow_Consignment_v2.9.5.xlsx') }}"
+                       class="btn btn-sm btn-outline-secondary"
+                       download>
+                        <i class="bi bi-file-earmark-spreadsheet"></i> Template (no SD)
+                    </a>
+                    <a href="{{ url_for('static', filename='templates/SynoviaFlow_Consignment_with_SD_v2.9.5.xlsx') }}"
+                       class="btn btn-sm btn-outline-secondary"
+                       download>
+                        <i class="bi bi-file-earmark-spreadsheet-fill"></i> Template (with SD)
+                    </a>
+                </div>
+                <button id="intakeDropzoneSubmit" type="submit" class="btn btn-primary" disabled>
+                    <i class="bi bi-arrow-right-circle"></i> Stage Batch
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.intake-dropzone {
+    border: 2px dashed var(--bs-border-color, #cbd5e1);
+    border-radius: 0.75rem;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+.intake-dropzone:hover,
+.intake-dropzone.is-dragover {
+    background: var(--bs-tertiary-bg, rgba(13, 110, 253, 0.05));
+    border-color: var(--bs-primary, #0d6efd);
+}
+.intake-dropzone-input {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; cursor: pointer;
+}
+</style>
+
+<script>
+(function () {
+    const zone = document.getElementById('intakeDropzone');
+    const input = document.getElementById('intakeDropzoneInput');
+    const count = document.getElementById('intakeDropzoneCount');
+    const submit = document.getElementById('intakeDropzoneSubmit');
+    if (!zone || !input || !count || !submit) return;
+
+    function update(files) {
+        const n = files ? files.length : 0;
+        if (n) {
+            count.textContent = n + (n === 1 ? ' file selected' : ' files selected');
+            count.hidden = false;
+            submit.disabled = false;
+        } else {
+            count.hidden = true;
+            submit.disabled = true;
+        }
+    }
+
+    input.addEventListener('change', () => update(input.files));
+
+    ['dragenter', 'dragover'].forEach(ev => {
+        zone.addEventListener(ev, e => {
+            e.preventDefault();
+            zone.classList.add('is-dragover');
+        });
+    });
+    ['dragleave', 'drop'].forEach(ev => {
+        zone.addEventListener(ev, e => {
+            e.preventDefault();
+            zone.classList.remove('is-dragover');
+        });
+    });
+    zone.addEventListener('drop', e => {
+        if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+        input.files = e.dataTransfer.files;
+        update(input.files);
+    });
+})();
+</script>

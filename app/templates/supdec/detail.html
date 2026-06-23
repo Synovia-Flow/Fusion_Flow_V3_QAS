@@ -1,0 +1,413 @@
+{% extends 'base.html' %}
+{% set page_title = sd.sup_dec_number or ("SDI #" ~ sd.staging_id) %}
+{% block content %}
+<div class="container-fluid px-4">
+  <nav aria-label="breadcrumb" class="mt-3">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{{ url_for('dashboard.index') }}">Dashboard</a></li>
+      <li class="breadcrumb-item"><a href="{{ url_for('supdec.list_view') }}">SDI</a></li>
+      <li class="breadcrumb-item active">{{ page_title }}</li>
+    </ol>
+  </nav>
+
+  <div class="page-header mb-3">
+    <div>
+      <h4 class="page-title"><i class="bi bi-file-earmark-check"></i> {{ page_title }}</h4>
+      <div class="page-subtitle">Supplementary declaration linked to the ENS, DEC and SFD chain.</div>
+    </div>
+    <div class="page-actions d-flex flex-wrap gap-2 justify-content-end">
+      <span class="{{ badge_class(sd.status) }} fs-6">{{ sd.status | status_display }}</span>
+      {% if linked_gmr %}
+      <a href="{{ gmr_detail_url(linked_gmr) }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-truck"></i> {{ linked_gmr.gmr_id or 'GMR' }}</a>
+      {% endif %}
+      <a href="{{ url_for('supdec.list_view') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
+    </div>
+  </div>
+
+  {% include "partials/_alerts.html" %}
+
+  {% if sd.sup_dec_number and (sd.tss_status == 'PENDING_SYNC' or sd.status == 'IMPORTED') %}
+  <div class="alert alert-info d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2">
+    <div>
+      <strong>This SDI is waiting for a live TSS sync.</strong>
+      Fusion has the SUP reference, but it has not yet pulled the current TSS status and goods.
+      {% if sd.error_message %}
+      <div class="small mt-1 text-danger"><strong>Last sync failed:</strong> {{ sd.error_message }}</div>
+      {% endif %}
+    </div>
+    <form method="POST" action="{{ url_for('supdec.refresh_tss', sid=sd.staging_id) }}" class="d-inline"
+          data-loading-toast
+          data-loading-message="Syncing SDI from TSS..."
+          data-loading-meta="Fusion is polling TSS for the latest supplementary declaration state."
+          data-loading-button-text="Syncing...">
+      <button class="btn btn-sm btn-info">
+        <i class="bi bi-arrow-repeat"></i> Sync TSS Now
+      </button>
+    </form>
+  </div>
+  {% endif %}
+
+  {# ── Lineage Card ── #}
+  <div class="card mb-3" style="border-left:4px solid #d97706">
+    <div class="card-header"><i class="bi bi-diagram-3"></i> Declaration Chain</div>
+    <div class="card-body">
+      <div class="d-flex gap-4 flex-wrap">
+        <div><small class="text-muted d-block">ENS Header</small>{% if declaration_chain.ens_reference %}<a href="{{ ens_detail_url({'ens_reference': declaration_chain.ens_reference}) }}" class="ref-link">{{ declaration_chain.ens_reference }}</a>{% else %}<span class="text-muted">—</span>{% endif %}</div>
+        <div class="text-muted align-self-center">→</div>
+        <div><small class="text-muted d-block">Consignment</small>{% if declaration_chain.consignment_reference %}<a href="{{ consignment_detail_url({'dec_reference': declaration_chain.consignment_reference}) }}" class="ref-link">{{ declaration_chain.consignment_reference }}</a>{% else %}<span class="text-muted">—</span>{% endif %}</div>
+        <div class="text-muted align-self-center">→</div>
+        <div>
+          <small class="text-muted d-block">SFD</small>
+          {% if declaration_chain.sfd_reference %}
+          <a href="{{ url_for('sfd.detail', sfd_ref=declaration_chain.sfd_reference) }}" class="ref-link">{{ declaration_chain.sfd_reference }}</a>
+          {% if declaration_chain.sfd_customs_reference %}
+          <div class="small text-muted">{{ declaration_chain.sfd_customs_label }} {{ declaration_chain.sfd_customs_reference }}</div>
+          {% endif %}
+          {% else %}
+          <span class="text-muted">—</span>
+          {% endif %}
+        </div>
+        <div class="text-muted align-self-center">→</div>
+        <div><small class="text-muted d-block">SDI</small><span class="ref-link-static text-success">{{ declaration_chain.sdi_reference }}</span></div>
+      </div>
+      {% if sd.submission_due_date %}
+      <div class="mt-2"><small class="text-muted">Deadline:</small> <span class="{{ 'text-danger fw-bold' if sd.submission_due_date.strftime('%Y-%m-%d') < today.strftime('%Y-%m-%d') else 'text-success' }}">{{ sd.submission_due_date.strftime('%d/%m/%Y') }}</span></div>
+      {% endif %}
+      {% if linked_gmr %}
+      <div class="mt-2"><small class="text-muted">Movement:</small> <a href="{{ gmr_detail_url(linked_gmr) }}" class="ref-link">{{ declaration_chain.movement_reference }}</a></div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Details ── #}
+  <div class="row g-3 mb-3">
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header">Inherited from SFD</div>
+        <div class="card-body">
+          <table class="table table-sm mb-0">
+            <tr><th class="text-muted" style="width:40%">Goods Description</th><td>{{ sd.goods_description or '—' }}</td></tr>
+            <tr><th class="text-muted">Importer EORI</th><td><code>{{ sd.importer_eori or '—' }}</code></td></tr>
+            <tr><th class="text-muted">Exporter EORI</th><td><code>{{ sd.exporter_eori or '—' }}</code></td></tr>
+            <tr><th class="text-muted">Transport Doc</th><td>{{ sd.transport_document_number or '—' }}</td></tr>
+            <tr><th class="text-muted">Controlled</th><td>{{ sd.controlled_goods or '—' }}</td></tr>
+            <tr><th class="text-muted">Trader Ref</th><td>{{ sd.trader_reference or '—' }}</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header" style="color:#d97706">Trader Added</div>
+        <div class="card-body">
+          <table class="table table-sm mb-0">
+            <tr><th class="text-muted" style="width:40%">Declaration Choice</th><td>{{ sd.declaration_choice or '—' }}</td></tr>
+            <tr><th class="text-muted">Incoterm</th><td>{{ sd.incoterm or '—' }}</td></tr>
+            <tr><th class="text-muted">Delivery</th><td>{{ sd.delivery_location_town or '' }}, {{ sd.delivery_location_country or '' }}</td></tr>
+            <tr><th class="text-muted">Freight</th><td>{{ sd.freight_charge or '—' }} {{ sd.freight_charge_currency or '' }}</td></tr>
+            <tr><th class="text-muted">Insurance</th><td>{{ sd.insurance or '—' }} {{ sd.insurance_currency or '' }}</td></tr>
+            <tr><th class="text-muted">Postponed VAT</th><td>{{ sd.postponed_vat or '—' }}</td></tr>
+            <tr><th class="text-muted">Act As</th><td><code>{{ effective_act_as or 'Not set' }}</code></td></tr>
+            <tr><th class="text-muted">MRN</th><td><code class="text-success">{{ sd.movement_reference_number or 'Not yet issued' }}</code></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if error_explanation %}
+  <div class="alert alert-{{ 'danger' if error_explanation.tone == 'danger' else 'warning' }}">
+    <div class="d-flex gap-2">
+      <i class="bi bi-exclamation-triangle"></i>
+      <div>
+        <strong>{{ error_explanation.title }}</strong>
+        <div class="small mt-1">{{ error_explanation.summary }}</div>
+        <div class="small mt-1">{{ error_explanation.detail }}</div>
+        <div class="small mt-2 fw-semibold">{{ error_explanation.next_step }}</div>
+        {% if error_explanation.technical %}
+        <details class="mt-2">
+          <summary class="small">Technical detail</summary>
+          <code class="small d-block mt-1 text-break">{{ error_explanation.technical }}</code>
+        </details>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% elif sd.error_message %}
+  <div class="alert alert-danger"><i class="bi bi-exclamation-triangle"></i> <strong>Error:</strong> {{ sd.error_message }}</div>
+  {% endif %}
+
+  {# ── Goods Items ── #}
+  {% if source_goods_count and not goods %}
+  <div class="alert alert-info d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2">
+    <div>
+      <strong><i class="bi bi-magic"></i> This SDI has {{ source_goods_count }} goods item{{ 's' if source_goods_count != 1 }} available from the linked DEC consignment.</strong>
+      <div class="small mt-1">Select which goods to copy — description, HS code, packages and weights come from DEC. Complete trader fields (valuation, preference, NoT, NI code) before submitting.</div>
+    </div>
+    <button type="button" class="btn btn-info" data-bs-toggle="modal" data-bs-target="#decGoodsPickerModal">
+      <i class="bi bi-list-check"></i> Pick from DEC
+    </button>
+  </div>
+  {% endif %}
+
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span><i class="bi bi-tag"></i> SDI Goods Items ({{ goods | length }})</span>
+      <div class="d-flex gap-2">
+        {% if source_goods_count %}
+        <button type="button" class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#decGoodsPickerModal">
+          <i class="bi bi-list-check"></i> Pick from DEC ({{ source_goods_count }})
+        </button>
+        {% endif %}
+        <a href="{{ url_for('supdec.create_goods', sid=sd.staging_id) }}" class="btn btn-sm btn-success"><i class="bi bi-plus-lg"></i> Add Goods</a>
+      </div>
+    </div>
+    <div class="card-body p-0">
+      {% if goods %}
+      <table class="table table-sm mb-0">
+        <thead><tr><th>#</th><th>Status</th><th>Description</th><th>HS Code</th><th>Procedure</th><th>Valuation</th><th>Preference</th><th>NI Code</th><th>Invoice</th></tr></thead>
+        <tbody>
+          {% for g in goods %}
+          <tr>
+            <td>{{ g.item_number or g.staging_id }}</td>
+            <td><span class="{{ badge_class(g.status) }}">{{ g.status | status_display }}</span></td>
+            <td>{{ g.goods_description | truncate(30) }}</td>
+            <td><code>{{ g.commodity_code or '—' }}</code></td>
+            <td><code>{{ g.procedure_code or '—' }}</code></td>
+            <td>{{ g.valuation_method or '—' }}</td>
+            <td>{{ g.preference or '—' }}</td>
+            <td><code>{{ g.ni_additional_information_codes or '—' }}</code></td>
+            <td>{{ g.item_invoice_amount or '—' }} {{ g.item_invoice_currency or '' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="text-center text-muted py-3">No goods items. <a href="{{ url_for('supdec.create_goods', sid=sd.staging_id) }}">Add one</a>.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if sd.sup_dec_number and not effective_act_as %}
+  <div class="alert alert-warning d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2">
+    <div>
+      <strong>Act As is required for some TSS SUP records.</strong>
+      If refresh returns "Customs Agent Role Required", choose the customer relationship that owns this SUP.
+    </div>
+    <a href="{{ url_for('supdec.edit', sid=sd.staging_id) }}" class="btn btn-sm btn-outline-dark">
+      <i class="bi bi-person-badge"></i> Set Act As
+    </a>
+  </div>
+  {% endif %}
+
+  <div class="d-flex gap-2 mb-4">
+    {% if sd.status in ('PENDING','FAILED','REJECTED','TRADER_INPUT_REQUIRED','IMPORTED') %}
+    <a href="{{ url_for('supdec.edit', sid=sd.staging_id) }}" class="btn btn-primary btn-sm"><i class="bi bi-pencil"></i> Edit</a>
+    {% endif %}
+    {% if not sd.sup_dec_number and sd.sfd_reference %}
+    <form method="POST" action="{{ url_for('supdec.discover_from_sfd', sid=sd.staging_id) }}" class="d-inline"
+          data-loading-toast
+          data-loading-message="Discovering TSS SDI draft..."
+          data-loading-meta="Fusion is asking TSS for the supplementary declaration linked to this SFD."
+          data-loading-button-text="Discovering...">
+      <button class="btn btn-outline-primary btn-sm"><i class="bi bi-search"></i> Discover TSS Draft</button>
+    </form>
+    {% endif %}
+    {% if sd.sup_dec_number %}
+    <form method="POST" action="{{ url_for('supdec.refresh_tss', sid=sd.staging_id) }}" class="d-inline"
+          data-loading-toast
+          data-loading-message="Refreshing SDI from TSS..."
+          data-loading-meta="Fusion is polling TSS for the latest supplementary declaration state."
+          data-loading-button-text="Refreshing...">
+      <button class="btn btn-outline-info btn-sm"><i class="bi bi-arrow-repeat"></i> Refresh TSS</button>
+    </form>
+    {% endif %}
+    {% if can_create_tss %}
+    <form method="POST" action="{{ url_for('supdec.create_in_tss', sid=sd.staging_id) }}" class="d-inline"
+          data-confirm data-confirm-title="Create SDI in TSS"
+          data-confirm-text="Originate this SDI in TSS now? Fusion will send the local SDI header and store the returned SUP reference."
+          data-confirm-submit-label="Create in TSS"
+          data-loading-toast
+          data-loading-message="Creating SDI in TSS..."
+          data-loading-meta="Fusion is sending op_type=create and waiting for the SUP reference."
+          data-loading-button-text="Creating...">
+      <button class="btn btn-primary btn-sm"><i class="bi bi-cloud-plus"></i> Create in TSS</button>
+    </form>
+    {% endif %}
+    {% if can_submit_tss %}
+    <form method="POST" action="{{ url_for('supdec.submit_tss', sid=sd.staging_id) }}" class="d-inline" data-confirm data-confirm-title="Update + Submit SDI" data-confirm-text="Update and submit {{ sd.sup_dec_number or ('SDI #' ~ sd.staging_id) }} to TSS now?" data-confirm-submit-label="Update + Submit SDI"
+          data-loading-toast
+          data-loading-message="Updating and submitting SDI to TSS..."
+          data-loading-meta="Fusion is sending the supplementary declaration update and waiting for TSS."
+          data-loading-button-text="Submitting...">
+      <button class="btn btn-success btn-sm"><i class="bi bi-cloud-upload"></i> Update + Submit to TSS</button>
+    </form>
+    {% endif %}
+    {% if can_recall_tss %}
+    <form method="POST" action="{{ url_for('supdec.recall_tss', sid=sd.staging_id) }}" class="d-inline" data-confirm data-confirm-title="Recall SDI" data-confirm-text="Recall {{ sd.sup_dec_number or ('SDI #' ~ sd.staging_id) }} back to draft in TSS?" data-confirm-submit-label="Recall SDI"
+          data-loading-toast
+          data-loading-message="Recalling SDI in TSS..."
+          data-loading-meta="Fusion is requesting TSS to return this SDI to draft."
+          data-loading-button-text="Recalling...">
+      <button class="btn btn-outline-warning btn-sm"><i class="bi bi-arrow-counterclockwise"></i> Recall</button>
+    </form>
+    {% endif %}
+    {% if can_cancel_tss %}
+    <form method="POST" action="{{ url_for('supdec.cancel_tss', sid=sd.staging_id) }}" class="d-inline" data-confirm data-confirm-title="Cancel Draft SDI in TSS" data-confirm-text="TSS only accepts SDI cancellation while the SUP is still Draft. Cancel {{ sd.sup_dec_number or ('SDI #' ~ sd.staging_id) }} now? This cannot be undone." data-confirm-submit-label="Cancel Draft SDI"
+          data-loading-toast
+          data-loading-message="Cancelling draft SDI in TSS..."
+          data-loading-meta="Fusion is sending the cancellation request and waiting for TSS."
+          data-loading-button-text="Cancelling...">
+      <button class="btn btn-outline-danger btn-sm"><i class="bi bi-x-circle"></i> Cancel Draft in TSS</button>
+    </form>
+    {% endif %}
+    {% if sd.status == 'FAILED' %}
+    <form method="POST" action="{{ url_for('supdec.retry', sid=sd.staging_id) }}" class="d-inline"
+          data-loading-toast
+          data-loading-message="Retrying SDI workflow..."
+          data-loading-meta="Fusion is retrying the SDI action and refreshing local state."
+          data-loading-button-text="Retrying...">
+      <button class="btn btn-warning btn-sm"><i class="bi bi-arrow-clockwise"></i> Retry</button>
+    </form>
+    {% endif %}
+    <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#sdiNotifyModal">
+        <i class="bi bi-envelope"></i> Send Reminder
+    </button>
+    <a href="{{ url_for('supdec.list_view') }}" class="btn btn-outline-secondary btn-sm">Back to List</a>
+  </div>
+</div>
+
+{# ── SDI NOTIFY MODAL ── #}
+<div class="modal fade" id="sdiNotifyModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-envelope me-1"></i> Send SDI Notification</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('supdec.notify', sid=sd.staging_id) }}">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Recipient Email</label>
+                        <input type="email" name="to_email" class="form-control"
+                               placeholder="customer@example.com" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Notification Type</label>
+                        <select name="notif_type" class="form-select" id="sdiNotifTypeSelect">
+                            <option value="arrival_confirmed">Arrival Confirmed — Complete Sup Dec</option>
+                            <option value="sdi_reminder">SDI Deadline Reminder</option>
+                            <option value="sdi_overdue">SDI OVERDUE — Submit Immediately</option>
+                            <option value="custom">Custom Message</option>
+                        </select>
+                    </div>
+                    <div class="mb-3" id="sdiCustomMsgWrap" style="display:none;">
+                        <label class="form-label fw-semibold">Custom Message</label>
+                        <textarea name="custom_message" class="form-control" rows="4"
+                                  placeholder="Enter your message..."></textarea>
+                    </div>
+                    {% if sd.submission_due_date %}
+                    <div class="alert alert-warning py-2 small mb-0">
+                        <i class="bi bi-calendar-event me-1"></i>
+                        This SDI deadline: <strong>{{ sd.submission_due_date.strftime('%d %b %Y') }}</strong>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-send"></i> Send Email
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+document.getElementById('sdiNotifTypeSelect').addEventListener('change', function() {
+    document.getElementById('sdiCustomMsgWrap').style.display = this.value === 'custom' ? '' : 'none';
+});
+</script>
+
+{% if source_goods_rows %}
+{# ── DEC GOODS PICKER MODAL ── #}
+<div class="modal fade" id="decGoodsPickerModal" tabindex="-1" aria-labelledby="decGoodsPickerLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="decGoodsPickerLabel"><i class="bi bi-list-check me-1"></i> Pick Goods from DEC</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('supdec.copy_selected_from_source', sid=sd.staging_id) }}">
+        <div class="modal-body p-0">
+          <div class="px-3 pt-3 pb-2 border-bottom d-flex align-items-center gap-3">
+            <span class="text-muted small">{{ source_goods_rows | length }} goods item{{ 's' if source_goods_rows | length != 1 }} from {{ declaration_chain.consignment_reference or 'linked DEC' }}</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="decPickerSelectAll">Select All</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="decPickerClearAll">Clear</button>
+          </div>
+          <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width:2.5rem;"></th>
+                <th>#</th>
+                <th>Description</th>
+                <th>HS Code</th>
+                <th>Packages</th>
+                <th>Gross weight kg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for g in source_goods_rows %}
+              <tr style="cursor:pointer;" onclick="if (!event.target.closest('input, button, a, label')) { this.querySelector('input[type=checkbox]').click(); } event.stopPropagation();">
+                <td class="text-center"><input type="checkbox" name="source_ids" value="{{ g.staging_id }}" class="form-check-input dec-picker-cb" checked></td>
+                <td class="text-muted small">{{ loop.index }}</td>
+                <td>{{ g.goods_description or g.label or '—' }}</td>
+                <td><code>{{ g.commodity_code or '—' }}</code></td>
+                <td>{{ g.number_of_packages or '—' }} {{ g.type_of_packages or '' }}</td>
+                <td onclick="event.stopPropagation();">
+                  <input class="sales-order-inline-input text-end font-monospace"
+                         name="source_gross_mass_kg__{{ g.staging_id }}"
+                         type="number"
+                         step="0.001"
+                         min="0"
+                         value="{{ g.gross_mass_kg if g.gross_mass_kg is not none else '' }}"
+                         aria-label="Gross weight kg">
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="modal-footer">
+          <span class="text-muted small me-auto" id="decPickerCount"></span>
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-info btn-sm"><i class="bi bi-files"></i> Copy Selected</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var modal = document.getElementById('decGoodsPickerModal');
+  if (!modal) return;
+  function updateCount() {
+    var checked = modal.querySelectorAll('.dec-picker-cb:checked').length;
+    var total = modal.querySelectorAll('.dec-picker-cb').length;
+    var el = document.getElementById('decPickerCount');
+    if (el) el.textContent = checked + ' of ' + total + ' selected';
+  }
+  modal.addEventListener('change', function(e) { if (e.target.classList.contains('dec-picker-cb')) updateCount(); });
+  document.getElementById('decPickerSelectAll').addEventListener('click', function() {
+    modal.querySelectorAll('.dec-picker-cb').forEach(function(cb) { cb.checked = true; });
+    updateCount();
+  });
+  document.getElementById('decPickerClearAll').addEventListener('click', function() {
+    modal.querySelectorAll('.dec-picker-cb').forEach(function(cb) { cb.checked = false; });
+    updateCount();
+  });
+  modal.addEventListener('shown.bs.modal', updateCount);
+})();
+</script>
+{% endif %}
+{% endblock %}

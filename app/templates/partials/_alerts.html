@@ -1,0 +1,34 @@
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="d-none flash-seed-wrap">
+  {% for category, message in messages %}
+  {% set flash_text = message %}
+  {% set technical_url = '' %}
+  {% set technical_label = '' %}
+  {% if message is mapping %}
+    {% set flash_text = message.get('text', '') %}
+    {% set technical_url = message.get('technical_url', '') %}
+    {% set technical_label = message.get('technical_label', 'Technical') %}
+  {% endif %}
+  {% if not technical_url and not request.path.startswith('/technical') %}
+    {% set technical_tab = 'api' if category in ['danger', 'warning'] else 'jobs' %}
+    {% set technical_url = url_for('technical.index', tab=technical_tab) %}
+    {% set technical_label = 'Technical' %}
+  {% endif %}
+  <div class="js-flash-seed"
+       data-category="{{ category }}"
+       data-message="{{ flash_text|e }}"
+       data-technical-url="{{ technical_url }}"
+       data-technical-label="{{ technical_label }}"></div>
+  {% endfor %}
+</div>
+<noscript>
+  <div class="flash-messages mb-3">
+    {% for category, message in messages %}
+    {% set flash_text = message.get('text', '') if message is mapping else message %}
+    <div class="alert alert-{{ category }}" role="alert">{{ flash_text }}</div>
+    {% endfor %}
+  </div>
+</noscript>
+{% endif %}
+{% endwith %}

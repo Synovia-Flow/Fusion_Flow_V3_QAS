@@ -1,0 +1,501 @@
+{% extends "base.html" %}
+{% block title %}Consignment {{ cons.tss_consignment_ref or ('Draft #' ~ cons.stg_consignment_id) }}{% endblock %}
+
+{% block content %}
+{% set linked_sdi = linked_supdecs|default([], true) %}
+{% set cons_local_status = fixed_consignment_local_status(cons.sub_status, cons.TssStatus) %}
+{% set cons_status_key = (cons_local_status or '')|upper|replace(' ', '_') %}
+{% set cons_tss_status_key = (cons.TssStatus or '')|upper|replace('_', ' ') %}
+{% set cons_tss_terminal_ok = cons_tss_status_key in ['AUTHORISED FOR MOVEMENT', 'AUTHORIZED FOR MOVEMENT', 'ARRIVED'] %}
+{% set cons_failed = (not cons_tss_terminal_ok) and cons_status_key in ['FAILED', 'INVALID', 'REJECTED', 'TRADER_INPUT_REQUIRED'] %}
+<div class="cons-detail-shell">
+<nav aria-label="breadcrumb" class="mt-1 mb-2">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ url_for('dashboard.index') }}">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="{{ url_for('consignments.list_view') }}">Consignments</a></li>
+        {% if cons.stg_header_id %}
+        <li class="breadcrumb-item">
+            <a href="{{ url_for('declarations.header_detail', staging_id=cons.stg_header_id) }}">
+                {{ cons.tss_ens_header_ref or ('ENS #' ~ cons.stg_header_id) }}
+            </a>
+        </li>
+        {% endif %}
+        <li class="breadcrumb-item active">{{ cons.tss_consignment_ref or ('Draft #' ~ cons.stg_consignment_id) }}</li>
+    </ol>
+</nav>
+
+{% include 'partials/_alerts.html' %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <h5 class="mb-0 fw-bold" style="color: var(--fusion-navy);">{{ cons.tss_consignment_ref or ('Draft #' ~ cons.stg_consignment_id) }}</h5>
+        <span class="{{ badge_class(cons_local_status) }}">{{ cons_local_status | status_display }}</span>
+        <span class="text-muted small">Consignment #{{ cons.stg_consignment_id }}</span>
+        {% if cons.TssStatus %}
+        <span class="{{ badge_class(cons.TssStatus) }}">TSS: {{ cons.TssStatus | status_display }}</span>
+        {% endif %}
+        {% if cons.sfd_reference %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('sfd.detail', sfd_ref=cons.sfd_reference) }}">
+            SFD {{ cons.sfd_reference }}
+        </a>
+        {% endif %}
+        {% if linked_sdi|length %}
+        <a class="btn btn-sm btn-outline-warning" href="{{ supdec_detail_url(linked_sdi[0]) }}">
+            SDI {{ linked_sdi[0].sup_dec_number or ('#' ~ linked_sdi[0].staging_id) }}
+        </a>
+        {% endif %}
+    </div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        {% if can_submit_to_tss %}
+        <form method="POST"
+              action="{{ url_for('declarations.submit_header_cargo', staging_id=cons.stg_header_id) }}"
+              class="d-inline"
+              data-confirm
+              data-confirm-title="Manual Cargo Recovery"
+              data-confirm-text="Automation normally sends consignments and goods automatically. Use this only after fixing validation/TSS errors under {{ cons.tss_ens_header_ref }}."
+              data-confirm-submit-label="Retry Cargo to TSS"
+              data-loading-toast
+              data-loading-message="Retrying Cargo to TSS..."
+              data-loading-meta="Fusion is creating missing DEC/goods records and submitting only eligible consignments."
+              data-loading-button-text="Sending...">
+            <button class="btn btn-sm btn-outline-primary" data-motion-submit>
+                <i class="bi bi-arrow-right-circle"></i> Retry Cargo to TSS
+            </button>
+        </form>
+        {% endif %}
+        {% if can_sync_header %}
+        <form method="POST"
+              action="{{ url_for('declarations.sync_header_tss', staging_id=cons.stg_header_id) }}"
+              class="d-inline"
+              data-confirm
+              data-confirm-title="Sync TSS Now"
+              data-confirm-text="Poll TSS for the parent ENS and this consignment status?"
+              data-confirm-submit-label="Sync TSS Now"
+              data-loading-toast
+              data-loading-message="Syncing TSS status..."
+              data-loading-meta="Fusion is polling TSS and checking whether final movement notification can be sent."
+              data-loading-button-text="Syncing...">
+            <button class="btn btn-sm btn-info">
+                <i class="bi bi-arrow-repeat"></i> Sync TSS Now
+            </button>
+        </form>
+        {% endif %}
+        <div class="btn-group">
+            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-three-dots"></i> More
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                {% if can_edit_consignment %}
+                <li>
+                    <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#consignmentEditModal">
+                        <i class="bi bi-pencil me-2"></i>Edit Consignment
+                    </button>
+                </li>
+                {% endif %}
+                {% if can_cancel_tss %}
+                <li>
+                    <form method="POST"
+                          action="{{ url_for('consignments.cancel_tss', sid=cons.stg_consignment_id) }}"
+                          data-confirm
+                          data-confirm-title="Cancel Consignment in TSS"
+                          data-confirm-text="Cancel {{ cons.tss_consignment_ref }} in TSS? This is only allowed before ARRIVED and cannot be undone from Fusion."
+                          data-confirm-submit-label="Cancel Consignment"
+                          data-loading-toast
+                          data-loading-message="Cancelling consignment in TSS..."
+                          data-loading-meta="Fusion is sending op_type=cancel for {{ cons.tss_consignment_ref }}.">
+                        <button type="submit" class="dropdown-item text-danger">
+                            <i class="bi bi-x-octagon me-2"></i>Cancel in TSS
+                        </button>
+                    </form>
+                </li>
+                {% endif %}
+                {% if can_recreate_cancelled %}
+                <li>
+                    <form method="POST"
+                          action="{{ url_for('consignments.recreate_cancelled', sid=cons.stg_consignment_id) }}"
+                          data-confirm
+                          data-confirm-title="Recreate Cancelled DEC"
+                          data-confirm-text="Create a new local consignment and goods draft from {{ cons.tss_consignment_ref }}? The cancelled DEC remains as historical TSS data and Fusion will send the new draft as a fresh DEC."
+                          data-confirm-submit-label="Recreate & Send"
+                          data-loading-toast
+                          data-loading-message="Recreating cancelled DEC..."
+                          data-loading-meta="Fusion is cloning the cancelled consignment locally and starting the normal DEC/goods worker.">
+                        <button type="submit" class="dropdown-item text-primary">
+                            <i class="bi bi-copy me-2"></i>Recreate &amp; Send
+                        </button>
+                    </form>
+                </li>
+                {% endif %}
+                {% if cons.stg_header_id %}
+                <li><a class="dropdown-item" href="{{ url_for('declarations.header_detail', staging_id=cons.stg_header_id) }}"><i class="bi bi-file-earmark-text me-2"></i>Open ENS Header</a></li>
+                {% endif %}
+                <li><a class="dropdown-item" href="{{ url_for('consignments.list_view') }}"><i class="bi bi-arrow-left me-2"></i>Back to Consignments</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+{% if can_edit_consignment %}
+<div class="modal fade" id="consignmentEditModal" tabindex="-1" aria-labelledby="consignmentEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('consignments.edit', sid=cons.stg_consignment_id) }}">
+                <input type="hidden" name="next_url" value="{{ request.path }}">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title mb-1" id="consignmentEditModalLabel">
+                            <i class="bi bi-pencil-square me-1"></i>Edit Consignment
+                        </h5>
+                        <span class="badge bg-light text-dark border">{{ cons.tss_consignment_ref or ('Local #' ~ cons.stg_consignment_id) }}</span>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body ens-header-edit-modal-body consignment-edit-modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label small text-muted">Goods Description <span class="text-danger">*</span></label>
+                            <input class="form-control" name="goods_description" value="{{ cons.goods_description or '' }}" maxlength="254" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted">Transport Document <span class="text-danger">*</span></label>
+                            <input class="form-control font-monospace" name="transport_document_number" value="{{ cons.transport_document_number or cons.document_no or '' }}" maxlength="35" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted">Trader Reference</label>
+                            <input class="form-control font-monospace" name="trader_reference" value="{{ cons.trader_reference or '' }}" maxlength="100">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted">Importer EORI <span class="text-danger">*</span></label>
+                            <input class="form-control font-monospace" name="importer_eori" value="{{ cons.importer_eori or '' }}" maxlength="20" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted">Importer Name</label>
+                            <input class="form-control" name="importer_name" value="{{ cons.importer_name or '' }}" maxlength="70">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted">Consignor EORI</label>
+                            <input class="form-control font-monospace" name="consignor_eori" value="{{ cons.consignor_eori or '' }}" maxlength="20">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted">Consignor Name</label>
+                            <input class="form-control" name="consignor_name" value="{{ cons.consignor_name or '' }}" maxlength="70">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted">Consignee EORI</label>
+                            <input class="form-control font-monospace" name="consignee_eori" value="{{ cons.consignee_eori or '' }}" maxlength="20">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted">Consignee Name</label>
+                            <input class="form-control" name="consignee_name" value="{{ cons.consignee_name or '' }}" maxlength="70">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small text-muted">Controlled</label>
+                            {% set controlled_value = (cons.controlled_goods or 'no')|lower %}
+                            <select class="form-select" name="controlled_goods">
+                                <option value="no" {% if controlled_value == 'no' %}selected{% endif %}>No</option>
+                                <option value="yes" {% if controlled_value == 'yes' %}selected{% endif %}>Yes</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small text-muted">Container</label>
+                            {% set container_value = cons.container_indicator or '' %}
+                            <select class="form-select" name="container_indicator">
+                                <option value="" {% if not container_value %}selected{% endif %}>--</option>
+                                <option value="0" {% if container_value == '0' %}selected{% endif %}>No</option>
+                                <option value="1" {% if container_value == '1' %}selected{% endif %}>Yes</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small text-muted">Destination</label>
+                            <input class="form-control font-monospace" name="destination_country" value="{{ cons.destination_country or '' }}" maxlength="2">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small text-muted">Domestic Status</label>
+                            <input class="form-control font-monospace" name="goods_domestic_status" value="{{ cons.goods_domestic_status or '' }}" maxlength="20">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small text-muted">No SFD Reason</label>
+                            <input class="form-control font-monospace" name="no_sfd_reason" value="{{ cons.no_sfd_reason or '' }}" maxlength="10">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small text-muted">Generate SDI</label>
+                            {% set generate_sd_value = (cons.generate_SD or 'no')|lower %}
+                            <select class="form-select" name="generate_SD">
+                                <option value="no" {% if generate_sd_value == 'no' %}selected{% endif %}>No</option>
+                                <option value="yes" {% if generate_sd_value == 'yes' %}selected{% endif %}>Yes</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small text-muted">DUCR</label>
+                            <input class="form-control font-monospace" name="ducr" value="{{ cons.ducr or '' }}" maxlength="35">
+                        </div>
+                        {% include 'consignments/partials/_prd_consignment_edit_fields.html' %}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save"></i> Save Consignment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if cons_failed %}
+<div class="alert alert-danger py-2 mb-3 cons-failure-summary">
+    <div class="d-flex align-items-start gap-2">
+        <i class="bi bi-exclamation-triangle mt-1"></i>
+        <div class="flex-grow-1">
+            <strong>Why this consignment failed</strong>
+            {% if cons.error_message %}
+            <div class="small mt-1 text-break">{{ cons.error_message }}</div>
+            {% else %}
+            {% set ns = namespace(error_count=0) %}
+            {% for g in goods if g.error_message %}
+            {% set ns.error_count = ns.error_count + 1 %}
+            <div class="small mt-1 text-break">
+                Goods {{ g.item_seq or ('#' ~ g.stg_item_id) }}:
+                {{ g.error_message }}
+            </div>
+            {% endfor %}
+            {% if ns.error_count == 0 %}
+            <div class="small mt-1">
+                No local consignment error was captured. Review the goods rows below and the Technical Logs for the latest TSS/API response.
+            </div>
+            {% endif %}
+            {% endif %}
+            <a class="btn btn-sm btn-outline-danger mt-2" href="{{ url_for('technical.index', tab='api') }}">
+                <i class="bi bi-terminal"></i> Open Technical Logs
+            </a>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card shadow-sm border-0 mb-3 ens-simple-header">
+    <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="ens-simple-section-title">
+            <i class="bi bi-box-seam me-1"></i> Consignment Details
+        </span>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="{{ badge_class(cons_local_status) }}">Local: {{ cons_local_status | status_display }}</span>
+            {% if cons.TssStatus %}
+            <span class="{{ badge_class(cons.TssStatus) }}">TSS: {{ cons.TssStatus | status_display }}</span>
+            {% endif %}
+            {% if pending_goods_count %}
+            <span class="badge badge-status-warning">{{ pending_goods_count }} goods pending</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3 small ens-simple-grid">
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Sales Order / Document No</div>
+                <div class="ens-simple-field-value font-monospace">{{ cons.document_no or '&mdash;'|safe }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">ENS Ref</div>
+                <div class="ens-simple-field-value font-monospace">{{ cons.tss_ens_header_ref or '&mdash;'|safe }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Goods Description</div>
+                <div class="ens-simple-field-value">{{ cons.goods_description or '&mdash;'|safe }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">SFD DEC</div>
+                <div class="ens-simple-field-value font-monospace">
+                    {% if cons.sfd_reference %}
+                    <a href="{{ url_for('sfd.detail', sfd_ref=cons.sfd_reference) }}" class="ref-link-muted">{{ cons.sfd_reference }}</a>
+                    {% else %}
+                    {{ '&mdash;'|safe }}
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">SFD MRN / EIDR</div>
+                <div class="ens-simple-field-value font-monospace">{{ cons.sfd_mrn or cons.sfd_eidr or '&mdash;'|safe }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">SFD Status</div>
+                <div class="ens-simple-field-value">
+                    {% if cons.sfd_status %}
+                    <span class="{{ badge_class(cons.sfd_status) }}">{{ cons.sfd_status | status_display }}</span>
+                    {% else %}
+                    <span class="text-muted">&mdash;</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">SDI / SupDec</div>
+                <div class="ens-simple-field-value font-monospace">
+                    {% if linked_sdi|length %}
+                    <a href="{{ supdec_detail_url(linked_sdi[0]) }}" class="ref-link-muted">{{ linked_sdi[0].sup_dec_number or ('SDI #' ~ linked_sdi[0].staging_id) }}</a>
+                    {% elif cons.sfd_reference %}
+                    <span class="text-muted">Pending autosync</span>
+                    {% else %}
+                    {{ '&mdash;'|safe }}
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Consignor</div>
+                <div class="ens-simple-field-value">{{ cons.consignor_name or '&mdash;'|safe }} {{ ('(' ~ cons.consignor_eori ~ ')') if cons.consignor_eori else '' }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Consignee</div>
+                <div class="ens-simple-field-value">{{ cons.consignee_name or '&mdash;'|safe }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Consignee EORI</div>
+                <div class="ens-simple-field-value font-monospace">{{ cons.consignee_eori or '&mdash;'|safe }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Importer EORI</div>
+                <div class="ens-simple-field-value">{{ cons.importer_eori or '&mdash;'|safe }} {{ cons.importer_name or '' }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Conveyance</div>
+                <div class="ens-simple-field-value">{{ cons.conveyance_ref or '&mdash;'|safe }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Arrival</div>
+                <div class="ens-simple-field-value">{{ cons.arrival_date_time | datefmt('%d %b %Y %H:%M') }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Source</div>
+                <div class="ens-simple-field-value text-muted">{{ cons.source or '&mdash;'|safe }}</div>
+            </div>
+            <div class="col-md-4">
+                <div class="ens-simple-field-label">Updated</div>
+                <div class="ens-simple-field-value text-muted">{{ cons.updated_at | localdt('%d %b %Y %H:%M') }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% set goods_needing_attention = goods | selectattr('error_message') | list %}
+{% if goods_needing_attention and not cons_failed and not cons_tss_terminal_ok %}
+<div class="alert alert-warning py-2 mb-3">
+    <div class="d-flex align-items-start gap-2">
+        <i class="bi bi-exclamation-circle mt-1"></i>
+        <div class="flex-grow-1">
+            <strong>{{ goods_needing_attention | length }} goods item(s) need attention before TSS submission</strong>
+            <div class="small mt-1">
+                {% for g in goods_needing_attention[:6] %}
+                <div>
+                    <span class="font-monospace">{{ g.sku or ('Goods #' ~ g.stg_item_id) }}</span>:
+                    {{ g.error_message }}
+                </div>
+                {% endfor %}
+                {% if goods_needing_attention | length > 6 %}
+                <div class="text-muted">…and {{ (goods_needing_attention | length) - 6 }} more — see table below.</div>
+                {% endif %}
+            </div>
+            <a class="btn btn-sm btn-outline-warning mt-2"
+               href="{{ url_for('technical.index', tab='api') }}">
+                <i class="bi bi-terminal"></i> Technical Logs
+            </a>
+        </div>
+    </div>
+</div>
+{% endif %}
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <h6 class="fw-semibold mb-0"><i class="bi bi-list-ul"></i> Goods Items ({{ goods | length }})</h6>
+    {% if can_edit_consignment %}
+    <a class="btn btn-sm btn-outline-success" href="{{ url_for('goods.create', cons_id=cons.stg_consignment_id, next_url=request.path) }}">
+        <i class="bi bi-plus-circle"></i> Add item
+    </a>
+    {% endif %}
+</div>
+<div class="table-responsive">
+{% set goods_action_ns = namespace(show=false) %}
+{% for g in goods %}
+    {% set g_status_key = (g.sub_status or '')|upper|replace('_', ' ') %}
+    {% set cons_tss_key = (cons.TssStatus or '')|upper|replace('_', ' ') %}
+    {% set cons_has_tss = cons.tss_consignment_ref %}
+    {% set g_editable = (cons_has_tss and cons_tss_key in ['DRAFT', 'TRADER INPUT REQUIRED']) or ((not cons_has_tss) and g_status_key in ['PENDING', 'PENDING REVIEW', 'FAILED', 'INVALID', 'VALIDATED']) %}
+    {% if g_editable or g.can_delete_failed_goods %}
+        {% set goods_action_ns.show = true %}
+    {% endif %}
+{% endfor %}
+<table class="table table-sm align-middle clickable-rows">
+    <thead class="table-light">
+        <tr>
+            <th>Seq</th>
+            <th>Description</th>
+            <th>Commodity</th>
+            <th>SKU</th>
+            <th>Gross kg</th>
+            <th>Net kg</th>
+            <th>Pkgs</th>
+            <th>Local Status</th>
+            <th>TSS Status</th>
+            <th>TSS ID</th>
+            <th>Error</th>
+            {% if goods_action_ns.show %}
+            <th></th>
+            {% endif %}
+        </tr>
+    </thead>
+    <tbody>
+    {% for g in goods %}
+    {% set g_status_key = (g.sub_status or '')|upper|replace('_', ' ') %}
+    {% set cons_tss_key = (cons.TssStatus or '')|upper|replace('_', ' ') %}
+    {% set cons_has_tss = cons.tss_consignment_ref %}
+    {% set g_editable = (cons_has_tss and cons_tss_key in ['DRAFT', 'TRADER INPUT REQUIRED']) or ((not cons_has_tss) and g_status_key in ['PENDING', 'PENDING REVIEW', 'FAILED', 'INVALID', 'VALIDATED']) %}
+    <tr{% if g_editable %} class="js-clickable-row" data-row-href="{{ url_for('goods.edit', sid=g.stg_item_id) }}"{% endif %}>
+        <td>{{ g.item_seq }}</td>
+        <td>{{ g.goods_description or '&mdash;'|safe }}</td>
+        <td class="font-monospace small">{{ g.commodity_code or '&mdash;'|safe }}</td>
+        <td class="text-muted small">{{ g.sku or '&mdash;'|safe }}</td>
+        <td>{{ g.gross_mass_kg if g.gross_mass_kg is not none and g.gross_mass_kg != '' else '&mdash;'|safe }}</td>
+        <td>{{ g.net_mass_kg if g.net_mass_kg is not none and g.net_mass_kg != '' else '&mdash;'|safe }}</td>
+        <td>{{ g.number_of_packages or '&mdash;'|safe }} {{ g.type_of_packages or '' }}</td>
+        <td><span class="{{ badge_class(g.sub_status) }}">{{ g.sub_status | status_display }}</span></td>
+        <td>
+            {% if g.item_tss_status %}
+            <span class="{{ badge_class(g.item_tss_status) }}">{{ g.item_tss_status | status_display }}</span>
+            {% else %}
+            <span class="text-muted small">&mdash;</span>
+            {% endif %}
+        </td>
+        <td class="font-monospace small">{{ g.tss_hex_id or '&mdash;'|safe }}</td>
+        <td class="text-danger small">{{ '' if cons_tss_terminal_ok else (g.error_message or '') }}</td>
+        {% if goods_action_ns.show %}
+        <td class="text-end" data-no-row-link>
+            {% if g_editable or g.can_delete_failed_goods %}
+            <div class="d-inline-flex gap-1" data-no-row-link>
+                {% if g_editable %}
+                <a href="{{ url_for('goods.edit', sid=g.stg_item_id) }}" class="btn btn-sm btn-outline-primary py-0">
+                    <i class="bi bi-pencil"></i> Edit
+                </a>
+                {% endif %}
+                {% if g.can_delete_failed_goods %}
+                <form method="POST"
+                      action="{{ url_for('goods.delete', sid=g.stg_item_id) }}"
+                      data-confirm
+                      data-confirm-title="Delete Local Goods"
+                      data-confirm-text="Delete local goods {{ g.item_seq or g.stg_item_id }} from STG? This item has no TSS Goods ID, so no TSS record will be cancelled."
+                      data-confirm-submit-label="Delete Goods">
+                    <input type="hidden" name="next_url" value="{{ request.path }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger py-0" data-no-row-link>
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+            {% endif %}
+        </td>
+        {% endif %}
+    </tr>
+    {% else %}
+    <tr><td colspan="{{ 12 if goods_action_ns.show else 11 }}" class="text-center text-muted py-3">No goods items staged for this consignment.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+</div>
+{% endblock %}

@@ -1,0 +1,474 @@
+{% extends 'base.html' %}
+{% block title %}Review Ingest Batch{% endblock %}
+
+{% macro input_field(name, label, value, missing=false, width='col-md-3 col-sm-6', input_id='', input_type='text', extra_class='', required=false, feedback='This field is required before creating records.') %}
+<div class="{{ width }}">
+    <label class="form-label small fw-semibold mb-1">
+        {{ label }} <span class="text-danger ingest-required-mark {{ 'd-none' if not required else '' }}">*</span>
+    </label>
+    <input type="{{ input_type }}"
+           name="{{ name }}"
+           {% if input_id %}id="{{ input_id }}"{% endif %}
+           value="{{ value or '' }}"
+           {% if required %}required data-ingest-required="true"{% endif %}
+           class="form-control form-control-sm {{ extra_class }} {{ 'is-invalid' if missing else '' }}">
+    <div class="invalid-feedback{% if missing %} d-block{% endif %}">{{ feedback }}</div>
+</div>
+{% endmacro %}
+
+{% macro select_field(name, label, value, options, missing=false, width='col-md-3 col-sm-6', select_id='', extra_class='', blank='-- Select --', required=false, feedback='This field is required before creating records.') %}
+<div class="{{ width }}">
+    <label class="form-label small fw-semibold mb-1">
+        {{ label }} <span class="text-danger ingest-required-mark {{ 'd-none' if not required else '' }}">*</span>
+    </label>
+    <select name="{{ name }}"
+            {% if select_id %}id="{{ select_id }}"{% endif %}
+            {% if required %}required data-ingest-required="true"{% endif %}
+            class="form-select form-select-sm {{ extra_class }} {{ 'is-invalid' if missing else '' }}">
+        <option value="">{{ blank }}</option>
+        {% set ns = namespace(found=false) %}
+        {% for cv in options %}
+        {% set opt_value = cv.value %}
+        {% set opt_name = cv.name %}
+        {% if opt_value == value %}{% set ns.found = true %}{% endif %}
+        <option value="{{ opt_value }}" {% if opt_value == value %}selected{% endif %}>
+            {{ opt_name }}{% if opt_name != opt_value %} ({{ opt_value }}){% endif %}
+        </option>
+        {% endfor %}
+        {% if value and not ns.found %}
+        <option value="{{ value }}" selected>{{ value }} (current)</option>
+        {% endif %}
+    </select>
+    <div class="invalid-feedback{% if missing %} d-block{% endif %}">{{ feedback }}</div>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="page-header mb-3">
+    <div>
+        <h4 class="page-title"><i class="bi bi-clipboard-check"></i> Review Ingest Batch</h4>
+        <p class="page-subtitle">Confirm extracted fields before Fusion creates the ENS, consignments and goods items.</p>
+    </div>
+    <a href="{{ url_for('ingest.queue', panel='upload') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Back To Ingest
+    </a>
+</div>
+
+{% include 'partials/_alerts.html' %}
+
+{% if error %}
+<div class="alert alert-danger">
+    <i class="bi bi-exclamation-triangle"></i> {{ error }}
+</div>
+{% endif %}
+
+{% if review.automation_enabled is sameas false %}
+<div class="alert alert-warning">
+    <i class="bi bi-pause-circle"></i> Record creation is disabled for this tenant. You can review the extracted fields here, but Confirm will not create ENS, consignments or goods until ingestion creation is enabled.
+</div>
+{% endif %}
+
+<div class="row g-2 mb-3">
+    <div class="col-md-3 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">ENS</span>
+            <span class="ingest-ops-value">1</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Consignments</span>
+            <span class="ingest-ops-value">{{ review.summary.consignment_count }}</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Goods Items</span>
+            <span class="ingest-ops-value">{{ review.summary.goods_count }}</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Required Missing</span>
+            <span class="ingest-ops-value {{ 'text-danger' if review.summary.missing_total else 'text-success' }}">
+                {{ review.summary.missing_total }}
+            </span>
+        </div>
+    </div>
+</div>
+
+{% if review.character_warnings %}
+<div class="alert alert-warning py-2">
+    <strong>{{ review.character_warnings|length }} TSS character warning{{ 's' if review.character_warnings|length != 1 }}</strong>
+    <div class="small mt-1">
+        {% for warning in review.character_warnings[:6] %}
+        <div>{{ warning }}</div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if review.enrichment_warnings %}
+<div class="alert alert-warning py-2">
+    <strong>{{ review.enrichment_warnings|length }} enrichment warning{{ 's' if review.enrichment_warnings|length != 1 }}</strong>
+    <div class="small mt-1">
+        {% for warning in review.enrichment_warnings[:6] %}
+        <div>{{ warning }}</div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('ingest.confirm_review') }}" class="ingest-review-form" novalidate
+      data-loading-toast
+      data-loading-message="Creating ingest staging records..."
+      data-loading-meta="Fusion is writing the ENS, consignments and goods to staging."
+      data-loading-button-text="Creating...">
+    <textarea name="review_json" class="d-none">{{ review_json }}</textarea>
+
+    {% set header_payload = review.header.payload %}
+    {% set header_missing = review.header.missing %}
+    {% set header_required = review.header.required or header_required_fields %}
+    {% set roro_feedback = 'Required for Maritime/RoRo movements.' %}
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white py-2">
+            <span class="fw-semibold small"><i class="bi bi-file-earmark-text"></i> ENS Header</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                {{ select_field('header__movement_type', 'Movement Type', header_payload.get('movement_type'), choices.movement_types, 'movement_type' in header_missing, 'col-md-3 col-sm-6', 'movement_type', '', '-- Select --', 'movement_type' in header_required) }}
+                {{ select_field('header__type_of_passive_transport', 'Passive Transport', header_payload.get('type_of_passive_transport'), choices.passive_transport_types, 'type_of_passive_transport' in header_missing, 'col-md-3 col-sm-6', 'type_of_passive_transport', 'ts-select', '-- None --') }}
+                {{ input_field('header__identity_no_of_transport', 'Identity of Transport', header_payload.get('identity_no_of_transport'), 'identity_no_of_transport' in header_missing, 'col-md-3 col-sm-6', '', 'text', 'font-monospace', 'identity_no_of_transport' in header_required) }}
+                {{ select_field('header__nationality_of_transport', 'Nationality', header_payload.get('nationality_of_transport'), choices.countries, 'nationality_of_transport' in header_missing, 'col-md-3 col-sm-6', '', 'ts-country', '-- Select --', 'nationality_of_transport' in header_required) }}
+                {{ select_field('header__transport_charges', 'Transport Charges', header_payload.get('transport_charges'), choices.transport_charges, 'transport_charges' in header_missing, 'col-md-3 col-sm-6', '', '', '-- Select --', 'transport_charges' in header_required) }}
+                {{ input_field('header__conveyance_ref', 'Conveyance Ref', header_payload.get('conveyance_ref'), 'conveyance_ref' in header_missing, 'col-md-3 col-sm-6') }}
+                {{ input_field('header__seal_number', 'Seal Number', header_payload.get('seal_number'), 'seal_number' in header_missing, 'col-md-3 col-sm-6') }}
+            </div>
+
+            <div class="row g-2 mb-3">
+                {{ select_field('header__arrival_port', 'Arrival Port', header_payload.get('arrival_port'), choices.ports, 'arrival_port' in header_missing, 'col-md-5 col-sm-12', '', 'ts-port', '-- Select Port --', 'arrival_port' in header_required) }}
+                {{ input_field('header__arrival_date_time', 'Arrival Date/Time', header_datetime_local, 'arrival_date_time' in header_missing, 'col-md-3 col-sm-6', '', 'datetime-local', '', 'arrival_date_time' in header_required) }}
+                {{ input_field('header__place_of_loading', 'Place of Loading', header_payload.get('place_of_loading'), 'place_of_loading' in header_missing, 'col-md-2 col-sm-6', '', 'text', '', 'place_of_loading' in header_required) }}
+                {{ input_field('header__place_of_unloading', 'Place of Unloading', header_payload.get('place_of_unloading'), 'place_of_unloading' in header_missing, 'col-md-2 col-sm-6', '', 'text', '', 'place_of_unloading' in header_required) }}
+                {{ select_field('header__place_of_acceptance_same_as_loading', 'Accept = Loading', header_payload.get('place_of_acceptance_same_as_loading'), [{'value':'yes','name':'Yes'}, {'value':'no','name':'No'}], 'place_of_acceptance_same_as_loading' in header_missing, 'col-md-2 col-sm-6', 'accept_same', '', '-- Select --') }}
+                {{ input_field('header__place_of_acceptance', 'Place of Acceptance', header_payload.get('place_of_acceptance'), 'place_of_acceptance' in header_missing, 'col-md-3 col-sm-6', 'place_of_acceptance') }}
+                {{ select_field('header__place_of_delivery_same_as_unloading', 'Delivery = Unloading', header_payload.get('place_of_delivery_same_as_unloading'), [{'value':'yes','name':'Yes'}, {'value':'no','name':'No'}], 'place_of_delivery_same_as_unloading' in header_missing, 'col-md-2 col-sm-6', 'delivery_same', '', '-- Select --') }}
+                {{ input_field('header__place_of_delivery', 'Place of Delivery', header_payload.get('place_of_delivery'), 'place_of_delivery' in header_missing, 'col-md-3 col-sm-6', 'place_of_delivery') }}
+            </div>
+
+            {% if carriers %}
+            <div class="mb-3">
+                <label class="form-label small fw-semibold mb-1">Quick-fill from saved carriers</label>
+                <select class="form-select form-select-sm" style="max-width:420px;" id="carrier-quick">
+                    <option value="">-- Select saved carrier --</option>
+                    {% for c in carriers %}
+                    <option data-eori="{{ c.eori }}" data-name="{{ c.partner_name }}" data-addr="{{ c.address_line1 }}" data-city="{{ c.city }}" data-post="{{ c.postcode }}" data-country="{{ c.country }}">
+                        {{ c.partner_name }}{% if c.eori %} ({{ c.eori }}){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <div class="row g-2">
+                {{ input_field('header__carrier_eori', 'Carrier EORI', header_payload.get('carrier_eori'), 'carrier_eori' in header_missing, 'col-md-3 col-sm-6', 'carrier_eori', 'text', 'font-monospace', 'carrier_eori' in header_required) }}
+                {{ input_field('header__carrier_name', 'Carrier Name', header_payload.get('carrier_name'), 'carrier_name' in header_missing, 'col-md-3 col-sm-6', 'carrier_name', 'text', '', 'carrier_name' in header_required, roro_feedback) }}
+                {{ input_field('header__carrier_street_number', 'Carrier Street / Number', header_payload.get('carrier_street_number'), 'carrier_street_number' in header_missing, 'col-md-3 col-sm-6', 'carrier_street', 'text', '', 'carrier_street_number' in header_required, roro_feedback) }}
+                {{ input_field('header__carrier_city', 'Carrier City', header_payload.get('carrier_city'), 'carrier_city' in header_missing, 'col-md-3 col-sm-6', 'carrier_city', 'text', '', 'carrier_city' in header_required, roro_feedback) }}
+                {{ input_field('header__carrier_postcode', 'Carrier Postcode', header_payload.get('carrier_postcode'), 'carrier_postcode' in header_missing, 'col-md-3 col-sm-6', 'carrier_postcode', 'text', '', 'carrier_postcode' in header_required, roro_feedback) }}
+                {{ select_field('header__carrier_country', 'Carrier Country', header_payload.get('carrier_country'), choices.countries, 'carrier_country' in header_missing, 'col-md-3 col-sm-6', 'carrier_country_sel', 'ts-country', '-- Select --', 'carrier_country' in header_required, roro_feedback) }}
+                {{ input_field('header__haulier_eori', 'Haulier EORI', header_payload.get('haulier_eori'), 'haulier_eori' in header_missing, 'col-md-3 col-sm-6', '', 'text', 'font-monospace') }}
+            </div>
+            {% if review.header.character_warnings %}
+            <div class="small text-warning mt-3">
+                {% for warning in review.header.character_warnings %}
+                <div>{{ warning }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% for invoice in review.invoices %}
+    {% set invoice_index = loop.index0 %}
+    {% set cons_payload = invoice.consignment.payload %}
+    {% set cons_missing = invoice.consignment.missing %}
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <span class="fw-semibold small"><i class="bi bi-box-seam"></i> Consignment {{ loop.index }}</span>
+                <span class="text-muted small ms-2">{{ invoice.filename }}</span>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                {% set route = review.route_info[invoice_index] if review.route_info and review.route_info|length > invoice_index else {} %}
+                {% if route %}
+                <span class="badge bg-light text-dark border">{{ route.channel or 'UNKNOWN' }} / {{ route.customer_code or 'UNKNOWN' }}</span>
+                {% endif %}
+                {% if invoice.consignment.missing %}
+                <span class="badge bg-danger">{{ invoice.consignment.missing|length }} missing</span>
+                {% else %}
+                <span class="badge bg-success">Ready</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card-body">
+            {% if invoice.suggested_attach %}
+            <div class="alert {{ 'alert-info' if invoice.suggested_attach.can_attach_goods else 'alert-warning' }} py-2 mb-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                    <div>
+                        <strong>Possible existing consignment: {{ invoice.suggested_attach.reference_label }}</strong>
+                        <div class="small mt-1">
+                            {{ invoice.suggested_attach.match_reason or 'Invoice references align with an existing consignment.' }}
+                        </div>
+                        <div class="small text-muted mt-1">
+                            ENS {{ invoice.suggested_attach.ens_reference or '—' }} ·
+                            TSS {{ (invoice.suggested_attach.tss_status or invoice.suggested_attach.status or 'Draft') | status_display }} ·
+                            {{ invoice.suggested_attach.goods_count or 0 }} goods already linked
+                        </div>
+                    </div>
+                    {% if invoice.suggested_attach.can_attach_goods %}
+                    <button type="submit"
+                            class="btn btn-sm btn-outline-primary"
+                            formaction="{{ url_for('ingest.review_attach_existing') }}"
+                            formmethod="POST"
+                            name="attach_target"
+                            value="{{ invoice_index }}:{{ invoice.suggested_attach.staging_id }}"
+                            data-loading-message="Preparing attach-goods review..."
+                            data-loading-meta="Fusion is switching this invoice into goods-only attach mode."
+                            data-loading-button-text="Preparing...">
+                        <i class="bi bi-link-45deg"></i> Attach Goods Instead
+                    </button>
+                    {% elif invoice.suggested_attach.lock_reason %}
+                    <div class="small text-muted">{{ invoice.suggested_attach.lock_reason }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="row g-2 mb-3">
+                {{ select_field('cons__' ~ invoice_index ~ '__no_sfd_reason', 'SFD / ENS-only path', cons_payload.get('no_sfd_reason'), choices.no_sfd_reason, 'no_sfd_reason' in cons_missing, 'col-md-4 col-sm-12', '', '', 'Use SFD (default)') }}
+                {% for field, label in consignment_fields %}
+                {{ input_field('cons__' ~ invoice_index ~ '__' ~ field, label, cons_payload.get(field), field in cons_missing, 'col-md-3 col-sm-6', '', 'text', '', field in consignment_required_fields) }}
+                {% endfor %}
+            </div>
+            {% if invoice.consignment.character_warnings %}
+            <div class="small text-warning mb-3">
+                {% for warning in invoice.consignment.character_warnings %}
+                <div>{{ warning }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            {% for field, label in goods_table_fields %}
+                            <th style="min-width:{{ 220 if field == 'goods_description' else 110 }}px;">{{ label }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for goods in invoice.goods %}
+                        {% set goods_index = loop.index0 %}
+                        {% set gp = goods.payload %}
+                        {% set gm = goods.missing %}
+                        <tr>
+                            {% for field, label in goods_table_fields %}
+                            <td>
+                                <input type="text"
+                                       name="goods__{{ invoice_index }}__{{ goods_index }}__{{ field }}"
+                                       value="{{ gp.get(field) or '' }}"
+                                       aria-label="{{ label }}"
+                                       {% if field in goods_required_fields %}required data-ingest-required="true"{% endif %}
+                                       class="form-control form-control-sm {{ 'is-invalid' if field in gm else '' }}">
+                                {% if field in goods_required_fields %}
+                                <div class="invalid-feedback{% if field in gm %} d-block{% endif %}">This field is required before creating records.</div>
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        <tr>
+                            <td colspan="{{ goods_table_fields|length }}" class="bg-light">
+                                <div class="row g-2">
+                                    {% for field, label in goods_detail_fields %}
+                                    {{ input_field('goods__' ~ invoice_index ~ '__' ~ goods_index ~ '__' ~ field, label, gp.get(field), field in gm, 'col-md-2 col-sm-4', '', 'text', '', field in goods_required_fields) }}
+                                    {% endfor %}
+                                </div>
+                                {% if goods.warnings %}
+                                <div class="small text-warning mt-2">{{ goods.warnings | join(' | ') }}</div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+        <a href="{{ url_for('ingest.queue', panel='upload') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-x-lg"></i> Cancel
+        </a>
+        <button class="btn btn-success" type="submit">
+            <i class="bi bi-check-lg"></i> Create ENS, Consignments & Goods
+        </button>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css">
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.querySelector('.ingest-review-form');
+    if (!form) return;
+    const maritimeRoroMovementTypes = new Set(['1', '1a', '3', '3a']);
+    const roroRequiredNames = [
+        'header__carrier_name',
+        'header__carrier_street_number',
+        'header__carrier_city',
+        'header__carrier_postcode',
+        'header__carrier_country'
+    ];
+    const roroFeedbackText = 'Required for Maritime/RoRo movements.';
+    const boundRequiredControls = new WeakSet();
+
+    function feedbackFor(el) {
+        return el.closest('td, div')?.querySelector('.invalid-feedback');
+    }
+
+    function requiredMarkFor(el) {
+        return el.closest('td, div')?.querySelector('.ingest-required-mark');
+    }
+
+    function setRequiredState(el, invalid) {
+        el.classList.toggle('is-invalid', invalid);
+        const feedback = feedbackFor(el);
+        if (feedback) {
+            feedback.classList.toggle('d-block', invalid);
+        }
+        if (el.tomselect) {
+            el.tomselect.wrapper?.classList.toggle('is-invalid', invalid);
+            el.tomselect.control?.classList.toggle('is-invalid', invalid);
+        }
+    }
+
+    function validateRequired(el) {
+        const invalid = !String(el.value || '').trim();
+        setRequiredState(el, invalid);
+        return !invalid;
+    }
+
+    function bindRequiredControl(el) {
+        if (boundRequiredControls.has(el)) return;
+        boundRequiredControls.add(el);
+        el.addEventListener('input', function() { validateRequired(el); });
+        el.addEventListener('change', function() { validateRequired(el); });
+        if (el.classList.contains('is-invalid')) {
+            setRequiredState(el, true);
+        }
+    }
+
+    function setControlRequired(el, required, feedbackText) {
+        if (required) {
+            el.setAttribute('required', 'required');
+            el.dataset.ingestRequired = 'true';
+        } else {
+            el.removeAttribute('required');
+            delete el.dataset.ingestRequired;
+            setRequiredState(el, false);
+        }
+        requiredMarkFor(el)?.classList.toggle('d-none', !required);
+        const feedback = feedbackFor(el);
+        if (feedback && feedbackText) {
+            feedback.textContent = feedbackText;
+        }
+    }
+
+    function roroRequiredControls() {
+        return roroRequiredNames
+            .map(function(name) { return form.querySelector('[name="' + name + '"]'); })
+            .filter(Boolean);
+    }
+
+    function syncRoroRequiredFields() {
+        const movementType = form.querySelector('[name="header__movement_type"]');
+        const isRequired = maritimeRoroMovementTypes.has(String(movementType?.value || '').trim());
+        roroRequiredControls().forEach(function(el) {
+            bindRequiredControl(el);
+            setControlRequired(el, isRequired, roroFeedbackText);
+        });
+    }
+
+    function requiredControls() {
+        return Array.from(form.querySelectorAll('[data-ingest-required="true"]'));
+    }
+
+    document.getElementById('carrier-quick')?.addEventListener('change', function() {
+        const opt = this.selectedOptions[0];
+        if (!opt || !opt.dataset.eori) return;
+        const setValue = function(id, value) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.value = value || '';
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        };
+        setValue('carrier_eori', opt.dataset.eori);
+        setValue('carrier_name', opt.dataset.name);
+        setValue('carrier_street', opt.dataset.addr);
+        setValue('carrier_city', opt.dataset.city);
+        setValue('carrier_postcode', opt.dataset.post);
+        const country = document.getElementById('carrier_country_sel');
+        if (country && opt.dataset.country) {
+            country.value = opt.dataset.country;
+            country.dispatchEvent(new Event('change'));
+            if (country.tomselect) country.tomselect.setValue(opt.dataset.country, true);
+        }
+    });
+
+    if (typeof TomSelect !== 'undefined') {
+        function makeTomSelect(el, opts) {
+            const instance = new TomSelect(el, Object.assign({
+                controlInput: '<input type="text" autocomplete="new-password" autocorrect="off" autocapitalize="none" spellcheck="false">',
+                onItemAdd() { this.blur(); },
+                onChange() { validateRequired(el); }
+            }, opts || {}));
+            return instance;
+        }
+        document.querySelectorAll('.ingest-review-form .ts-country').forEach(function(el) {
+            makeTomSelect(el, { maxOptions: 300 });
+        });
+        document.querySelectorAll('.ingest-review-form .ts-port').forEach(function(el) {
+            makeTomSelect(el, { maxOptions: 200 });
+        });
+        document.querySelectorAll('.ingest-review-form .ts-select').forEach(function(el) {
+            makeTomSelect(el, { maxOptions: 200 });
+        });
+    }
+
+    form.querySelector('[name="header__movement_type"]')?.addEventListener('change', syncRoroRequiredFields);
+    syncRoroRequiredFields();
+    requiredControls().forEach(bindRequiredControl);
+
+    form.addEventListener('submit', function(event) {
+        const invalidControls = requiredControls().filter(function(el) {
+            return !validateRequired(el);
+        });
+        if (!invalidControls.length) return;
+        event.preventDefault();
+        invalidControls[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
+        invalidControls[0].focus({ preventScroll: true });
+    });
+
+    const firstInvalid = form.querySelector('.is-invalid');
+    if (!firstInvalid) return;
+    firstInvalid.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    firstInvalid.focus({ preventScroll: true });
+});
+</script>
+{% endblock %}

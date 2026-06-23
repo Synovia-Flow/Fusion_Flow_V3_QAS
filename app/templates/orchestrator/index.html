@@ -1,0 +1,304 @@
+{% extends 'base.html' %}
+{% block title %}Jobs{% endblock %}
+
+{% block content %}
+
+<!-- Page Header -->
+<div class="page-header mb-3">
+    <div>
+        <h4 class="page-title"><i class="bi bi-lightning-charge-fill text-warning"></i> Job Orchestrator</h4>
+        <p class="page-subtitle">Validate, submit and sync declarations — every run is logged</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('technical.index') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-terminal"></i> Technical Logs
+        </a>
+        <button hx-get="{{ url_for('orchestrator.status') }}"
+                hx-target="#status-area"
+                hx-swap="innerHTML"
+                hx-indicator="#loading-spinner"
+                class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<!-- ═══ STATS BAR ════════════════════════════════════════════════════════ -->
+<div id="status-area" class="mb-4">
+    {% include 'orchestrator/_status.html' %}
+</div>
+
+<!-- ═══ ROW 1 — ENS Pipeline ════════════════════════════════════════════ -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center section-header section-header-blue">
+        <span class="section-header-title">
+            <i class="bi bi-file-earmark-text me-1"></i> ENS PIPELINE
+        </span>
+        <span class="section-header-sub">Import references → validate → submit to TSS → sync status</span>
+    </div>
+    <div class="card-body p-3">
+        <div class="row g-2">
+            {% for phase, icon_cls, btn_cls in [
+                ('validate',  'text-info',    'btn-outline-info'),
+                ('submit',    'text-success',  'btn-outline-success'),
+                ('sync_all',  'text-primary',  'btn-outline-primary')
+            ] %}
+            {% set job = jobs[phase] %}
+            <div class="col-6 col-md-3">
+                <div class="job-card">
+                    <div class="job-icon {{ icon_cls }}"><i class="bi {{ job.icon }}"></i></div>
+                    <div class="job-label">{{ job.label }}</div>
+                    <div class="job-desc">{{ job.description }}</div>
+                    <form hx-post="{{ url_for('orchestrator.run_job') }}" hx-target="#run-output" hx-swap="innerHTML" hx-indicator="#loading-spinner" class="mt-auto"
+                          data-loading-toast
+                          data-loading-message="Running {{ job.label }}..."
+                          data-loading-meta="Fusion is executing the job and waiting for API responses."
+                          data-loading-button-text="Running...">
+                        <input type="hidden" name="phase" value="{{ phase }}">
+                        <button class="btn {{ btn_cls }} btn-sm w-100"><i class="bi bi-play-fill"></i> Run</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- ═══ ROW 2 — Cargo Pipeline ══════════════════════════════════════════ -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center section-header section-header-green">
+        <span class="section-header-title">
+            <i class="bi bi-box-seam me-1"></i> CARGO PIPELINE
+        </span>
+        <span class="section-header-sub">Consignments + goods items → validate → submit → sync to TSS</span>
+    </div>
+    <div class="card-body p-3">
+        <div class="row g-2">
+            {% for phase, icon_cls, btn_cls in [
+                ('validate_pipeline', 'text-info',   'btn-outline-info'),
+                ('submit_pipeline',   'text-success', 'btn-outline-success'),
+                ('sync_all',          'text-primary', 'btn-outline-primary')
+            ] %}
+            {% set job = jobs[phase] %}
+            <div class="col-6 col-md-3">
+                <div class="job-card">
+                    <div class="job-icon {{ icon_cls }}"><i class="bi {{ job.icon }}"></i></div>
+                    <div class="job-label">{{ job.label }}</div>
+                    <div class="job-desc">{{ job.description }}</div>
+                    <form hx-post="{{ url_for('orchestrator.run_job') }}" hx-target="#run-output" hx-swap="innerHTML" hx-indicator="#loading-spinner" class="mt-auto"
+                          data-loading-toast
+                          data-loading-message="Running {{ job.label }}..."
+                          data-loading-meta="Fusion is executing the job and waiting for API responses."
+                          data-loading-button-text="Running...">
+                        <input type="hidden" name="phase" value="{{ phase }}">
+                        <button class="btn {{ btn_cls }} btn-sm w-100"><i class="bi bi-play-fill"></i> Run</button>
+                    </form>
+                </div>
+            </div>
+            {% endfor %}
+            <!-- Full Cargo Pipeline — run all in sequence -->
+            <div class="col-6 col-md-3">
+                <div class="job-card job-card-dark">
+                    <div class="job-icon text-warning"><i class="bi bi-lightning-charge-fill"></i></div>
+                    <div class="job-label job-label-white">Full Cargo Pipeline</div>
+                    <div class="job-desc job-desc-muted">Validate → Submit → Sync in sequence. Stops on first failure.</div>
+                    <form hx-post="{{ url_for('orchestrator.run_job') }}" hx-target="#run-output" hx-swap="innerHTML" hx-indicator="#loading-spinner" class="mt-auto"
+                          data-loading-toast
+                          data-loading-message="Running Full Cargo Pipeline..."
+                          data-loading-meta="Fusion is validating, submitting and syncing cargo in sequence."
+                          data-loading-button-text="Running...">
+                        <input type="hidden" name="phase" value="all">
+                        <button class="btn btn-warning btn-sm w-100 fw-bold text-dark"><i class="bi bi-play-fill"></i> Run All</button>
+                    </form>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="job-card job-card-dark">
+                    <div class="job-icon text-warning"><i class="bi bi-magic"></i></div>
+                    <div class="job-label job-label-white">{{ jobs['auto_route_a'].label }}</div>
+                    <div class="job-desc job-desc-muted">{{ jobs['auto_route_a'].description }}</div>
+                    <form hx-post="{{ url_for('orchestrator.run_job') }}" hx-target="#run-output" hx-swap="innerHTML" hx-indicator="#loading-spinner" class="mt-auto"
+                          data-loading-toast
+                          data-loading-message="Running {{ jobs['auto_route_a'].label }}..."
+                          data-loading-meta="Fusion is executing the Route A automation and waiting for API responses."
+                          data-loading-button-text="Running...">
+                        <input type="hidden" name="phase" value="auto_route_a">
+                        <button class="btn btn-warning btn-sm w-100 fw-bold text-dark"><i class="bi bi-play-fill"></i> Run Automation</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ ROW 3 — Arrival Polling + Supplementary Declarations ════════════ -->
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center section-header section-header-teal">
+        <span class="section-header-title">
+            <i class="bi bi-radar me-1"></i> ARRIVAL POLLING &amp; SUPPLEMENTARY DECLARATIONS
+        </span>
+        <span class="section-header-sub">Poll until arrival confirmed → Sup Dec stub created → customer completes + submits</span>
+    </div>
+    <div class="card-body p-3">
+        <div class="row g-2">
+
+            <!-- Poll Movement Status -->
+            <div class="col-6 col-md-3">
+                <div class="job-card">
+                    <div class="job-icon text-status-info"><i class="bi bi-arrow-repeat"></i></div>
+                    <div class="job-label">Poll Movement Status</div>
+                    <div class="job-desc">Polls TSS for consignment status — detects AUTHORISED_FOR_MOVEMENT and downstream changes.</div>
+                    <form hx-post="{{ url_for('orchestrator.run_job') }}" hx-target="#run-output" hx-swap="innerHTML" hx-indicator="#loading-spinner" class="mt-auto"
+                          data-loading-toast
+                          data-loading-message="Running Poll Movement Status..."
+                          data-loading-meta="Fusion is polling TSS for consignment movement changes."
+                          data-loading-button-text="Polling...">
+                        <input type="hidden" name="phase" value="sync_all">
+                        <button class="btn btn-outline-info btn-sm w-100"><i class="bi bi-play-fill"></i> Run</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Poll Arrival via GVMS -->
+            <div class="col-6 col-md-3">
+                <div class="job-card">
+                    <div class="job-icon text-status-info"><i class="bi bi-radar"></i></div>
+                    <div class="job-label">Poll Arrival (GVMS)</div>
+                    <div class="job-desc">Polls GVMS for GMR arrival status. On <strong>Arrived / Closed</strong> → auto-creates Supplementary Declaration stub.</div>
+                    <form hx-post="{{ url_for('orchestrator.run_job') }}" hx-target="#run-output" hx-swap="innerHTML" hx-indicator="#loading-spinner" class="mt-auto"
+                          data-loading-toast
+                          data-loading-message="Polling GVMS arrival..."
+                          data-loading-meta="Fusion is checking GMR arrival status and downstream SDI readiness."
+                          data-loading-button-text="Polling...">
+                        <input type="hidden" name="phase" value="sync_all">
+                        <button class="btn btn-outline-info btn-sm w-100"><i class="bi bi-play-fill"></i> Run</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Movement Funnel (live stats) -->
+            <div class="col-md-3 d-none d-md-block">
+                <div class="job-card job-card-teal">
+                    <div class="job-label mb-2 text-status-info">Movement Funnel</div>
+                    <div class="funnel-row">
+                        <span class="funnel-dot bg-status-draft"></span>
+                        <span class="funnel-lbl">Submitted</span>
+                        <span class="funnel-val">{{ movement_stats.submitted or 0 }}</span>
+                    </div>
+                    <div class="funnel-row">
+                        <span class="funnel-dot bg-status-success"></span>
+                        <span class="funnel-lbl">Authorised</span>
+                        <span class="funnel-val">{{ movement_stats.authorised or 0 }}</span>
+                    </div>
+                    <div class="funnel-row">
+                        <span class="funnel-dot bg-status-warning"></span>
+                        <span class="funnel-lbl">GMRs Active</span>
+                        <span class="funnel-val">{{ movement_stats.gmrs_active or 0 }}</span>
+                    </div>
+                    <div class="funnel-row">
+                        <span class="funnel-dot bg-status-info"></span>
+                        <span class="funnel-lbl">Arrived</span>
+                        <span class="funnel-val">{{ movement_stats.gmrs_arrived or 0 }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sup Dec Action Panel -->
+            <div class="col-md-3 d-none d-md-block">
+                {% set sfd_pending = movement_stats.sfd_pending or 0 %}
+                <div class="job-card {{ 'job-card-amber' if sfd_pending else 'job-card-muted' }}">
+                    <div class="job-icon {{ 'text-warning' if sfd_pending else 'text-secondary' }}">
+                        <i class="bi bi-file-earmark-check{{ '-fill' if sfd_pending else '' }}"></i>
+                    </div>
+                    <div class="job-label {{ 'text-warning' if sfd_pending else '' }}">Sup Decs Awaiting</div>
+                    {% if sfd_pending %}
+                    <div class="text-center my-2">
+                        <span class="fs-2 fw-bold text-warning">{{ sfd_pending }}</span>
+                        <div class="text-muted" style="font-size:0.72rem;">pending completion</div>
+                    </div>
+                    <a href="{{ url_for('supdec.list_view') }}" class="btn btn-warning btn-sm w-100 mt-auto fw-semibold">
+                        <i class="bi bi-arrow-right"></i> Complete Sup Decs
+                    </a>
+                    {% else %}
+                    <div class="job-desc">No Supplementary Declarations pending. Arrival polling will create stubs automatically when a movement is confirmed.</div>
+                    <a href="{{ url_for('supdec.list_view') }}" class="btn btn-outline-secondary btn-sm w-100 mt-auto">
+                        <i class="bi bi-list-ul"></i> View Sup Decs
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Legacy & Utility (collapsible) ══════════════════════════════════ -->
+<div class="mb-4">
+    <button class="btn btn-link btn-sm text-muted text-decoration-none p-0"
+            data-bs-toggle="collapse" data-bs-target="#utilityJobs">
+        <i class="bi bi-chevron-down me-1"></i> Legacy / Utility Jobs
+    </button>
+    <div class="collapse mt-2" id="utilityJobs">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-3">
+                <div class="row g-2">
+                    {% for phase, icon_cls, btn_cls in [('queue', 'text-warning', 'btn-outline-warning'), ('poll', 'text-secondary', 'btn-outline-secondary')] %}
+                    {% set job = jobs[phase] %}
+                    <div class="col-6 col-md-3">
+                        <div class="job-card">
+                            <div class="job-icon {{ icon_cls }}"><i class="bi {{ job.icon }}"></i></div>
+                            <div class="job-label">{{ job.label }}</div>
+                            <div class="job-desc">{{ job.description }}</div>
+                            <form hx-post="{{ url_for('orchestrator.run_job') }}" hx-target="#run-output" hx-swap="innerHTML" hx-indicator="#loading-spinner" class="mt-auto"
+                                  data-loading-toast
+                                  data-loading-message="Running {{ job.label }}..."
+                                  data-loading-meta="Fusion is executing the utility job and waiting for responses."
+                                  data-loading-button-text="Running...">
+                                <input type="hidden" name="phase" value="{{ phase }}">
+                                <button class="btn {{ btn_cls }} btn-sm w-100"><i class="bi bi-play-fill"></i> Run</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ Run Output ════════════════════════════════════════════════════════ -->
+<div id="run-output" class="mb-4"></div>
+
+<!-- ═══ Recent Alerts (compact) ══════════════════════════════════════════ -->
+{% if alerts %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-white py-2 section-header section-header-danger">
+        <h6 class="mb-0 fw-semibold small section-header-title">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i> Status Change Alerts
+            <a href="{{ url_for('technical.index') }}#alerts" class="float-end text-muted fw-normal" style="font-size:0.72rem;">View all →</a>
+        </h6>
+    </div>
+    <div class="card-body p-0">
+        <div class="list-group list-group-flush">
+            {% for a in alerts[:5] %}
+            <div class="list-group-item py-2 px-3 d-flex justify-content-between align-items-center">
+                <div>
+                    <span class="font-monospace fw-semibold small">{{ a.external_ref or '#' ~ a.staging_id }}</span>
+                    <span class="text-muted ms-2" style="font-size:0.78rem;">{{ a.change_detail or '' }}</span>
+                </div>
+                <span class="text-muted" style="font-size:0.7rem; white-space:nowrap; margin-left:1rem;">
+                    {{ a.called_at|localdt('%d/%m %H:%M') if a.called_at else '' }}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+        {% if alerts|length > 5 %}
+        <div class="p-2 text-center">
+            <a href="{{ url_for('technical.index') }}#alerts" class="small text-muted">+{{ alerts|length - 5 }} more alerts →</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

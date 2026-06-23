@@ -1,0 +1,334 @@
+{% set queue_docs = queue_docs|default(docs|default([])) %}
+{% set queue_total = queue_total|default(total|default(0)) %}
+{% set queue_page = queue_page|default(page|default(1)) %}
+{% set queue_total_pages = queue_total_pages|default(total_pages|default(1)) %}
+{% set queue_status_filter = queue_status_filter|default(status_filter|default('ALL')) %}
+{% set queue_panel = queue_panel|default(panel|default('queue')) %}
+{% set queue_variant = queue_variant|default('full') %}
+{% set queue_title = queue_title|default('Inbound Queue') %}
+{% set queue_subtitle = queue_subtitle|default('Latest routed files and staging outcomes from watchdog, upload, and email injection.') %}
+{% set queue_show_filters = queue_show_filters if queue_show_filters is defined else (queue_variant == 'full') %}
+
+{% if queue_show_filters %}
+    {% include 'ingest/partials/_status_tabs.html' %}
+{% endif %}
+
+{% if queue_docs %}
+<div class="card border-0 shadow-sm {{ 'mb-0 ingest-queue-preview' if queue_variant == 'preview' else '' }}"
+     {% if queue_variant == 'full' %}data-bulk-selection="ingest-cleanup"{% endif %}>
+    <div class="card-header bg-white py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <div class="fw-semibold small">{{ queue_title }}</div>
+            <div class="small text-muted">{{ queue_subtitle }}</div>
+        </div>
+        {% if queue_variant == 'preview' %}
+        <a href="{{ url_for('ingest.queue', panel='queue', status='ALL') }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-list-ul"></i> Open Full Queue
+        </a>
+        {% elif queue_variant == 'full' %}
+        <form id="ingestBulkActionForm"
+              method="POST"
+              action="{{ url_for('ingest.bulk_delete_logs') }}"
+              class="bulk-selection-toolbar d-flex align-items-center flex-wrap gap-2"
+              data-loading-toast
+              data-loading-message="Deleting selected ingest logs..."
+              data-loading-meta="Only DocIngestDocument queue history is being removed."
+              data-loading-button-text="Deleting...">
+            <input type="hidden" name="status" value="{{ queue_status_filter }}">
+            <button type="submit"
+                    class="btn btn-sm btn-danger"
+                    data-bulk-action
+                    data-bulk-active-only
+                    data-bulk-group="ingest-cleanup"
+                    data-confirm
+                    data-confirm-title="Delete Selected Ingest Logs"
+                    data-confirm-text="Delete the selected DocIngestDocument rows? Staged ENS, consignments and goods are NOT touched — only the inbound queue history."
+                    data-confirm-submit-label="Delete Selected"
+                    disabled
+                    hidden>
+                <i class="bi bi-trash"></i> Delete
+            </button>
+            <span class="small text-muted" data-bulk-active-only data-bulk-group="ingest-cleanup" hidden>
+                <span data-bulk-count data-bulk-group="ingest-cleanup">0</span> selected
+            </span>
+            <button type="button"
+                    class="bulk-mode-toggle"
+                    data-bulk-select-toggle
+                    data-bulk-group="ingest-cleanup"
+                    data-bulk-inactive-label="Select mode"
+                    data-bulk-active-label="Select mode"
+                    aria-pressed="false">
+                <span class="bulk-mode-toggle-switch" aria-hidden="true"></span>
+                <span data-bulk-toggle-label>Select mode</span>
+            </button>
+        </form>
+        {% endif %}
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        {% if queue_variant == 'full' %}
+                        <th class="bulk-select-cell" data-bulk-select-cell>
+                            <input class="form-check-input" type="checkbox"
+                                   data-bulk-select-all data-bulk-group="ingest-cleanup"
+                                   aria-label="Select all visible ingest log rows">
+                        </th>
+                        {% endif %}
+                        <th>#</th>
+                        <th>Filename</th>
+                        <th>Customer</th>
+                        <th>Type</th>
+                        <th>Channel</th>
+                        <th>Status</th>
+                        <th>Confidence</th>
+                        <th>Received</th>
+                        <th>Routing Notes</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in queue_docs %}
+                    {% set retry_notes = (d.routing_notes or '') | lower %}
+                    {% set retry_filename = (d.original_filename or '') | lower %}
+                    {% set can_retry_mailbox = d.status == 'FAILED' and (d.channel == 'EMAIL' or retry_filename.endswith('.xlsx') or retry_filename.endswith('.eml') or 'graph' in retry_notes or 'imap' in retry_notes or 'sales orders excel' in retry_notes or 'email' in retry_notes) %}
+                    {% set has_local_error = d.status == 'FAILED' or d.error_message %}
+                    {% set has_integration_error = d.integration_status == 'FAILED' or d.integration_error %}
+                    {% set has_queue_error = d.channel == 'UNMAPPED' or d.status == 'UNMAPPED' or has_local_error or has_integration_error %}
+                    {% set queue_failure_source = 'Local ingest + integration' if has_local_error and has_integration_error else 'Integration' if has_integration_error else 'Local ingest' if has_local_error else 'Routing/unmapped' if d.channel == 'UNMAPPED' or d.status == 'UNMAPPED' else '---' %}
+                    {% set queue_confidence_text = (((d.overall_confidence * 100) | round(0) | int | string) ~ '%') if d.overall_confidence is not none else '---' %}
+                    <tr class="{{ 'row-danger' if has_queue_error else '' }}{% if queue_variant == 'full' %} js-clickable-row{% endif %}"
+                        {% if queue_variant == 'full' %}
+                        data-log-modal-trigger
+                        data-log-title="{{ ('Inbound document #' ~ d.id) | e }}"
+                        data-log-body="{{ (
+                            'Document: ' ~ (d.original_filename or '---') ~ '\n'
+                            ~ 'Customer: ' ~ (d.customer_code or 'UNKNOWN') ~ '\n'
+                            ~ 'Type: ' ~ (d.doc_type or '---') ~ '\n'
+                            ~ 'Channel: ' ~ (d.channel or 'UNKNOWN') ~ '\n'
+                            ~ 'Status: ' ~ (d.status or 'UNKNOWN') ~ '\n'
+                            ~ 'Failure source: ' ~ queue_failure_source ~ '\n'
+                            ~ 'Confidence: ' ~ queue_confidence_text ~ '\n'
+                            ~ 'Pages: ' ~ (d.page_count if d.page_count is not none else '---') ~ '\n'
+                            ~ 'Created: ' ~ (d.created_at or '---') ~ '\n'
+                            ~ 'Completed: ' ~ (d.processing_completed_at or '---') ~ '\n'
+                            ~ 'Retry attempts: ' ~ (d.retry_count or 0) ~ '\n\n'
+                            ~ 'ENS: ' ~ (d.ens_reference or d.staging_ens_id or '---') ~ '\n'
+                            ~ 'Consignment: ' ~ (d.dec_reference or d.sfd_reference or d.staging_cons_id or '---') ~ '\n\n'
+                            ~ 'Integration status: ' ~ (d.integration_status or '---') ~ '\n'
+                            ~ 'Integration target: ' ~ (d.target_ref or d.target_table or d.target_service or d.target_record_id or '---') ~ '\n'
+                            ~ 'Integrated at: ' ~ (d.integrated_at or '---') ~ '\n\n'
+                            ~ 'Routing notes:\n' ~ (d.routing_notes or '---') ~ '\n\n'
+                            ~ 'Local error:\n' ~ (d.error_message or '---') ~ '\n\n'
+                            ~ 'Integration error:\n' ~ (d.integration_error or '---')
+                        ) | e }}"
+                        role="button"
+                        tabindex="0"
+                        aria-label="Open ingest queue row {{ d.id }} detail"
+                        title="Open detail"
+                        {% endif %}>
+                        {% if queue_variant == 'full' %}
+                        <td class="bulk-select-cell" data-bulk-select-cell>
+                            <label class="bulk-row-selector" title="Select for bulk cleanup">
+                                <input class="form-check-input" type="checkbox"
+                                       name="selected_ids" value="{{ d.id }}"
+                                       form="ingestBulkActionForm"
+                                       data-bulk-item data-bulk-group="ingest-cleanup"
+                                       aria-label="Select ingest log row {{ d.id }}">
+                            </label>
+                        </td>
+                        {% endif %}
+                        <td class="text-muted small">{{ d.id }}</td>
+                        <td class="font-monospace small fw-semibold">
+                            {{ d.original_filename | truncate(45) }}
+                            {% if d.escalated_to_synovia %}
+                            <span class="badge bg-warning text-dark ms-1" style="font-size:0.6rem;">SYNOVIA</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if d.customer_code and d.customer_code != 'UNKNOWN' %}
+                            <span class="badge badge-status-info">{{ d.customer_code }}</span>
+                            {% else %}
+                            <span class="text-muted small">-</span>
+                            {% endif %}
+                        </td>
+                        <td class="small text-muted">{{ d.doc_type or '-' }}</td>
+                        <td>
+                            {% set ch = d.channel or 'UNKNOWN' %}
+                            {% if ch == 'TEMPLATE' %}<span class="badge bg-success">TEMPLATE</span>
+                            {% elif ch == 'DIGITAL' %}<span class="badge bg-primary">DIGITAL</span>
+                            {% elif ch == 'OCR' %}<span class="badge bg-warning text-dark">OCR</span>
+                            {% elif ch == 'UNMAPPED' %}<span class="badge bg-danger">UNMAPPED</span>
+                            {% elif ch == 'EMAIL' %}<span class="badge bg-info text-dark">EMAIL</span>
+                            {% elif ch == 'UPLOAD' %}<span class="badge bg-secondary">UPLOAD</span>
+                            {% else %}<span class="badge bg-secondary">{{ ch }}</span>{% endif %}
+                        </td>
+                        <td>
+                            {% set st = d.status or '' %}
+                            {% if st in ['INTEGRATED', 'STAGED'] %}<span class="badge badge-status-success">{{ st }}</span>
+                            {% elif st == 'FAILED' %}<span class="badge badge-status-danger">FAILED</span>
+                            {% elif st == 'UNMAPPED' %}<span class="badge badge-status-danger">UNMAPPED</span>
+                            {% elif st == 'ROUTING' %}<span class="badge badge-status-info">ROUTING</span>
+                            {% elif st == 'REVIEW' %}<span class="badge badge-status-warning">REVIEW</span>
+                            {% else %}<span class="badge badge-status-pending">{{ st }}</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if d.overall_confidence is not none %}
+                            <span class="{{ 'text-success' if d.overall_confidence >= 0.85 else 'text-warning' if d.overall_confidence >= 0.65 else 'text-danger' }} fw-semibold small">
+                                {{ (d.overall_confidence * 100) | round(0) | int }}%
+                            </span>
+                            {% else %}<span class="text-muted small">-</span>{% endif %}
+                        </td>
+                        <td class="small text-muted">
+                            {{ d.created_at|localdt('%d/%m %H:%M') if d.created_at else '-' }}
+                        </td>
+                        <td class="small text-muted text-truncate" style="max-width:200px;" title="{{ d.routing_notes or '' }}">
+                            {{ d.routing_notes or '-' }}
+                            {% if d.error_message %}
+                            <div class="text-danger small text-truncate" title="{{ d.error_message }}">
+                                <strong>Local:</strong> {{ d.error_message | truncate(90) }}
+                            </div>
+                            {% endif %}
+                            {% if d.integration_error %}
+                            <div class="text-danger small text-truncate" title="{{ d.integration_error }}">
+                                <strong>Integration:</strong> {{ d.integration_error | truncate(90) }}
+                            </div>
+                            {% endif %}
+                            {% if queue_variant == 'full' %}
+                            <div class="text-primary small mt-1">
+                                <i class="bi bi-search"></i> Detail{% if queue_failure_source != '---' %}: {{ queue_failure_source }}{% endif %}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if can_retry_mailbox %}
+                            <form method="POST" action="{{ url_for('ingest.retry_ingest_document', doc_id=d.id) }}" class="d-inline"
+                                  data-loading-toast
+                                  data-loading-message="Retrying mailbox ingest..."
+                                  data-loading-meta="Fusion is asking the mailbox worker to process unread messages."
+                                  data-loading-button-text="Retrying...">
+                                <button type="submit"
+                                        class="btn btn-sm btn-outline-warning"
+                                        title="Run the mailbox worker now for unread Graph/IMAP messages.">
+                                    <i class="bi bi-arrow-clockwise"></i> Retry
+                                </button>
+                            </form>
+                            {% elif d.status == 'FAILED' %}
+                            <span class="text-muted small" title="The original payload is not stored for this row. Upload the source again.">Manual</span>
+                            {% else %}
+                            <span class="text-muted small">-</span>
+                            {% endif %}
+                            {% if d.retry_count %}
+                            <div class="text-muted small mt-1">{{ d.retry_count }} retry attempt{{ 's' if d.retry_count != 1 else '' }}</div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+{% if queue_variant == 'full' and queue_total_pages > 1 %}
+<nav class="mt-2">
+    <ul class="pagination pagination-sm justify-content-center">
+        <li class="page-item {{ 'disabled' if queue_page <= 1 }}">
+            <a class="page-link" href="{{ url_for('ingest.queue', panel=queue_panel, status=queue_status_filter, page=queue_page-1) }}">Prev</a>
+        </li>
+        {% for p in range(1, queue_total_pages + 1) %}
+        <li class="page-item {{ 'active' if p == queue_page }}">
+            <a class="page-link" href="{{ url_for('ingest.queue', panel=queue_panel, status=queue_status_filter, page=p) }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+        <li class="page-item {{ 'disabled' if queue_page >= queue_total_pages }}">
+            <a class="page-link" href="{{ url_for('ingest.queue', panel=queue_panel, status=queue_status_filter, page=queue_page+1) }}">Next</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+
+{% if queue_variant == 'full' %}
+<div class="text-muted small text-center mt-2">{{ queue_total }} document{{ 's' if queue_total != 1 }}</div>
+
+<div class="modal fade" id="ingestQueueDetailModal" tabindex="-1" aria-labelledby="ingestQueueDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="ingestQueueDetailModalLabel">Inbound document detail</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="ingestQueueDetailModalBody" class="technical-log-output mb-0"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const modalEl = document.getElementById('ingestQueueDetailModal');
+    if (!modalEl || typeof bootstrap === 'undefined') {
+        return;
+    }
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    const titleEl = document.getElementById('ingestQueueDetailModalLabel');
+    const bodyEl = document.getElementById('ingestQueueDetailModalBody');
+
+    function openLogModal(trigger) {
+        titleEl.textContent = trigger.dataset.logTitle || 'Inbound document detail';
+        bodyEl.textContent = trigger.dataset.logBody || 'No detail available.';
+        modal.show();
+    }
+
+    document.querySelectorAll('[data-log-modal-trigger]').forEach((trigger) => {
+        trigger.addEventListener('click', (event) => {
+            const nestedInteractive = event.target.closest('a, button, input, select, textarea, label, [data-no-row-link]');
+            if (nestedInteractive && nestedInteractive !== trigger) {
+                return;
+            }
+            if (trigger.closest('[data-bulk-selection].is-bulk-selecting')) {
+                return;
+            }
+            openLogModal(trigger);
+        });
+        trigger.addEventListener('keydown', (event) => {
+            const nestedInteractive = event.target.closest('a, button, input, select, textarea, label, [data-no-row-link]');
+            if (nestedInteractive && nestedInteractive !== trigger) {
+                return;
+            }
+            if (trigger.closest('[data-bulk-selection].is-bulk-selecting')) {
+                return;
+            }
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openLogModal(trigger);
+            }
+        });
+    });
+});
+</script>
+{% endif %}
+
+{% else %}
+<div class="card border-0 shadow-sm {{ 'mb-0' if queue_variant == 'preview' else '' }}">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-inbox fs-1 text-muted d-block mb-2"></i>
+        <h6 class="text-muted">
+            {{ 'No documents in this queue snapshot' if queue_variant == 'preview' else 'No documents received yet' }}
+        </h6>
+        {% if queue_variant == 'full' %}
+        <p class="text-muted small mb-3">Documents arrive via <code>POST /ingest/receive</code> from the local server watchdog.</p>
+        <div class="bg-light rounded p-3 text-start d-inline-block" style="font-size:0.8rem;">
+            <strong>Example (curl):</strong><br>
+            <code>curl -X POST {{ request.host_url }}ingest/receive <br>
+            &nbsp;&nbsp;-F "file=@/path/to/document.pdf" <br>
+            &nbsp;&nbsp;-F "source=local_watchdog"</code>
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">Stage a Birkdale PDF, CSV, ZIP, or RFC822 email and this snapshot will start filling automatically.</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}

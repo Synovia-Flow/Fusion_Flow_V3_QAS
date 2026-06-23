@@ -1,0 +1,258 @@
+{% extends 'base.html' %}
+{% block title %}Sales Orders Preview{% endblock %}
+
+{% block content %}
+<div class="page-header mb-3">
+    <div>
+        <h4 class="page-title"><i class="bi bi-file-earmark-spreadsheet"></i> Sales Orders Preview</h4>
+        <p class="page-subtitle">Review parsed consignments and goods warnings before Fusion creates local staging records.</p>
+    </div>
+    <a href="{{ preview.return_url or url_for('ingest.queue', panel='upload') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Back
+    </a>
+</div>
+
+{% include 'partials/_alerts.html' %}
+
+<div class="row g-2 mb-3">
+    <div class="col-md-3 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Consignments</span>
+            <span class="ingest-ops-value">{{ preview.summary.consignment_count }}</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Goods Items</span>
+            <span class="ingest-ops-value">{{ preview.summary.goods_count }}</span>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Goods Warnings</span>
+            <span class="ingest-ops-value {{ 'text-warning' if preview.summary.goods_warning_count else 'text-success' }}">
+                {{ preview.summary.goods_warning_count }}
+            </span>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Creation Mode</span>
+            <span class="ingest-ops-value">{{ preview.mode_label }}</span>
+        </div>
+    </div>
+</div>
+
+{% if preview.blockers %}
+<div class="alert alert-danger py-2">
+    <strong>Blockers</strong>
+    <div class="small mt-1">
+        {% for warning in preview.blockers %}
+        <div>{{ warning }}</div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if preview.header_warnings %}
+<div class="alert alert-warning py-2">
+    <strong>Header / parser warnings</strong>
+    <div class="small mt-1">
+        {% for warning in preview.header_warnings[:8] %}
+        <div>{{ warning }}</div>
+        {% endfor %}
+        {% if preview.header_warnings|length > 8 %}
+        <div>+ {{ preview.header_warnings|length - 8 }} more</div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if preview.summary.missing_weight_count %}
+<div class="alert alert-warning py-2">
+    <strong>{{ preview.summary.missing_weight_count }} goods item{{ '' if preview.summary.missing_weight_count == 1 else 's' }} missing gross/net weight</strong>
+    <div class="small mt-1">These rows will stay in review until product weights are added to masterdata or edited manually.</div>
+</div>
+{% endif %}
+
+{% if preview.existing_ens_staging_id %}
+<div class="alert alert-info py-2">
+    <i class="bi bi-link-45deg"></i>
+    This import will add consignments and goods to ENS header #{{ preview.existing_ens_staging_id }} after confirmation.
+    {% if preview.target_ens %}
+    <div class="small mt-1 d-flex flex-wrap gap-2">
+        <span><strong>ENS:</strong> {{ preview.target_ens.ens_reference or preview.target_ens.label or ('Draft #' ~ preview.target_ens.staging_id) }}</span>
+        {% if preview.target_ens.conveyance_ref %}
+        <span><strong>ICR:</strong> {{ preview.target_ens.conveyance_ref }}</span>
+        {% endif %}
+        {% if preview.target_ens.identity_no_of_transport %}
+        <span><strong>Transport:</strong> {{ preview.target_ens.identity_no_of_transport }}</span>
+        {% endif %}
+        {% if preview.target_ens.arrival_port %}
+        <span><strong>Port:</strong> {{ preview.target_ens.arrival_port }}</span>
+        {% endif %}
+        {% if preview.target_ens.arrival_date_time %}
+        <span><strong>Arrival:</strong> {{ preview.target_ens.arrival_date_time|datefmt('%d/%m/%Y %H:%M') }}</span>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('ingest.confirm_sales_orders_preview') }}"
+      data-loading-toast
+      data-loading-message="Creating Sales Orders staging records..."
+      data-loading-meta="Fusion is writing the ENS header, consignments and goods."
+      data-loading-button-text="Creating...">
+    <input type="hidden" name="filename" value="{{ preview.filename }}">
+    <textarea name="xlsx_payload" class="d-none">{{ preview.xlsx_payload }}</textarea>
+    <textarea name="email_body" class="d-none">{{ preview.email_body }}</textarea>
+    <input type="hidden" name="creation_mode" value="{{ preview.creation_mode }}">
+    <input type="hidden" name="no_sfd_reason" value="{{ preview.no_sfd_reason }}">
+    <input type="hidden" name="existing_ens_staging_id" value="{{ preview.existing_ens_staging_id or '' }}">
+    <input type="hidden" name="return_url" value="{{ preview.return_url or '' }}">
+    <input type="hidden" name="suppress_auto_pipeline" value="{{ '1' if preview.suppress_auto_pipeline else '' }}">
+
+    {% for consignment in preview.consignments %}
+    {% set cons_idx = loop.index0 %}
+    {% set sales_order_generate_sd_on = (consignment.generate_SD or 'no')|lower in ['yes', 'y', 'true', '1', 'on'] %}
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white py-2">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div class="d-flex flex-wrap align-items-center gap-2 small">
+                    <span class="fw-semibold"><i class="bi bi-box"></i> {{ consignment.document_no }}</span>
+                    {% if consignment.sell_to_customer_no %}
+                    <span class="badge text-bg-light border font-monospace">{{ consignment.sell_to_customer_no }}</span>
+                    {% endif %}
+                    {% if consignment.ship_to_name %}
+                    <span class="text-muted">{{ consignment.ship_to_name }}</span>
+                    {% endif %}
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                {% if consignment.warning_count %}
+                <span class="badge text-bg-warning">{{ consignment.warning_count }} warning{{ '' if consignment.warning_count == 1 else 's' }}</span>
+                {% else %}
+                <span class="badge text-bg-success">Ready</span>
+                {% endif %}
+                    <label class="ios-form-toggle sales-order-generate-sd-toggle {{ 'is-disabled' if preview.no_sfd_reason else '' }}"
+                           for="sales_order_generate_sd_{{ cons_idx }}"
+                           title="Generate SDI/SupDec for this consignment">
+                        <input type="checkbox"
+                               class="ios-form-toggle-input"
+                               name="so_cons__{{ cons_idx }}__generate_SD"
+                               id="sales_order_generate_sd_{{ cons_idx }}"
+                               value="yes"
+                               aria-label="Generate SDI/SupDec for {{ consignment.document_no }}"
+                               {% if sales_order_generate_sd_on and not preview.no_sfd_reason %}checked{% endif %}
+                               {% if preview.no_sfd_reason %}disabled{% endif %}>
+                        <span class="ios-form-toggle-track" aria-hidden="true"><span class="ios-form-toggle-thumb"></span></span>
+                        <span class="ios-form-toggle-copy">
+                            <span class="ios-form-toggle-copy-on">SDI Yes</span>
+                            <span class="ios-form-toggle-copy-off">SDI No</span>
+                        </span>
+                    </label>
+                    <input type="hidden" name="so_cons__{{ cons_idx }}__generate_SD" value="no">
+                </div>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle sales-orders-preview-table">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Line</th>
+                            <th>SKU</th>
+                            <th>Description</th>
+                            <th>Commodity</th>
+                            <th class="text-end">Qty</th>
+                            <th class="text-end">Gross KG</th>
+                            <th class="text-end">Net KG</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for goods in consignment.goods %}
+                        {% set goods_idx = loop.index0 %}
+                        <tr class="{{ 'table-warning sales-order-review-row' if goods.warnings else '' }}">
+                            <td class="font-monospace text-nowrap">
+                                {% if goods.warnings %}
+                                <input class="sales-order-inline-input font-monospace" name="so_goods__{{ cons_idx }}__{{ goods_idx }}__line_no" value="{{ goods.line_no or '' }}" aria-label="Line">
+                                {% else %}
+                                {{ goods.line_no or '' }}
+                                {% endif %}
+                            </td>
+                            <td class="font-monospace text-nowrap">
+                                {% if goods.warnings %}
+                                <input class="sales-order-inline-input font-monospace" name="so_goods__{{ cons_idx }}__{{ goods_idx }}__sku" value="{{ goods.sku }}" aria-label="SKU">
+                                {% else %}
+                                {{ goods.sku }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if goods.warnings %}
+                                <input class="sales-order-inline-input sales-order-desc-input fw-semibold" name="so_goods__{{ cons_idx }}__{{ goods_idx }}__goods_description" value="{{ goods.description }}" aria-label="Description">
+                                {% else %}
+                                <span class="fw-semibold">{{ goods.description }}</span>
+                                {% endif %}
+                                {% if goods.warnings %}
+                                <div class="small text-danger mt-1">
+                                    <i class="bi bi-exclamation-circle-fill"></i>
+                                    {{ goods.warnings | join(' | ') }}
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td class="font-monospace text-nowrap">
+                                {% if goods.warnings %}
+                                <input class="sales-order-inline-input font-monospace" name="so_goods__{{ cons_idx }}__{{ goods_idx }}__commodity_code" value="{{ goods.commodity_code or '' }}" aria-label="Commodity code">
+                                {% else %}
+                                {{ goods.commodity_code or '--' }}
+                                {% endif %}
+                            </td>
+                            <td class="text-end text-nowrap">
+                                {% if goods.warnings %}
+                                <input class="sales-order-inline-input text-end" name="so_goods__{{ cons_idx }}__{{ goods_idx }}__quantity" type="number" step="0.001" min="0" value="{{ goods.quantity if goods.quantity is not none else '' }}" aria-label="Quantity">
+                                {% else %}
+                                {{ goods.quantity if goods.quantity is not none else '--' }}
+                                {% endif %}
+                            </td>
+                            <td class="text-end text-nowrap">
+                                {% if goods.warnings %}
+                                <input class="sales-order-inline-input text-end {{ 'sales-order-inline-invalid' if 'gross' in (goods.warnings | join(' ')) else '' }}" name="so_goods__{{ cons_idx }}__{{ goods_idx }}__gross_mass_kg" type="number" step="0.01" min="0" inputmode="decimal" data-decimal-scale="2" value="{{ (goods.gross_mass_kg | decimal_scale(2)) if goods.gross_mass_kg is not none else '' }}" aria-label="Gross KG">
+                                {% else %}
+                                {{ (goods.gross_mass_kg | decimal_scale(2)) if goods.gross_mass_kg is not none else '--' }}
+                                {% endif %}
+                            </td>
+                            <td class="text-end text-nowrap">
+                                {% if goods.warnings %}
+                                <input class="sales-order-inline-input text-end {{ 'sales-order-inline-invalid' if 'net' in (goods.warnings | join(' ')) else '' }}" name="so_goods__{{ cons_idx }}__{{ goods_idx }}__net_mass_kg" type="number" step="0.01" min="0" inputmode="decimal" data-decimal-scale="2" value="{{ (goods.net_mass_kg | decimal_scale(2)) if goods.net_mass_kg is not none else '' }}" aria-label="Net KG">
+                                {% else %}
+                                {{ (goods.net_mass_kg | decimal_scale(2)) if goods.net_mass_kg is not none else '--' }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if goods.warnings %}
+                                <span class="badge text-bg-warning">Review</span>
+                                {% else %}
+                                <span class="badge text-bg-success">Ready</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+        <a href="{{ preview.return_url or url_for('ingest.queue', panel='upload') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-x-lg"></i> Cancel
+        </a>
+        <button class="btn btn-success" type="submit" {% if preview.blockers %}disabled{% endif %}>
+            <i class="bi bi-check-lg"></i>
+            {% if preview.existing_ens_staging_id %}Add Consignments & Goods{% else %}Create ENS, Consignments & Goods{% endif %}
+        </button>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light" data-surface-tone="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Fusion Flow{% endblock %} — {{ client_name }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/custom.css') }}" rel="stylesheet">
+    <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+</head>
+<body>
+
+    <!-- ══ UNIFIED HEADER ══════════════════════════════════════════ -->
+    <header class="site-header">
+        <div class="d-flex justify-content-between align-items-center px-4" style="height:64px;">
+
+            <!-- LEFT: Fusion branding -->
+            <div class="d-flex align-items-center gap-3">
+                <img src="{{ url_for('static', filename='img/fusion_logo.jpg') }}"
+                     alt="Fusion" height="36"
+                     onerror="this.style.display='none'"
+                     class="header-logo">
+                <div class="lh-1">
+                    <div class="site-title">Fusion Flow</div>
+                    <div class="site-sub">Customs Declaration Management</div>
+                </div>
+                <div class="header-divider d-none d-lg-block"></div>
+                <div class="d-none d-lg-block">
+                    <span class="client-badge">{{ client_code }}</span>
+                    <span class="client-name ms-2">{{ client_name }}</span>
+                </div>
+            </div>
+
+            <!-- RIGHT: Tenant branding + HTMX spinner -->
+            <div class="d-flex align-items-center gap-4">
+                <span id="loading-spinner" class="htmx-indicator">
+                    <span class="spinner-border spinner-border-sm text-primary" role="status"></span>
+                    <span class="text-muted small ms-1">Loading…</span>
+                </span>
+                <div class="d-none d-sm-flex align-items-center gap-2">
+                    <div class="text-end d-none d-md-block lh-1">
+                        <div class="portal-meta-label">TSS Environment</div>
+                        <div class="portal-meta-value">
+                            <span class="env-badge env-badge-{{ tss_environment }}">
+                                {{ tss_environment_label }}
+                            </span>
+                        </div>
+                    </div>
+                    {% if tenant_logo_filename %}
+                        <img src="{{ url_for('static', filename=tenant_logo_filename) }}"
+                             alt="{{ tenant_name }}" height="52"
+                             onerror="this.style.display='none'"
+                             class="birkdale-logo">
+                    {% endif %}
+                </div>
+            </div>
+
+        </div>
+    </header>
+
+    <!-- ══ NAVIGATION ══════════════════════════════════════════════ -->
+    {% include 'layouts/_nav.html' %}
+
+    {% if demo_mode_enabled %}
+    <div class="demo-mode-banner">
+        <i class="bi bi-display me-1"></i>
+        <strong>DEMO MODE</strong>
+        <span>No live TSS API calls are made for {{ client_code }}. Workflows use simulated TSS responses.</span>
+    </div>
+    {% endif %}
+
+    <!-- ══ PAGE CONTENT ═══════════════════════════════════════════ -->
+    <main class="container-fluid px-4 py-3">
+        {% include 'partials/_alerts.html' %}
+        {% block content %}{% endblock %}
+    </main>
+
+    <div id="toastViewport" class="toast-viewport"></div>
+
+    <div class="modal fade" id="confirmActionModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-exclamation-circle me-1"></i> <span data-confirm-title>Confirm Action</span></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0" data-confirm-text>Are you sure?</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary btn-sm" data-confirm-submit>Continue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        <img src="{{ url_for('static', filename='img/synovia_logo.jpg') }}"
+             alt="Synovia" height="16" class="me-2 opacity-60"
+             onerror="this.style.display='none'">
+        Fusion Flow V2 &mdash; {{ client_name }} &mdash; Synovia Digital Ltd &mdash; 2026
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

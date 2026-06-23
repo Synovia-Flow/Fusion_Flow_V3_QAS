@@ -1,0 +1,260 @@
+{% extends 'base.html' %}
+{% block title %}Review Goods Attach{% endblock %}
+
+{% macro input_field(name, label, value, missing=false, width='col-md-3 col-sm-6', input_type='text', extra_class='', required=false, feedback='This field is required before creating goods items.') %}
+<div class="{{ width }}">
+    <label class="form-label small fw-semibold mb-1">
+        {{ label }} <span class="text-danger ingest-required-mark {{ 'd-none' if not required else '' }}">*</span>
+    </label>
+    <input type="{{ input_type }}"
+           name="{{ name }}"
+           value="{{ value or '' }}"
+           {% if required %}required data-ingest-required="true"{% endif %}
+           class="form-control form-control-sm {{ extra_class }} {{ 'is-invalid' if missing else '' }}">
+    <div class="invalid-feedback{% if missing %} d-block{% endif %}">{{ feedback }}</div>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="page-header mb-3">
+    <div>
+        <h4 class="page-title"><i class="bi bi-link-45deg"></i> Review Goods For Existing Consignment</h4>
+        <p class="page-subtitle">Confirm extracted goods lines before Fusion adds them to the selected consignment.</p>
+    </div>
+    <a href="{{ url_for('consignments.detail', sid=review.attach_target.staging_id) }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Back To Consignment
+    </a>
+</div>
+
+{% include 'partials/_alerts.html' %}
+
+{% if error %}
+<div class="alert alert-danger">
+    <i class="bi bi-exclamation-triangle"></i> {{ error }}
+</div>
+{% endif %}
+
+{% if review.automation_enabled is sameas false %}
+<div class="alert alert-warning">
+    <i class="bi bi-pause-circle"></i> Record creation is disabled for this tenant. You can review the extracted goods here, but Confirm will not attach goods until ingestion creation is enabled.
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <span class="fw-semibold small"><i class="bi bi-box-seam"></i> Existing Consignment</span>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="badge badge-status-created">{{ review.attach_target.reference_label }}</span>
+            {% if review.attach_target.tss_status %}
+            <span class="badge badge-status-draft">TSS: {{ review.attach_target.tss_status | status_display }}</span>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-md-3 col-sm-6">
+                <div class="small text-muted">ENS Header</div>
+                <div class="fw-semibold">{{ review.attach_target.ens_reference or '—' }}</div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="small text-muted">Transport Document</div>
+                <div class="fw-semibold">{{ review.attach_target.transport_document_number or '—' }}</div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="small text-muted">Current Goods</div>
+                <div class="fw-semibold">{{ review.attach_target.goods_count or 0 }}</div>
+            </div>
+            <div class="col-md-3 col-sm-6">
+                <div class="small text-muted">Controlled Goods</div>
+                <div class="fw-semibold">{{ review.attach_target.controlled_goods or '—' }}</div>
+            </div>
+            <div class="col-12">
+                <div class="small text-muted">Description</div>
+                <div>{{ review.attach_target.goods_description or '—' }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-2 mb-3">
+    <div class="col-md-4 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Target</span>
+            <span class="ingest-ops-value">{{ review.attach_target.reference_label }}</span>
+        </div>
+    </div>
+    <div class="col-md-4 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Goods Items</span>
+            <span class="ingest-ops-value">{{ review.summary.goods_count }}</span>
+        </div>
+    </div>
+    <div class="col-md-4 col-6">
+        <div class="ingest-ops-chip">
+            <span class="ingest-ops-label">Required Missing</span>
+            <span class="ingest-ops-value {{ 'text-danger' if review.summary.missing_total else 'text-success' }}">
+                {{ review.summary.missing_total }}
+            </span>
+        </div>
+    </div>
+</div>
+
+{% if review.character_warnings %}
+<div class="alert alert-warning py-2">
+    <strong>{{ review.character_warnings|length }} TSS character warning{{ 's' if review.character_warnings|length != 1 }}</strong>
+    <div class="small mt-1">
+        {% for warning in review.character_warnings[:6] %}
+        <div>{{ warning }}</div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if review.enrichment_warnings %}
+<div class="alert alert-warning py-2">
+    <strong>{{ review.enrichment_warnings|length }} enrichment warning{{ 's' if review.enrichment_warnings|length != 1 }}</strong>
+    <div class="small mt-1">
+        {% for warning in review.enrichment_warnings[:6] %}
+        <div>{{ warning }}</div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('ingest.confirm_review') }}" class="ingest-review-form" novalidate
+      data-loading-toast
+      data-loading-message="Creating goods items..."
+      data-loading-meta="Fusion is appending the reviewed goods to the selected consignment."
+      data-loading-button-text="Creating...">
+    <textarea name="review_json" class="d-none">{{ review_json }}</textarea>
+
+    {% for invoice in review.invoices %}
+    {% set invoice_index = loop.index0 %}
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <span class="fw-semibold small"><i class="bi bi-receipt"></i> Source Invoice {{ loop.index }}</span>
+                <span class="text-muted small ms-2">{{ invoice.filename }}</span>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                {% set route = review.route_info[invoice_index] if review.route_info and review.route_info|length > invoice_index else {} %}
+                {% if route %}
+                <span class="badge bg-light text-dark border">{{ route.channel or 'UNKNOWN' }} / {{ route.customer_code or 'UNKNOWN' }}</span>
+                {% endif %}
+                <span class="badge bg-secondary">{{ invoice.goods|length }} goods lines</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            {% for field, label in goods_table_fields %}
+                            <th style="min-width:{{ 220 if field == 'goods_description' else 110 }}px;">{{ label }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for goods in invoice.goods %}
+                        {% set goods_index = loop.index0 %}
+                        {% set gp = goods.payload %}
+                        {% set gm = goods.missing %}
+                        <tr>
+                            {% for field, label in goods_table_fields %}
+                            <td>
+                                <input type="text"
+                                       name="goods__{{ invoice_index }}__{{ goods_index }}__{{ field }}"
+                                       value="{{ gp.get(field) or '' }}"
+                                       aria-label="{{ label }}"
+                                       {% if field in goods_required_fields %}required data-ingest-required="true"{% endif %}
+                                       class="form-control form-control-sm {{ 'is-invalid' if field in gm else '' }}">
+                                {% if field in goods_required_fields %}
+                                <div class="invalid-feedback{% if field in gm %} d-block{% endif %}">This field is required before creating goods items.</div>
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        <tr>
+                            <td colspan="{{ goods_table_fields|length }}" class="bg-light">
+                                <div class="row g-2">
+                                    {% for field, label in goods_detail_fields %}
+                                    {{ input_field('goods__' ~ invoice_index ~ '__' ~ goods_index ~ '__' ~ field, label, gp.get(field), field in gm, 'col-md-2 col-sm-4', 'text', '', field in goods_required_fields) }}
+                                    {% endfor %}
+                                </div>
+                                {% if goods.warnings %}
+                                <div class="small text-warning mt-2">{{ goods.warnings | join(' | ') }}</div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+        <a href="{{ url_for('consignments.detail', sid=review.attach_target.staging_id) }}" class="btn btn-outline-secondary">
+            <i class="bi bi-x-lg"></i> Cancel
+        </a>
+        <button class="btn btn-success" type="submit">
+            <i class="bi bi-check-lg"></i> Create Goods Items
+        </button>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.querySelector('.ingest-review-form');
+    if (!form) return;
+    const boundRequiredControls = new WeakSet();
+
+    function feedbackFor(el) {
+        return el.closest('td, div')?.querySelector('.invalid-feedback');
+    }
+
+    function setRequiredState(el, invalid) {
+        el.classList.toggle('is-invalid', invalid);
+        const feedback = feedbackFor(el);
+        if (feedback) {
+            feedback.classList.toggle('d-block', invalid);
+        }
+    }
+
+    function validateRequired(el) {
+        const invalid = !String(el.value || '').trim();
+        setRequiredState(el, invalid);
+        return !invalid;
+    }
+
+    function bindRequiredControl(el) {
+        if (boundRequiredControls.has(el)) return;
+        boundRequiredControls.add(el);
+        el.addEventListener('input', function() { validateRequired(el); });
+        el.addEventListener('change', function() { validateRequired(el); });
+        if (el.classList.contains('is-invalid')) {
+            setRequiredState(el, true);
+        }
+    }
+
+    Array.from(form.querySelectorAll('[data-ingest-required="true"]')).forEach(bindRequiredControl);
+
+    form.addEventListener('submit', function (event) {
+        let firstInvalid = null;
+        Array.from(form.querySelectorAll('[data-ingest-required="true"]')).forEach(function (el) {
+            if (!validateRequired(el) && !firstInvalid) {
+                firstInvalid = el;
+            }
+        });
+        if (firstInvalid) {
+            event.preventDefault();
+            firstInvalid.focus();
+        }
+    });
+});
+</script>
+{% endblock %}

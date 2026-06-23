@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% block title %}Test Automation{% endblock %}
+
+{% block content %}
+
+<div class="alert alert-warning py-2 px-3 mb-3 d-flex align-items-center gap-2" style="border-left:4px solid #d97706;">
+    <i class="bi bi-cone-striped text-warning fs-5"></i>
+    <span class="small"><strong>Draft Feature</strong> — Some scenarios run live against the database and TSS API, while others surface the workflow rules we already cover with unit suites.</span>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h4 class="fw-bold mb-0" style="color: var(--fusion-navy);">
+            <i class="bi bi-beaker text-info"></i> Test Automation
+            <span class="badge ms-2" style="background:#d97706; font-size:0.65rem; vertical-align:middle;">DRAFT</span>
+        </h4>
+        <p class="text-muted small mb-0">Live pipeline checks plus workflow rule suites, all visible from one place</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('testcases.report') }}" class="btn btn-sm btn-outline-secondary" target="_blank">
+            <i class="bi bi-file-earmark-bar-graph"></i> Full Report
+        </a>
+        <form method="POST" action="{{ url_for('testcases.run') }}">
+            <input type="hidden" name="scenario_id" value="ALL">
+            <button class="btn btn-sm btn-dark">
+                <i class="bi bi-play-fill"></i> Run All Scenarios
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- ═══ RUN-ALL SUMMARY ═══════════════════════════════════════════════ -->
+{% if run_all and all_results %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center"
+         style="border-left:3px solid #334155 !important; background:#f8fafc;">
+        <span class="fw-semibold" style="font-size:0.85rem;">
+            <i class="bi bi-collection me-1"></i> All Scenarios — Results
+        </span>
+        {% set total_pass = all_results | selectattr('ok') | list | length %}
+        {% set total_fail = all_results | rejectattr('ok') | list | length %}
+        <span>
+            <span class="badge bg-success me-1">{{ total_pass }} passed</span>
+            {% if total_fail > 0 %}<span class="badge bg-danger">{{ total_fail }} failed</span>{% endif %}
+        </span>
+    </div>
+    <div class="card-body p-0">
+        <div class="accordion accordion-flush" id="allResultsAccordion">
+            {% for res in all_results %}
+            {% set sc = res.scenario %}
+            <div class="accordion-item border-0">
+                <h2 class="accordion-header">
+                    <button class="accordion-button py-2 {{ '' if not res.ok else 'collapsed' }}" type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#collapse{{ res.scenario_id }}"
+                            style="font-size:0.85rem; background: {{ 'rgba(239,68,68,0.05)' if not res.ok else 'rgba(22,163,74,0.05)' }}">
+                        <i class="bi {{ sc.icon if sc.icon else 'bi-circle' }} me-2"
+                           style="color:{{ sc.color if sc.color else '#334155' }}"></i>
+                        <strong class="me-2">{{ sc.name if sc.name else res.scenario_id }}</strong>
+                        <span class="badge {{ 'bg-success' if res.ok else 'bg-danger' }} me-2">
+                            {{ 'PASS' if res.ok else 'FAIL' }}
+                        </span>
+                        <span class="text-muted" style="font-size:0.75rem;">
+                            {{ res.passed }}/{{ res.total }} steps &nbsp;·&nbsp; {{ res.duration }}s
+                        </span>
+                    </button>
+                </h2>
+                <div id="collapse{{ res.scenario_id }}"
+                     class="accordion-collapse collapse {{ 'show' if not res.ok else '' }}"
+                     data-bs-parent="#allResultsAccordion">
+                    <div class="accordion-body p-0">
+                        {% include 'testcases/_steps.html' %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ═══ SINGLE SCENARIO RESULT ════════════════════════════════════════ -->
+{% if results and not run_all %}
+{% set res = results %}
+{% set sc = res.scenario %}
+<div class="card border-0 shadow-sm mb-4"
+     style="border-left:4px solid {{ sc.color if sc.color else '#334155' }} !important;">
+    <div class="card-header py-2 px-3 d-flex justify-content-between align-items-center"
+         style="background:#f8fafc;">
+        <span class="fw-semibold" style="font-size:0.85rem;">
+            <i class="bi {{ sc.icon if sc.icon else 'bi-circle' }} me-1"
+               style="color:{{ sc.color if sc.color else '#334155' }}"></i>
+            {{ sc.name if sc.name else res.scenario_id }} — Result
+        </span>
+        <span>
+            <span class="badge {{ 'bg-success' if res.ok else 'bg-danger' }}">
+                {{ 'PASS' if res.ok else 'FAIL' }}
+            </span>
+            <span class="text-muted ms-2" style="font-size:0.75rem;">
+                run {{ res.run_id }} &nbsp;·&nbsp; {{ res.passed }}/{{ res.total }} steps &nbsp;·&nbsp; {{ res.duration }}s
+            </span>
+        </span>
+    </div>
+    <div class="card-body p-0">
+        {% include 'testcases/_steps.html' %}
+    </div>
+</div>
+{% endif %}
+
+<!-- ═══ SCENARIO CARDS ════════════════════════════════════════════════ -->
+<div class="row g-3">
+{% for sid, sc in scenarios.items() %}
+<div class="col-md-6">
+    <div class="card border-0 shadow-sm h-100" style="border-left:3px solid {{ sc.color }} !important;">
+        <div class="card-body">
+            <div class="d-flex align-items-start justify-content-between mb-2">
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-1">
+                        <span class="badge rounded-circle d-flex align-items-center justify-content-center"
+                              style="width:24px;height:24px;background:{{ sc.color }};font-size:0.7rem;">{{ sc.id }}</span>
+                        <h6 class="mb-0 fw-semibold" style="font-size:0.88rem; color:{{ sc.color }};">{{ sc.name }}</h6>
+                        {% if sc.mode == 'live' %}
+                        <span class="badge text-bg-dark" style="font-size:0.62rem;">LIVE</span>
+                        {% elif sc.mode == 'rules' %}
+                        <span class="badge text-bg-secondary" style="font-size:0.62rem;">RULES</span>
+                        {% endif %}
+                    </div>
+                    <p class="text-muted mb-0" style="font-size:0.78rem;">{{ sc.description }}</p>
+                </div>
+                <i class="bi {{ sc.icon }} ms-2" style="color:{{ sc.color }}; font-size:1.25rem; flex-shrink:0;"></i>
+            </div>
+
+            <!-- Step list -->
+            <ol class="mb-3 ps-3" style="font-size:0.75rem; color:#475569;">
+                {% for step in sc.steps %}
+                <li class="mb-1">{{ step }}</li>
+                {% endfor %}
+            </ol>
+
+            <form method="POST" action="{{ url_for('testcases.run') }}">
+                <input type="hidden" name="scenario_id" value="{{ sc.id }}">
+                <button class="btn btn-sm w-100" style="background:{{ sc.color }}; color:white; border:none;">
+                    <i class="bi bi-play-fill me-1"></i> Run Scenario {{ sc.id }}
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+</div>
+
+<!-- ═══ HOW IT WORKS ══════════════════════════════════════════════════ -->
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-header py-2 px-3" style="border-left:3px solid #94a3b8 !important; background:#f8fafc;">
+        <span class="fw-semibold" style="font-size:0.82rem; color:#475569;">
+            <i class="bi bi-info-circle me-1"></i> How Test Automation Works
+        </span>
+    </div>
+    <div class="card-body py-2 px-3">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-database-fill-add text-primary mt-1" style="flex-shrink:0;"></i>
+                    <div>
+                        <div class="fw-semibold" style="font-size:0.8rem;">1. Seed</div>
+                        <p class="text-muted mb-0" style="font-size:0.75rem;">Inserts isolated test records tagged <code>[TC-HHMMSS]</code> — won't collide with live data.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-gear-wide-connected text-info mt-1" style="flex-shrink:0;"></i>
+                    <div>
+                        <div class="fw-semibold" style="font-size:0.8rem;">2. Execute</div>
+                        <p class="text-muted mb-0" style="font-size:0.75rem;">Runs live pipeline scripts where needed, or existing workflow suites when the rule itself is what matters.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="d-flex gap-2">
+                    <i class="bi bi-shield-check text-success mt-1" style="flex-shrink:0;"></i>
+                    <div>
+                        <div class="fw-semibold" style="font-size:0.8rem;">3. Assert + Clean Up</div>
+                        <p class="text-muted mb-0" style="font-size:0.75rem;">Checks DB status after each step. All seeded records are deleted on completion.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

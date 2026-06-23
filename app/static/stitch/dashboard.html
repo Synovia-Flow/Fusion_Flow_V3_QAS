@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Synovia Flow | Mission-Critical Customs Automation</title>
+<script>(function(){if(localStorage.getItem('sf-theme')==='dark')document.documentElement.setAttribute('data-theme','dark');})()</script>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<style>
+/* ── Light mode tokens (default) ─────────────────────────── */
+:root {
+  --fusion-navy:#0b1d3a; --fusion-blue:#1a5ccc; --fusion-blue-light:#3b82f6;
+  --c-bg:#F5F7FA; --c-surface:#FFFFFF; --c-surface-container:#EDF2F7;
+  --c-surface-container-low:#F5F7FA; --c-surface-container-high:#E2EAF2;
+  --c-surface-container-highest:#D8E3EC; --c-surface-container-lowest:#FFFFFF;
+  --c-surface-variant:#DDE5EC; --c-on-surface:#0D1B24; --c-on-surface-variant:#3C5060;
+  --c-primary:#007FA8; --c-primary-container:#1DCDFE;
+  --c-on-primary:#FFFFFF; --c-on-primary-container:#003545;
+  --c-secondary:#4A6FA5; --c-secondary-container:#D0DFFF; --c-on-secondary-container:#3A5A8A;
+  --c-outline:rgba(13,27,36,0.14); --c-outline-variant:rgba(13,27,36,0.08);
+  --c-error:#B3000C; --c-error-container:#FFECEA;
+  --c-tertiary-container:#FFE8E6; --c-on-error-container:#8C0009;
+  --c-on-tertiary-fixed-variant:#8C0009;
+  --neon:#1DCDFE;
+  --neon-xs:rgba(29,205,254,0.10); --neon-sm:rgba(29,205,254,0.18);
+  --neon-md:rgba(29,205,254,0.30); --neon-lg:rgba(29,205,254,0.50);
+  --shadow-card:0 0 0 1px var(--neon-sm),0 4px 24px var(--neon-xs),0 1px 3px rgba(0,0,0,0.05);
+  --shadow-card-hover:0 0 0 1px var(--neon-lg),0 8px 40px var(--neon-md),0 2px 8px rgba(0,0,0,0.06);
+  --shadow-card-active:0 0 0 1px var(--neon-lg),0 8px 32px var(--neon-md);
+  --bg-img-opacity:0.05;
+  --bg-overlay:linear-gradient(90deg,rgba(245,247,250,.97),rgba(245,247,250,.82) 48%,rgba(245,247,250,.93)),linear-gradient(180deg,rgba(245,247,250,.70),#F5F7FA 82%);
+  --glass-bg:rgba(255,255,255,0.88); --glass-border:rgba(29,205,254,0.18);
+  --row-hover:rgba(29,205,254,0.07);
+  --modal-bg:rgba(255,255,255,0.97); --modal-border:rgba(29,205,254,0.28);
+  --field-bg:rgba(0,0,0,0.04); --field-border:rgba(0,0,0,0.14); --field-color:#0D1B24;
+}
+/* ── Dark mode tokens ─────────────────────────────────────── */
+[data-theme="dark"] {
+  --c-bg:#0e1417; --c-surface:#0e1417; --c-surface-container:#1a2123;
+  --c-surface-container-low:#161c1f; --c-surface-container-high:#252b2e;
+  --c-surface-container-highest:#2f3639; --c-surface-container-lowest:#090f12;
+  --c-surface-variant:#2f3639; --c-on-surface:#dde3e7; --c-on-surface-variant:#bbc8cf;
+  --c-primary:#a0e3ff; --c-primary-container:#1dcdfe;
+  --c-on-primary:#003545; --c-on-primary-container:#003545;
+  --c-secondary:#b2c7f3; --c-secondary-container:#32476c; --c-on-secondary-container:#a1b5e0;
+  --c-outline:#869399; --c-outline-variant:#3c494e;
+  --c-error:#ffb4ab; --c-error-container:#93000a;
+  --c-tertiary-container:#ffa6a2; --c-on-error-container:#ffdad6;
+  --c-on-tertiary-fixed-variant:#930018;
+  --neon-xs:rgba(29,205,254,0.14); --neon-sm:rgba(29,205,254,0.22);
+  --neon-md:rgba(29,205,254,0.35); --neon-lg:rgba(29,205,254,0.55);
+  --shadow-card:0 0 0 1px var(--neon-sm),0 4px 28px var(--neon-md);
+  --shadow-card-hover:0 0 0 1px var(--neon-lg),0 12px 48px var(--neon-md),0 2px 8px rgba(0,0,0,0.5);
+  --shadow-card-active:0 0 0 1px var(--neon-lg),0 8px 40px var(--neon-md);
+  --bg-img-opacity:0.28;
+  --bg-overlay:linear-gradient(90deg,rgba(14,20,23,.96),rgba(14,20,23,.72) 48%,rgba(14,20,23,.90)),linear-gradient(180deg,rgba(14,20,23,.62),#0e1417 76%);
+  --glass-bg:rgba(14,20,23,0.80); --glass-border:rgba(255,255,255,0.08);
+  --row-hover:rgba(10,34,69,0.80);
+  --modal-bg:rgba(14,20,23,0.96); --modal-border:rgba(29,205,254,0.22);
+  --field-bg:rgba(255,255,255,0.06); --field-border:rgba(255,255,255,0.12); --field-color:#dde3e7;
+}
+body {
+    background-color:var(--c-bg); color:var(--c-on-surface);
+    font-family:'Montserrat',sans-serif; overflow-x:hidden; position:relative;
+    transition:background-color 0.3s ease,color 0.3s ease;
+}
+body::before {
+    content:""; position:fixed; inset:0; z-index:-2;
+    background-image:url('/static/img/synovia-route-background.png');
+    background-size:cover; background-position:center 38%;
+    opacity:var(--bg-img-opacity); pointer-events:none; transition:opacity 0.3s ease;
+}
+body::after {
+    content:""; position:fixed; inset:0; z-index:-1;
+    background:var(--bg-overlay); pointer-events:none; transition:background 0.3s ease;
+}
+nav,main,footer { position:relative; z-index:1; }
+.material-symbols-outlined { font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24; }
+
+.landing-nav {
+    position:fixed; top:0; left:0; width:100%; z-index:50;
+    min-height:76px; padding:12px 32px;
+    display:flex; align-items:center; justify-content:space-between; gap:24px;
+    background:rgba(245,247,250,0.94);
+    border-bottom:1px solid var(--c-outline-variant);
+    backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+}
+[data-theme="dark"] .landing-nav { background:rgba(14,20,23,0.92); }
+.landing-brand {
+    display:inline-flex; align-items:center; min-width:150px;
+    text-decoration:none;
+}
+.landing-brand-logo {
+    width:156px; height:52px; object-fit:contain; object-position:left center;
+    filter:drop-shadow(0 8px 18px rgba(29,205,254,0.10));
+}
+[data-theme="dark"] .landing-brand-logo {
+    filter:brightness(1.12) drop-shadow(0 0 18px rgba(29,205,254,0.20));
+}
+.landing-nav-links {
+    display:flex; align-items:center; gap:28px;
+}
+.landing-nav-link {
+    position:relative; padding:8px 0;
+    color:var(--c-on-surface-variant);
+    font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:500;
+    letter-spacing:0.05em; text-decoration:none;
+    transition:color 0.18s ease;
+}
+.landing-nav-link:hover,
+.landing-nav-link.is-active { color:var(--c-primary); }
+.landing-nav-link.is-active::after {
+    content:""; position:absolute; left:0; right:0; bottom:0; height:2px;
+    background:var(--neon);
+}
+.landing-login-button {
+    min-height:42px; padding:0 20px; border:1px solid var(--fusion-blue);
+    border-radius:6px; background:var(--fusion-blue); color:#fff;
+    box-shadow:0 4px 12px rgba(15,23,42,0.08);
+    font-family:'Montserrat',sans-serif; font-size:14px; font-weight:700;
+    letter-spacing:0; cursor:pointer;
+    transition:background-color 0.18s ease,border-color 0.18s ease,box-shadow 0.18s ease,transform 0.18s ease;
+}
+.landing-login-button:hover {
+    transform:translateY(-1px);
+    background:var(--fusion-navy); border-color:var(--fusion-navy);
+    box-shadow:0 0 0 rgba(15,23,42,0);
+}
+.landing-hero-actions {
+    display:flex; flex-wrap:wrap; align-items:center; gap:20px; padding-top:16px;
+}
+.landing-cta {
+    min-height:48px; padding:0 22px; display:inline-flex; align-items:center; justify-content:center; gap:9px;
+    border:1px solid var(--c-outline); border-radius:6px; text-decoration:none;
+    box-shadow:0 4px 12px rgba(15,23,42,0.07);
+    font-family:'Montserrat',sans-serif; font-size:14px; font-weight:700;
+    letter-spacing:0; transition:background-color 0.18s ease,border-color 0.18s ease,box-shadow 0.18s ease,color 0.18s ease,transform 0.18s ease;
+}
+.landing-cta:hover { transform:translateY(-1px); box-shadow:0 0 0 rgba(15,23,42,0); }
+.landing-cta-primary {
+    border-color:var(--fusion-blue); background:var(--fusion-blue); color:#fff;
+}
+.landing-cta-primary:hover {
+    border-color:var(--fusion-navy); background:var(--fusion-navy); color:#fff;
+}
+.landing-cta-secondary {
+    background:rgba(255,255,255,0.72); color:var(--fusion-navy);
+}
+[data-theme="dark"] .landing-cta-secondary { background:rgba(255,255,255,0.04); color:#e5e7eb; }
+.landing-cta-secondary:hover {
+    border-color:var(--fusion-blue); color:var(--fusion-blue);
+    background:rgba(59,130,246,0.07);
+}
+.landing-cta .material-symbols-outlined {
+    font-size:18px; line-height:1;
+}
+.landing-modal-submit,
+.landing-section-cta {
+    width:100%;
+}
+@media (min-width: 640px) {
+    .landing-section-cta { width:auto; }
+}
+
+/* ── Neon card system ─────────────────────────────────────── */
+.card-neon {
+    box-shadow:var(--shadow-card);
+    transition:box-shadow 0.25s ease,transform 0.2s ease;
+}
+.card-neon:hover { box-shadow:var(--shadow-card-hover); transform:translateY(-2px); }
+.card-neon-active { box-shadow:var(--shadow-card-active); }
+
+/* ── Glass panel ──────────────────────────────────────────── */
+.glass-panel { background:var(--glass-bg); backdrop-filter:blur(12px); border:1px solid var(--glass-border); }
+
+/* ── Scanline ─────────────────────────────────────────────── */
+.scanline {
+    width:100%; height:2px;
+    background:linear-gradient(to right,transparent,#1dcdfe,transparent);
+    position:absolute; animation:scan 4s linear infinite; opacity:0.3; z-index:20;
+}
+@keyframes scan { 0%{top:0} 100%{top:100%} }
+
+/* ── Hero slides ──────────────────────────────────────────── */
+.hero-slide { position:absolute; inset:0; opacity:0; transition:opacity 1.5s ease-in-out; background-size:cover; background-position:center; }
+.hero-slide.active { opacity:1; }
+.hero-feed-panel {
+    background:rgba(255,255,255,0.88);
+    border-top:1px solid var(--glass-border);
+    backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
+}
+[data-theme="dark"] .hero-feed-panel {
+    background:rgba(14,20,23,0.82);
+    border-top:1px solid rgba(29,205,254,0.15);
+}
+
+/* ── Float ────────────────────────────────────────────────── */
+@keyframes float { 0%,100%{transform:translateY(0) rotate(0deg)} 50%{transform:translateY(-20px) rotate(5deg)} }
+.float-parcel { animation:float 6s ease-in-out infinite; }
+html:not([data-theme="dark"]) .float-parcel .backdrop-blur-sm {
+    background:#fff !important;
+    backdrop-filter:none !important;
+    -webkit-backdrop-filter:none !important;
+}
+html:not([data-theme="dark"]) .float-parcel img[src="synovia_blue.png"] {
+    mix-blend-mode:normal !important;
+    filter:none !important;
+    opacity:1 !important;
+}
+
+/* ── Table row hover ──────────────────────────────────────── */
+.tr-hover:hover { background-color:var(--row-hover) !important; }
+
+/* ── Login modal ──────────────────────────────────────────── */
+.login-modal-backdrop {
+    position:fixed; inset:0; z-index:80; display:none;
+    align-items:center; justify-content:center; padding:16px;
+    background:linear-gradient(135deg,rgba(11,29,58,0.96) 0%,rgba(26,58,107,0.94) 50%,rgba(11,29,58,0.96) 100%);
+    backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+}
+.login-modal-backdrop.is-open { display:flex; }
+.login-modal-panel {
+    width:min(525px,100%); max-height:calc(100vh - 32px); overflow:auto;
+    background:#fff; color:var(--fusion-navy);
+    border:none; border-radius:12px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.35);
+}
+.login-modal-hero {
+    background:#fff; border-bottom:2px solid #f1f5f9;
+    padding:40px 32px 28px; text-align:center;
+}
+.fusion-logo-wrap {
+    display:flex; align-items:center; justify-content:center; gap:12px;
+}
+.fusion-logo-img {
+    height:42px; border-radius:4px; object-fit:contain;
+}
+.fusion-label {
+    text-align:left; line-height:1.1;
+}
+.fusion-label .title {
+    font-size:24px; font-weight:800; color:var(--fusion-navy); letter-spacing:-0.3px;
+}
+.fusion-label .sub {
+    margin-top:5px; font-size:12px; color:#9ca3af; font-weight:500;
+    text-transform:uppercase; letter-spacing:1.4px;
+}
+.login-modal-body {
+    padding:40px;
+}
+.login-modal-title {
+    margin:0 0 6px; font-size:24px; line-height:1.2; font-weight:800; color:var(--fusion-navy);
+}
+.login-modal-copy {
+    margin:0 0 34px; color:#6b7280; font-size:16px; line-height:1.5;
+}
+.login-modal-field {
+    margin-bottom:24px;
+}
+.login-modal-label {
+    display:block; margin-bottom:8px; color:#1f2937; font-size:16px; font-weight:700;
+}
+.login-modal-panel .landing-login-field {
+    appearance:none !important; width:100%; min-height:54px;
+    border:1.5px solid #dbe4ef !important; border-radius:8px !important;
+    background:#fff !important; color:#1f2937 !important; padding:12px 18px !important;
+    font-family:'Montserrat',sans-serif !important; font-size:17px !important;
+    outline:none !important; box-shadow:none !important;
+    transition:border-color 0.2s,box-shadow 0.2s;
+}
+.login-modal-panel .landing-login-field:focus,
+.login-modal-panel .landing-login-field.is-focused {
+    border-color:var(--fusion-blue) !important;
+    box-shadow:0 0 0 3px rgba(26,92,204,0.16) !important;
+}
+.login-modal-submit {
+    width:100%; min-height:52px; margin-top:6px; display:inline-flex;
+    align-items:center; justify-content:center; gap:10px;
+    border:none; border-radius:6px; background:var(--fusion-navy); color:#fff;
+    font-family:'Montserrat',sans-serif; font-size:20px; font-weight:800;
+    cursor:pointer; transition:background-color 0.15s ease,transform 0.15s ease;
+}
+.login-modal-submit:hover {
+    background:var(--fusion-blue); transform:translateY(-1px);
+}
+.login-modal-submit .material-symbols-outlined {
+    font-size:22px; font-variation-settings:'FILL' 0,'wght' 600,'GRAD' 0,'opsz' 24;
+}
+.login-modal-footer {
+    background:#f8fafc; border-top:1px solid #f1f5f9; text-align:center;
+    padding:18px 16px; color:#9ca3af; font-size:14px; letter-spacing:0.2px;
+}
+
+/* ── Theme toggle ─────────────────────────────────────────── */
+.theme-toggle {
+    display:flex; align-items:center; justify-content:center;
+    width:42px; height:42px; border:1px solid var(--c-outline-variant); border-radius:6px;
+    background:var(--c-surface-container); color:var(--c-on-surface-variant);
+    box-shadow:0 4px 12px rgba(15,23,42,0.06);
+    cursor:pointer; transition:border-color 0.2s,color 0.2s,background 0.2s,box-shadow 0.2s,transform 0.2s;
+}
+.theme-toggle:hover {
+    border-color:var(--fusion-blue); color:var(--fusion-blue);
+    box-shadow:0 0 0 rgba(15,23,42,0); transform:translateY(-1px);
+}
+
+/* ── Terminal block (always dark) ─────────────────────────── */
+.terminal-block { background:#090f12 !important; border:1px solid rgba(29,205,254,0.15) !important; }
+.terminal-block code { color:#1dcdfe; }
+
+@media (max-width: 768px) {
+    .landing-nav { min-height:70px; padding:10px 14px; gap:12px; justify-content:flex-start; }
+    .landing-nav > .flex { margin-left:auto; }
+    .landing-brand { min-width:116px; }
+    .landing-brand-logo { width:118px; height:48px; }
+    .landing-nav-links { display:none; }
+    .landing-login-button { min-height:42px; padding:0 16px; font-size:14px; }
+    #product { --hero-mobile-width:calc(100vw - 64px); }
+    #product > div { width:100%; max-width:var(--hero-mobile-width); min-width:0; }
+    #product p { max-width:var(--hero-mobile-width); overflow-wrap:break-word; }
+    .landing-hero-actions { width:100%; max-width:var(--hero-mobile-width); gap:12px; }
+    .landing-hero-actions > .landing-cta { flex:0 0 100%; max-width:100%; }
+    .landing-hero-actions > .flex { width:100%; min-width:0; flex-wrap:wrap; }
+    .landing-cta { width:100%; justify-content:center; }
+}
+@media (max-width: 480px) {
+    .landing-login-button { display:none; }
+    .login-modal-hero { padding:32px 24px 24px; }
+    .login-modal-body { padding:32px 24px; }
+    .fusion-logo-wrap { gap:10px; }
+    .fusion-logo-img { height:34px; }
+    .fusion-label .title { font-size:20px; }
+    .fusion-label .sub { font-size:10px; letter-spacing:0.9px; }
+    .login-modal-submit { font-size:18px; }
+}
+@media (max-width: 380px) {
+    #product { --hero-mobile-width:calc(100vw - 48px); }
+}
+</style>
+<script id="tailwind-config">
+tailwind.config = {
+    darkMode: ['selector', '[data-theme="dark"]'],
+    theme: {
+        extend: {
+            "colors": {
+                "on-tertiary-fixed-variant":"var(--c-on-tertiary-fixed-variant)",
+                "on-surface-variant":"var(--c-on-surface-variant)",
+                "on-primary":"var(--c-on-primary)",
+                "error-container":"var(--c-error-container)",
+                "outline":"var(--c-outline)",
+                "surface-container":"var(--c-surface-container)",
+                "surface-container-high":"var(--c-surface-container-high)",
+                "on-surface":"var(--c-on-surface)",
+                "on-primary-fixed-variant":"#004d62",
+                "on-secondary":"#1b3054",
+                "error":"var(--c-error)",
+                "surface-container-low":"var(--c-surface-container-low)",
+                "secondary-container":"var(--c-secondary-container)",
+                "outline-variant":"var(--c-outline-variant)",
+                "primary-container":"var(--c-primary-container)",
+                "on-primary-container":"var(--c-on-primary-container)",
+                "surface-tint":"var(--c-primary)",
+                "tertiary-container":"var(--c-tertiary-container)",
+                "on-secondary-container":"var(--c-on-secondary-container)",
+                "surface-container-highest":"var(--c-surface-container-highest)",
+                "primary":"var(--c-primary)",
+                "surface":"var(--c-surface)",
+                "surface-dim":"var(--c-surface-container-lowest)",
+                "surface-container-lowest":"var(--c-surface-container-lowest)",
+                "on-error-container":"var(--c-on-error-container)",
+                "inverse-primary":"#006781",
+                "surface-bright":"var(--c-surface-container-highest)",
+                "surface-variant":"var(--c-surface-variant)",
+                "background":"var(--c-bg)",
+                "secondary":"var(--c-secondary)",
+                "on-background":"var(--c-on-surface)",
+                "on-primary-fixed":"#001f29",
+                "on-error":"#690005",
+                "inverse-on-surface":"#2b3134",
+                "inverse-surface":"#dde3e7"
+            },
+            "borderRadius": {
+                "DEFAULT":"0.25rem","lg":"0.5rem","xl":"0.75rem","full":"9999px"
+            },
+            "spacing": {
+                "base":"4px","margin-mobile":"16px","sm":"8px","xl":"40px","md":"16px",
+                "lg":"24px","margin-desktop":"32px","xs":"4px","gutter":"16px"
+            },
+            "fontFamily": {
+                "body-sm":["Montserrat"],"label-sm":["JetBrains Mono"],
+                "body-md":["Montserrat"],"body-lg":["Montserrat"],
+                "label-md":["JetBrains Mono"],"display-lg":["Montserrat"],
+                "headline-md":["Montserrat"],"headline-lg":["Montserrat"],
+                "headline-lg-mobile":["Montserrat"]
+            },
+            "fontSize": {
+                "body-sm":["14px",{"lineHeight":"20px","fontWeight":"400"}],
+                "label-sm":["10px",{"lineHeight":"14px","letterSpacing":"0.08em","fontWeight":"500"}],
+                "body-md":["16px",{"lineHeight":"24px","fontWeight":"400"}],
+                "body-lg":["18px",{"lineHeight":"28px","fontWeight":"400"}],
+                "label-md":["12px",{"lineHeight":"16px","letterSpacing":"0.05em","fontWeight":"500"}],
+                "display-lg":["40px",{"lineHeight":"48px","letterSpacing":"-0.02em","fontWeight":"700"}],
+                "headline-md":["24px",{"lineHeight":"32px","fontWeight":"600"}],
+                "headline-lg":["32px",{"lineHeight":"40px","letterSpacing":"-0.01em","fontWeight":"600"}],
+                "headline-lg-mobile":["28px",{"lineHeight":"36px","fontWeight":"600"}]
+            }
+        }
+    }
+}
+</script>
+</head>
+<body class="bg-background selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<nav class="landing-nav">
+<a class="landing-brand" href="#product" aria-label="Synovia Flow">
+<img class="landing-brand-logo" alt="Synovia Flow" src="/static/stitch/synovia_flow_1.0.png"/>
+</a>
+<div class="landing-nav-links">
+<a class="landing-nav-link is-active" href="#product">Product</a>
+<a class="landing-nav-link" href="#workflow">Workflow</a>
+<a class="landing-nav-link" href="#capabilities">Capabilities</a>
+</div>
+<div class="flex items-center gap-sm">
+<button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" type="button">
+    <span class="material-symbols-outlined text-[20px]" id="theme-icon">dark_mode</span>
+</button>
+<button class="landing-login-button" data-login-modal-trigger type="button">
+    Log in
+</button>
+</div>
+</nav>
+<main class="pt-32">
+<!-- Hero Section -->
+<section id="product" class="px-margin-desktop mb-xl grid grid-cols-1 lg:grid-cols-12 gap-lg items-center relative">
+<div class="lg:col-span-6 space-y-lg relative z-20">
+<div class="inline-flex items-center gap-xs px-sm py-xs bg-surface-container border border-outline-variant rounded-sm">
+<span class="w-2 h-2 rounded-full bg-[#CF142B] animate-pulse"></span>
+<span class="text-label-sm font-label-sm text-on-surface-variant">UK-TSS LIVE NODE v2.9.5</span>
+</div>
+<h1 class="font-display-lg text-display-lg md:text-[64px] leading-tight text-on-surface">
+    TSS work done before <br/><span style="color:var(--neon)">UK arrival.</span>
+</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-xl">
+    Eliminate manual portal chasing. Synovia Flow bridges the gap between raw data and government systems with an automated API-led pipeline. From email ingestion to TSS sync in seconds.
+</p>
+<div class="landing-hero-actions">
+<button class="landing-cta landing-cta-primary group" data-login-modal-trigger type="button">
+    Log in
+    <span class="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</button>
+<div class="flex items-center gap-md">
+<div class="flex -space-x-2">
+<img class="w-10 h-10 rounded-full border-2 border-background object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChuHX466ahwc2h2odZELWA25baCfJSjtJpbk6UIkkCoy_Zs0sHLdjgGbczaVD3FNgvNZrWf-sHRPTmWeGSVpX9l13jpUcuKaGrGXNd83TobfDPK_NwXh2wJ5v2XhdAC3lt8I_P3Q2VbveP7IYDda9Xf17ZtfFO3V5VBKy2nRxVq1qXrN39VdI9fOBu6cVdpp7RCZZT7oFI0M-kKYNsynoP18ComMq_ZagGHkgshfQ7giJjllSBiv5LWj26d7lW4gZDfdAXyPZw02Q"/>
+<img class="w-10 h-10 rounded-full border-2 border-background object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuChuHX466ahwc2h2odZELWA25baCfJSjtJpbk6UIkkCoy_Zs0sHLdjgGbczaVD3FNgvNZrWf-sHRPTmWeGSVpX9l13jpUcuKaGrGXNd83TobfDPK_NwXh2wJ5v2XhdAC3lt8I_P3Q2VbveP7IYDda9Xf17ZtfFO3V5VBKy2nRxVq1qXrN39VdI9fOBu6cVdpp7RCZZT7oFI0M-kKYNsynoP18ComMq_ZagGHkgshfQ7giJjllSBiv5LWj26d7lW4gZDfdAXyPZw02Q"/>
+</div>
+<span class="text-body-sm font-body-sm text-on-surface-variant">Trusted by 12k+ Operators</span>
+</div>
+</div>
+</div>
+<div class="lg:col-span-6 relative h-[450px] lg:h-[600px]">
+<div class="relative z-10 w-full h-full rounded-lg overflow-hidden border border-outline-variant shadow-2xl bg-[#0e1417] card-neon">
+<div class="absolute inset-0" id="hero-slider">
+<div class="hero-slide active" style="background-image:url('https://lh3.googleusercontent.com/aida-public/AB6AXuCsVnG4FxE49gjN7HyGeUFd-EG-a6qfxgOqmDHTijWll5kklaqBtBawy-WpQ3n0Dk85XJ7Xg-jhPD1kFOfxmwWWLc3WtzOacHA4ZJpocIrk-LDV4vH2v--jCzhj8SXZnA9DPFj-a-DUK0A9B3Zzkx-ecktr9w0H_xZRuQk2c-nEMZqC1PFfGZDvW_AtHQFTlr5Ng8CQb-r9gc_JKrKkmB08hLt2Cz3tNHAFbNzvP2c9qmVeB9OH0M9hgsGtnUgemDRMyHKKrPp2-T4')"></div>
+<div class="hero-slide" style="background-image:url('https://lh3.googleusercontent.com/aida-public/AB6AXuD-O6o8LOq7i5NzvTtq-aYf3BLvRgY49FgWpu3ev8NPSmG9IweLUsGDysMapTBCbCjw0sd9EhKM6EC0eXnHXd8kQGKJTRyLRznG1LOwxkAWSl9cNiKUFajDFw49B7EBqOv1xpn6PvFQXDxJF6x4KaG-RqtHhfmjbjF_OKyYH0V_ZscUHQ8epP9nZkrgD4SR2bsfbg_DsJCIVx3ikbrp53li7GCbN34YfoDwYGHWwO60TTA3WGpZ4jl2LFp0stlDpRf3aKCz9kUbQ6A')"></div>
+<div class="hero-slide" style="background-image:url('https://lh3.googleusercontent.com/aida-public/AB6AXuApkvMglQ62jpGH7G4S4yUBWZPyxYT5AynXHglpv-MIZBTExKVs-XdaZKPoGkKyzdUly1S9y-3oTla3pXVFEOSEBPajdiu3kjuM0noBRh0kT4YN7Gww1sCM-JzTIqAY3KASaYBP3UiSgavHbhDJ_kITb-0HqGC_DrrtVphe2xbvTe9ilH_Tyskh02NbilP0MP08KQTdFwrIR9xIaSOAic-sI_68GLcGcZDGRGlm5o3dmcOEokXnJhD3E4dH8VYNeNyZq4dRYfyzBA4')"></div>
+</div>
+<div class="scanline"></div>
+<div class="hero-feed-panel absolute bottom-0 left-0 right-0 p-lg flex justify-between items-end z-30">
+<div>
+<p class="text-label-sm font-label-sm mb-1" style="color:var(--neon)">LIVE LOGISTICS FEED</p>
+<p class="text-headline-md font-headline-md text-on-surface" id="vehicle-label">Road Freight Active</p>
+</div>
+<span class="material-symbols-outlined text-[48px]" style="color:var(--neon)" data-weight="fill">monitoring</span>
+</div>
+<div class="absolute top-12 right-12 w-32 h-32 float-parcel z-20 opacity-90 hidden md:block">
+<div class="relative w-full h-full p-2 bg-surface-container border border-[#1DCDFE]/40 rounded-lg backdrop-blur-sm shadow-xl">
+<img alt="Synovia Flow 1.0" class="w-full h-full object-cover rounded-sm mix-blend-lighten" src="synovia_blue.png"/>
+<div class="absolute -top-2 -right-2 text-[10px] px-1 font-bold text-on-primary-container" style="background:var(--neon)">LIVE</div>
+</div>
+</div>
+</div>
+<div class="absolute -top-4 -right-4 w-32 h-32 border-t-2 border-r-2 border-[#1DCDFE]/30 z-0"></div>
+<div class="absolute -bottom-4 -left-4 w-32 h-32 border-b-2 border-l-2 border-[#CF142B]/30 z-0"></div>
+</div>
+</section>
+<!-- Route Journey Flow -->
+<section id="workflow" class="bg-surface-container-low py-xl px-margin-desktop border-y border-outline-variant">
+<div class="max-w-6xl mx-auto">
+<div class="text-center mb-xl">
+<h2 class="text-headline-lg font-headline-lg text-on-surface">The Automated Transit Pipeline</h2>
+<p class="text-body-md font-body-md text-on-surface-variant">Synchronized customs clearance across the Irish Sea corridor.</p>
+</div>
+<div class="relative flex flex-col md:flex-row items-center justify-between gap-lg">
+<div class="absolute top-1/2 left-0 w-full h-[1px] bg-outline-variant hidden md:block -z-10"></div>
+<!-- Dublin -->
+<div class="card-neon flex flex-col items-center gap-md bg-surface p-md border border-outline-variant w-48 text-center">
+<span class="material-symbols-outlined text-on-surface-variant">location_on</span>
+<div>
+<p class="text-label-md font-label-md text-[#169B62]">IRELAND</p>
+<p class="text-body-sm font-body-sm text-on-surface">Dublin Port</p>
+</div>
+</div>
+<div class="material-symbols-outlined text-outline-variant animate-pulse">directions_boat</div>
+<!-- Mid-transit -->
+<div class="card-neon card-neon-active flex flex-col items-center gap-md bg-surface p-md border w-48 text-center" style="border-color:var(--neon)">
+<span class="material-symbols-outlined" style="color:var(--neon)">sync</span>
+<div>
+<p class="text-label-md font-label-md" style="color:var(--neon)">MID-TRANSIT</p>
+<p class="text-body-sm font-body-sm text-on-surface">TSS API Sync</p>
+</div>
+</div>
+<div class="material-symbols-outlined text-outline-variant">local_shipping</div>
+<!-- UK -->
+<div class="card-neon flex flex-col items-center gap-md bg-surface p-md border border-outline-variant w-48 text-center">
+<span class="material-symbols-outlined text-[#CF142B]">check_circle</span>
+<div>
+<p class="text-label-md font-label-md text-[#CF142B]">UNITED KINGDOM</p>
+<p class="text-body-sm font-body-sm text-on-surface">Holyhead Entry</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Operational Cockpit -->
+<section class="py-xl px-margin-desktop max-w-7xl mx-auto">
+<div class="flex flex-col lg:flex-row gap-xl">
+<div class="lg:w-1/3">
+<h3 class="text-headline-lg font-headline-lg mb-md text-on-surface">Operational Cockpit</h3>
+<p class="text-body-md font-body-md text-on-surface-variant mb-lg">
+    Real-time status tracking from ingestion to final declaration. No more manual data entry.
+</p>
+<div class="space-y-sm">
+<div class="p-md bg-surface-container border-l-4 card-neon" style="border-left-color:var(--neon)">
+<p class="text-label-sm font-label-sm mb-xs" style="color:var(--neon)">INGESTION</p>
+<p class="text-body-md font-body-md text-on-surface">99.8% Parser Accuracy</p>
+</div>
+<div class="p-md bg-surface-container border-l-4 border-outline card-neon">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-xs">VALIDATION</p>
+<p class="text-body-md font-body-md text-on-surface">Zero-Error Staging</p>
+</div>
+<div class="p-md bg-surface-container border-l-4 border-[#CF142B] card-neon">
+<p class="text-label-sm font-label-sm text-[#CF142B] mb-xs">TSS API</p>
+<p class="text-body-md font-body-md text-on-surface">Direct DEC Submission</p>
+</div>
+</div>
+</div>
+<div class="lg:w-2/3 glass-panel card-neon rounded-lg overflow-hidden shadow-xl">
+<div class="bg-surface-container px-lg py-md border-b border-outline-variant flex justify-between items-center">
+<span class="text-label-md font-label-md tracking-widest text-on-surface-variant">ACTIVE_PIPELINE.LOG</span>
+<div class="flex gap-xs">
+<span class="w-3 h-3 rounded-full bg-error-container"></span>
+<span class="w-3 h-3 rounded-full bg-tertiary-container"></span>
+<span class="w-3 h-3 rounded-full" style="background:var(--neon)"></span>
+</div>
+</div>
+<div class="p-0 overflow-x-auto">
+<table class="w-full text-left">
+<thead class="bg-surface-container-high/50 text-label-sm font-label-sm uppercase tracking-tighter text-on-surface-variant">
+<tr>
+<th class="px-lg py-md">Ref ID</th>
+<th class="px-lg py-md">Origin</th>
+<th class="px-lg py-md">Status</th>
+<th class="px-lg py-md">Sync Timestamp</th>
+</tr>
+</thead>
+<tbody class="text-body-sm font-body-sm divide-y divide-outline-variant">
+<tr class="tr-hover transition-colors">
+<td class="px-lg py-md font-label-md" style="color:var(--neon)">#SNV-7882</td>
+<td class="px-lg py-md text-on-surface">IE (Dublin)</td>
+<td class="px-lg py-md"><span class="px-sm py-xs text-[10px] border font-label-sm" style="background:rgba(29,205,254,0.08);color:var(--neon);border-color:var(--neon)">TSS API SYNCED</span></td>
+<td class="px-lg py-md text-on-surface-variant">14:22:01 UTC</td>
+</tr>
+<tr class="tr-hover transition-colors">
+<td class="px-lg py-md font-label-md" style="color:var(--neon)">#SNV-7883</td>
+<td class="px-lg py-md text-on-surface">IE (Cork)</td>
+<td class="px-lg py-md"><span class="px-sm py-xs bg-surface-container-high text-on-surface-variant border border-outline-variant text-[10px]">STG VALIDATED</span></td>
+<td class="px-lg py-md text-on-surface-variant">14:21:44 UTC</td>
+</tr>
+<tr class="tr-hover transition-colors">
+<td class="px-lg py-md font-label-md" style="color:var(--neon)">#SNV-7884</td>
+<td class="px-lg py-md text-on-surface">IE (Dublin)</td>
+<td class="px-lg py-md"><span class="px-sm py-xs bg-surface-container-low text-on-surface-variant border border-outline-variant text-[10px]">ING STORED</span></td>
+<td class="px-lg py-md text-on-surface-variant">14:21:12 UTC</td>
+</tr>
+<tr class="tr-hover transition-colors">
+<td class="px-lg py-md font-label-md" style="color:var(--neon)">#SNV-7885</td>
+<td class="px-lg py-md text-on-surface">IE (Rosslare)</td>
+<td class="px-lg py-md"><span class="px-sm py-xs bg-on-tertiary-fixed-variant text-on-error-container border border-error text-[10px]">DETAILS RECEIVED</span></td>
+<td class="px-lg py-md text-on-surface-variant">14:20:55 UTC</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</section>
+<!-- Pipeline Details - Bento Grid -->
+<section id="capabilities" class="py-xl px-margin-desktop">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-lg max-w-7xl mx-auto">
+<!-- ING -->
+<div class="card-neon p-lg bg-surface border border-outline-variant group relative overflow-hidden">
+<div class="flex justify-between items-start mb-lg">
+<span class="font-label-md" style="color:var(--neon)">01 / ING</span>
+<span class="material-symbols-outlined text-on-surface-variant">mail</span>
+</div>
+<h4 class="text-headline-md font-headline-md mb-md text-on-surface">Raw Data Ingestion</h4>
+<p class="text-body-sm font-body-sm text-on-surface-variant mb-lg">
+    Automatic parsing of manifests and emails. Our parser trace extracts XML, JSON, and PDF metadata instantly.
+</p>
+<div class="terminal-block h-24 rounded-sm p-sm font-label-sm text-[10px] overflow-hidden relative">
+<div class="scanline"></div>
+<code>&gt; parsing attachment...<br/>&gt; identifier: HAWB-9921<br/>&gt; schema: UK_TSS_v2.9<br/>&gt; status: 200 OK</code>
+</div>
+</div>
+<!-- STG -->
+<div class="card-neon p-lg bg-surface border border-outline-variant group">
+<div class="flex justify-between items-start mb-lg">
+<span class="font-label-md" style="color:var(--neon)">02 / STG</span>
+<span class="material-symbols-outlined text-on-surface-variant">rule</span>
+</div>
+<h4 class="text-headline-md font-headline-md mb-md text-on-surface">Validation Staging</h4>
+<p class="text-body-sm font-body-sm text-on-surface-variant mb-lg">
+    Pre-submission checks against customs rules. Identify missing commodity codes or HS mismatches before they hit the portal.
+</p>
+<div class="flex flex-col gap-xs">
+<div class="flex justify-between text-label-sm text-on-surface-variant">
+<span>HS CODE VALIDATION</span>
+<span style="color:var(--neon)">PASS</span>
+</div>
+<div class="w-full h-1 bg-surface-container-high"><div class="w-full h-full" style="background:var(--neon)"></div></div>
+<div class="flex justify-between text-label-sm mt-xs text-on-surface-variant">
+<span>COUNTRY OF ORIGIN</span>
+<span style="color:var(--neon)">PASS</span>
+</div>
+<div class="w-full h-1 bg-surface-container-high"><div class="w-full h-full" style="background:var(--neon)"></div></div>
+</div>
+</div>
+<!-- TSS -->
+<div class="card-neon p-lg bg-surface border border-outline-variant group">
+<div class="flex justify-between items-start mb-lg">
+<span class="font-label-md" style="color:var(--neon)">03 / TSS</span>
+<span class="material-symbols-outlined text-on-surface-variant">api</span>
+</div>
+<h4 class="text-headline-md font-headline-md mb-md text-on-surface">API Submission</h4>
+<p class="text-body-sm font-body-sm text-on-surface-variant mb-lg">
+    Direct v2.9.5 API link. Automated ENS/DEC management with real-time feedback loops from the TSS backend.
+</p>
+<div class="relative h-24 w-full rounded-sm border border-outline-variant overflow-hidden">
+<img class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD-O6o8LOq7i5NzvTtq-aYf3BLvRgY49FgWpu3ev8NPSmG9IweLUsGDysMapTBCbCjw0sd9EhKM6EC0eXnHXd8kQGKJTRyLRznG1LOwxkAWSl9cNiKUFajDFw49B7EBqOv1xpn6PvFQXDxJF6x4KaG-RqtHhfmjbjF_OKyYH0V_ZscUHQ8epP9nZkrgD4SR2bsfbg_DsJCIVx3ikbrp53li7GCbN34YfoDwYGHWwO60TTA3WGpZ4jl2LFp0stlDpRf3aKCz9kUbQ6A"/>
+<div class="absolute inset-0 mix-blend-overlay" style="background:rgba(29,205,254,0.08)"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- Capabilities CTA -->
+<section class="py-xl px-margin-desktop bg-surface-container-highest">
+<div class="max-w-4xl mx-auto text-center space-y-lg">
+<h2 class="text-headline-lg font-headline-lg text-on-surface">Stop Rekeying. Start Flowing.</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-md text-left">
+<div class="flex gap-md items-start">
+<span class="material-symbols-outlined text-primary">security</span>
+<div>
+<p class="font-headline-md text-[18px] text-on-surface">Full Auditability</p>
+<p class="text-body-sm text-on-surface-variant">Immutable logs for every shipment lifecycle stage.</p>
+</div>
+</div>
+<div class="flex gap-md items-start">
+<span class="material-symbols-outlined text-primary">warning</span>
+<div>
+<p class="font-headline-md text-[18px] text-on-surface">Exception Management</p>
+<p class="text-body-sm text-on-surface-variant">Only touch the data when the system detects a mismatch.</p>
+</div>
+</div>
+</div>
+<button class="landing-cta landing-cta-primary landing-section-cta" data-login-modal-trigger type="button">
+    Log in
+</button>
+</div>
+</section>
+</main>
+<!-- Login Modal -->
+<div class="login-modal-backdrop" data-login-modal aria-hidden="true">
+<div class="login-modal-panel" role="dialog" aria-modal="true" aria-labelledby="landing-login-title">
+<div class="login-modal-hero">
+<div class="fusion-logo-wrap">
+<img src="/static/img/fusion_logo.jpg" alt="Fusion" class="fusion-logo-img" onerror="this.style.display='none'"/>
+<div class="fusion-label">
+<div class="title">Fusion Flow</div>
+<div class="sub">Customs &amp; Supply Chain Integration</div>
+</div>
+</div>
+</div>
+<div class="login-modal-body">
+<h2 class="login-modal-title" id="landing-login-title">Sign in</h2>
+<p class="login-modal-copy">Enter your credentials to access the portal.</p>
+<form method="POST" action="/auth/login?next=/dashboard/">
+<div class="login-modal-field">
+<label class="login-modal-label" for="landing-login-username">Username</label>
+<input class="landing-login-field" id="landing-login-username" name="username" autocomplete="username" placeholder="admin" required type="text"/>
+</div>
+<div class="login-modal-field">
+<label class="login-modal-label" for="landing-login-password">Password</label>
+<input class="landing-login-field" id="landing-login-password" name="password" autocomplete="current-password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" required type="password"/>
+</div>
+<button class="login-modal-submit" type="submit">
+<span class="material-symbols-outlined" aria-hidden="true">login</span>
+Sign In
+</button>
+</form>
+</div>
+<div class="login-modal-footer">Fusion Flow V2 &mdash; Synovia Digital Ltd &mdash; 2026</div>
+</div>
+</div>
+<!-- Footer -->
+<footer class="w-full py-xl px-margin-desktop bg-surface-container-lowest border-t border-outline-variant">
+<div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-lg">
+<div class="md:col-span-1">
+<div class="flex items-center gap-sm mb-md">
+<img alt="Synovia Digital" class="h-8 w-auto object-contain opacity-90" src="/static/stitch/synovia_logo_white.png"/>
+<span class="text-headline-md font-headline-md font-bold text-on-surface opacity-80">Flow</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mb-md">Mission-critical customs automation for modern logistics.</p>
+<p class="text-label-md font-label-md text-on-surface-variant">Synovia Digital Ltd &copy; 2026.</p>
+</div>
+<div class="flex flex-col gap-sm">
+<p class="text-label-md font-label-md font-bold" style="color:var(--neon)">Product</p>
+<a class="text-body-sm font-body-sm text-on-surface-variant hover:underline" href="#">API Docs</a>
+<a class="text-body-sm font-body-sm text-on-surface-variant hover:underline" href="#">Workflow</a>
+<a class="text-body-sm font-body-sm text-on-surface-variant hover:underline" href="#">Integrations</a>
+</div>
+<div class="flex flex-col gap-sm">
+<p class="text-label-md font-label-md font-bold" style="color:var(--neon)">Resources</p>
+<a class="text-body-sm font-body-sm text-on-surface-variant hover:underline" href="#">TSS Guide</a>
+<a class="text-body-sm font-body-sm text-on-surface-variant hover:underline" href="#">Compliance</a>
+<a class="text-body-sm font-body-sm text-on-surface-variant hover:underline" href="#">Legal</a>
+</div>
+<div class="flex flex-col gap-sm">
+<p class="text-label-md font-label-md font-bold" style="color:var(--neon)">Contact</p>
+<a class="text-body-sm font-body-sm text-on-surface-variant hover:underline" href="#">Support</a>
+<a class="text-body-sm font-body-sm text-on-surface-variant hover:underline" href="#">Sales</a>
+<a class="text-body-sm font-body-sm text-on-surface-variant hover:underline" href="#">Security</a>
+</div>
+</div>
+</footer>
+<script>
+    // ── Hero slider ──────────────────────────────────────────
+    const slides = document.querySelectorAll('.hero-slide');
+    const label = document.getElementById('vehicle-label');
+    const labels = ["Road Freight Active", "Maritime Logistics Live", "Port Operations"];
+    let currentSlide = 0;
+    function nextSlide() {
+        slides[currentSlide].classList.remove('active');
+        currentSlide = (currentSlide + 1) % slides.length;
+        slides[currentSlide].classList.add('active');
+        label.style.opacity = '0';
+        setTimeout(() => { label.textContent = labels[currentSlide]; label.style.opacity = '1'; }, 750);
+    }
+    label.style.transition = 'opacity 0.75s ease-in-out';
+    setInterval(nextSlide, 5000);
+
+    // ── Table row micro-interactions ─────────────────────────
+    document.querySelectorAll('tr').forEach(row => {
+        row.addEventListener('mouseenter', () => { row.style.transform = 'translateX(4px)'; row.style.transition = 'transform 0.2s ease-out'; });
+        row.addEventListener('mouseleave', () => { row.style.transform = 'translateX(0)'; });
+    });
+
+    // ── Theme toggle ─────────────────────────────────────────
+    const themeToggle = document.getElementById('theme-toggle');
+    const themeIcon = document.getElementById('theme-icon');
+    function applyTheme(t) {
+        if (t === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+            themeIcon.textContent = 'light_mode';
+            localStorage.setItem('sf-theme', 'dark');
+        } else {
+            document.documentElement.removeAttribute('data-theme');
+            themeIcon.textContent = 'dark_mode';
+            localStorage.setItem('sf-theme', 'light');
+        }
+    }
+    themeToggle.addEventListener('click', () => {
+        applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    });
+    // Sync icon on load
+    if (document.documentElement.getAttribute('data-theme') === 'dark') themeIcon.textContent = 'light_mode';
+
+    // ── Login modal ──────────────────────────────────────────
+    const loginModal = document.querySelector('[data-login-modal]');
+    const usernameField = document.getElementById('landing-login-username');
+    const loginFields = document.querySelectorAll('.landing-login-field');
+    loginFields.forEach(field => {
+        field.addEventListener('focus', () => field.classList.add('is-focused'));
+        field.addEventListener('blur', () => field.classList.remove('is-focused'));
+    });
+    function openLoginModal() {
+        loginModal?.classList.add('is-open');
+        loginModal?.setAttribute('aria-hidden','false');
+        window.setTimeout(() => {
+            usernameField?.focus();
+            usernameField?.classList.add('is-focused');
+        }, 50);
+    }
+    function closeLoginModal() {
+        loginModal?.classList.remove('is-open');
+        loginModal?.setAttribute('aria-hidden','true');
+        loginFields.forEach(field => field.classList.remove('is-focused'));
+    }
+    document.querySelectorAll('[data-login-modal-trigger]').forEach(t => t.addEventListener('click', openLoginModal));
+    document.querySelectorAll('[data-login-modal-close]').forEach(t => t.addEventListener('click', closeLoginModal));
+    loginModal?.addEventListener('click', e => { if (e.target === loginModal) closeLoginModal(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLoginModal(); });
+</script>
+</body>
+</html>

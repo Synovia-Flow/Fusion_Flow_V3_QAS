@@ -1,0 +1,300 @@
+{% extends 'base.html' %}
+{% block title %}Admin - Settings - Fusion Flow V2{% endblock %}
+
+{% macro config_value_control(row) %}
+  {% set _treat_as_secret = row.is_secret or row.key in ('ACT_AS', 'CLIENT_ID', 'TENANT_ID') %}
+  {% if _treat_as_secret %}
+    <div class="input-group input-group-sm">
+      <input
+        type="password"
+        class="form-control form-control-sm font-monospace"
+        id="field_{{ row.category }}_{{ row.key }}"
+        name="field_{{ row.category }}__{{ row.key }}"
+        value="{{ row.value or '' }}"
+        autocomplete="new-password"
+        placeholder="(leave blank to keep current)">
+      <button
+        type="button"
+        class="btn btn-outline-secondary btn-sm js-toggle-secret"
+        data-target="field_{{ row.category }}_{{ row.key }}"
+        tabindex="-1"
+        title="Show/hide">
+        <i class="bi bi-eye"></i>
+      </button>
+    </div>
+  {% elif row.is_boolean %}
+    <input
+      type="hidden"
+      class="js-boolean-config"
+      name="field_{{ row.category }}__{{ row.key }}"
+      value="{{ row.value or 'false' }}"
+      data-config-key="{{ row.category }}.{{ row.key }}">
+    <button
+      type="button"
+      class="admin-ios-toggle js-admin-boolean-toggle{% if row.value == 'true' %} is-on{% endif %}"
+      role="switch"
+      aria-checked="{{ 'true' if row.value == 'true' else 'false' }}"
+      data-on-label="true"
+      data-off-label="false">
+      <span class="admin-ios-toggle-track" aria-hidden="true">
+        <span class="admin-ios-toggle-thumb"></span>
+      </span>
+      <span class="admin-ios-toggle-value">{{ 'true' if row.value == 'true' else 'false' }}</span>
+    </button>
+  {% elif row.choices %}
+    <select name="field_{{ row.category }}__{{ row.key }}" class="form-select form-select-sm admin-short-select">
+      {% set selected = namespace(found=false) %}
+      {% for choice in row.choices %}
+      {% if row.value == choice.value %}{% set selected.found = true %}{% endif %}
+      <option value="{{ choice.value }}" {% if row.value == choice.value %}selected{% endif %}>{{ choice.label }}</option>
+      {% endfor %}
+      {% if row.value and not selected.found %}
+      <option value="{{ row.value }}" selected>{{ row.value }} - current unsupported value</option>
+      {% endif %}
+    </select>
+  {% else %}
+    <input
+      type="text"
+      class="form-control form-control-sm font-monospace"
+      name="field_{{ row.category }}__{{ row.key }}"
+      value="{{ row.value or '' }}">
+  {% endif %}
+{% endmacro %}
+
+{% macro config_row(row) %}
+  <tr>
+    <td>
+      <div class="font-monospace small fw-semibold">{{ row.display_key }}</div>
+    </td>
+    <td>{{ config_value_control(row) }}</td>
+    <td class="small">
+      <div class="text-muted">{{ row.description }}</div>
+      {% if not row.has_db_description %}
+        <span class="badge text-bg-light border text-muted mt-1">default description</span>
+      {% endif %}
+    </td>
+    <td class="text-muted small text-end text-nowrap">
+      {{ row.updated_at|localdt('%d %b %H:%M') if row.updated_at else '-' }}
+    </td>
+  </tr>
+{% endmacro %}
+
+{% block content %}
+<div class="admin-settings-page">
+  <div class="mb-4 d-flex justify-content-between align-items-start gap-3 flex-wrap">
+    <div>
+      <h2 class="h4 mb-0 fw-semibold">
+        <i class="bi bi-sliders me-2 text-muted"></i>Admin Settings
+      </h2>
+      <p class="text-muted small mt-1 mb-0">
+        Manage API credentials and system configuration stored in
+        <code>{{ tenant_code }}.AppConfiguration</code>.
+      </p>
+    </div>
+    {% if categories %}
+    <button type="submit" form="adminSettingsForm" class="btn btn-primary">
+      <i class="bi bi-floppy me-1"></i>Save All Settings
+    </button>
+    {% endif %}
+  </div>
+
+  {% if table_missing %}
+  <div class="alert alert-warning d-flex align-items-center gap-2">
+    <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+    <div>
+      <strong>{{ tenant_code }}.AppConfiguration table not found.</strong>
+      Run migration <code>028_create_app_configuration.sql</code> (BKD) or
+      <code>029_create_cwf_app_configuration.sql</code> (CWF)
+      against the Fusion Flow database, then reload this page.
+    </div>
+  </div>
+  {% endif %}
+
+  {% if categories %}
+  <form id="adminSettingsForm" method="POST" action="{{ url_for('admin.save_settings') }}">
+    <input type="hidden" name="category" value="__all__">
+  {% endif %}
+
+  {% for category, rows in categories %}
+  {% set meta = category_meta.get(category, {}) %}
+  {% set collapse_id = 'config-collapse-' ~ category %}
+  {% set is_open = category in ('TSS_API', 'NOTIFY') %}
+  <div class="card shadow-sm border-0 mb-3 admin-settings-card" id="config-{{ category }}">
+    <button
+      class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-start gap-3 flex-wrap text-start w-100 border-0"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#{{ collapse_id }}"
+      aria-expanded="{{ 'true' if is_open else 'false' }}"
+      aria-controls="{{ collapse_id }}">
+      <span>
+        <span class="d-flex align-items-center gap-2">
+          <span class="admin-settings-icon">
+            <i class="bi {{ meta.get('icon', 'bi-gear') }}"></i>
+          </span>
+          <span class="fw-semibold">{{ meta.get('label', category) }}</span>
+          <span class="badge text-bg-light border">{{ rows|length }} settings</span>
+        </span>
+        <span class="text-muted small d-block mt-1">{{ meta.get('description', '') }}</span>
+      </span>
+      <span class="text-muted small d-flex align-items-center gap-1">
+        <span>Open</span>
+        <i class="bi bi-chevron-down"></i>
+      </span>
+    </button>
+
+    <div id="{{ collapse_id }}" class="collapse{% if is_open %} show{% endif %}">
+    <div class="card-body">
+      {% if category == 'TSS_API' and tss_resolution %}
+      <div class="alert {{ 'alert-warning' if tss_resolution.using_fallback else 'alert-info' }} small d-flex justify-content-between align-items-center gap-3 mb-3 flex-wrap">
+        <div>
+          <strong>Resolved mode:</strong> {{ tss_resolution.environment|upper }}
+          <span class="ms-2"><strong>Source:</strong> {{ tss_resolution.source_label }}</span>
+        </div>
+        <code class="small text-break">{{ tss_resolution.base_url or 'No URL configured' }}</code>
+      </div>
+      {% endif %}
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-3 admin-settings-table">
+          <thead class="table-light">
+            <tr>
+              <th>Key</th>
+              <th>Value</th>
+              <th>Description</th>
+              <th class="text-muted small text-end">Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if category == 'TSS_API' %}
+              {% set tss_order = ['BASE_URL', 'TEST_URL', 'ENVIRONMENT', 'USERNAME', 'PASSWORD', 'ACT_AS'] %}
+              {% for wanted_key in tss_order %}
+                {% for row in rows if row.key == wanted_key %}
+                  {{ config_row(row) }}
+                {% endfor %}
+              {% endfor %}
+              {% for row in rows if row.key not in tss_order %}
+                {{ config_row(row) }}
+              {% endfor %}
+            {% else %}
+              {% for row in rows %}
+                {{ config_row(row) }}
+              {% endfor %}
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if category == 'TSS_API' %}
+      <div class="d-flex gap-2 justify-content-end flex-wrap">
+        <button type="button" class="btn btn-sm btn-outline-info js-test-tss">
+          <i class="bi bi-wifi me-1"></i>Test Connection
+        </button>
+      </div>
+      {% elif category == 'SMTP' %}
+      <div class="d-flex gap-2 justify-content-end flex-wrap">
+        <a href="{{ url_for('ingest.test_smtp', to=smtp_test_to) }}"
+           class="btn btn-sm btn-outline-secondary"
+           target="_blank"
+           rel="noopener">
+          <i class="bi bi-envelope-check me-1"></i>Test SMTP
+        </a>
+      </div>
+      {% elif category == 'GRAPH' %}
+      <div class="d-flex gap-2 justify-content-end flex-wrap">
+        <a href="{{ url_for('ingest.test_graph') }}"
+           class="btn btn-sm btn-outline-secondary"
+           target="_blank"
+           rel="noopener">
+          <i class="bi bi-microsoft me-1"></i>Test Graph
+        </a>
+      </div>
+      {% endif %}
+    </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if categories %}
+  </form>
+  {% endif %}
+
+  {% if not categories and not table_missing %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-inbox display-6 d-block mb-2"></i>
+    No configuration entries found.
+    Run migration <code>028_create_app_configuration.sql</code> to seed defaults.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    'use strict';
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.js-toggle-secret');
+      if (!btn) return;
+      var input = document.getElementById(btn.dataset.target);
+      if (!input) return;
+      var isHidden = input.type === 'password';
+      input.type = isHidden ? 'text' : 'password';
+      btn.querySelector('i').className = isHidden ? 'bi bi-eye-slash' : 'bi bi-eye';
+    });
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.js-admin-boolean-toggle');
+      if (!btn) return;
+      var input = btn.parentElement.querySelector('.js-boolean-config');
+      if (!input) return;
+      var nextOn = btn.getAttribute('aria-checked') !== 'true';
+      input.value = nextOn ? 'true' : 'false';
+      btn.classList.toggle('is-on', nextOn);
+      btn.setAttribute('aria-checked', nextOn ? 'true' : 'false');
+      var label = btn.querySelector('.admin-ios-toggle-value');
+      if (label) label.textContent = nextOn ? btn.dataset.onLabel : btn.dataset.offLabel;
+    });
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.js-test-tss');
+      if (!btn) return;
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing...';
+
+      fetch('{{ url_for("admin.test_tss_connection") }}', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { showTestResult(d.ok, d.message); })
+        .catch(function (err) { showTestResult(false, 'Request failed: ' + err); })
+        .finally(function () {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-wifi me-1"></i>Test Connection';
+        });
+    });
+
+    document.querySelectorAll('.js-boolean-config').forEach(function (input) {
+      input.value = input.value === 'true' ? 'true' : 'false';
+    });
+
+    function showTestResult(ok, msg) {
+      var existing = document.getElementById('tss-test-result');
+      if (existing) existing.remove();
+      var div = document.createElement('div');
+      div.id = 'tss-test-result';
+      div.className = 'alert alert-' + (ok ? 'success' : 'danger') +
+        ' alert-dismissible fade show small mt-3 mb-0';
+      div.innerHTML =
+        '<i class="bi bi-' + (ok ? 'check-circle' : 'x-circle') + ' me-1"></i>' +
+        msg +
+        '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+
+      var tssBtn = document.querySelector('.js-test-tss');
+      if (tssBtn) {
+        tssBtn.closest('.card-body').appendChild(div);
+      }
+    }
+  })();
+</script>
+{% endblock %}

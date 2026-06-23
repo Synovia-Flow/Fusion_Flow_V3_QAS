@@ -17,15 +17,7 @@ scripts.
 Step 01 is QAS-native and runs `Graph/graph_mail_customer_downloader.py` from
 this repository.
 
-Steps 02-05 call existing Fusion application modules. If the full app is not
-present inside this QAS folder, set:
-
-```powershell
-$env:FUSION_FLOW_APP_ROOT = "C:\path\to\Fusion_Flow_V2_BKD"
-```
-
-This is deliberate. QAS keeps the flow shape and requirements clear without
-forking production business logic.
+Steps 02-05 now use the local `app/` and `scripts/` folders copied into this QAS repository. The goal is for QAS to run as its own app, without depending on the V2 repo path.
 
 ## Validation Ownership
 

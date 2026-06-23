@@ -1,0 +1,75 @@
+<div class="col-12 mt-2">
+    <div class="small fw-semibold text-muted border-top pt-3">Operational details</div>
+</div>
+<div class="col-md-3">
+    <label class="form-label small text-muted">Declaration Choice</label>
+    <input class="form-control font-monospace" name="declaration_choice" value="{{ cons.declaration_choice or '' }}" maxlength="20">
+</div>
+<div class="col-md-3">
+    <label class="form-label small text-muted">Align UKIMS</label>
+    {% set align_value = (cons.align_ukims or '')|lower %}
+    <select class="form-select" name="align_ukims">
+        <option value="" {% if not align_value %}selected{% endif %}>--</option>
+        <option value="yes" {% if align_value == 'yes' %}selected{% endif %}>Yes</option>
+        <option value="no" {% if align_value == 'no' %}selected{% endif %}>No</option>
+    </select>
+</div>
+<div class="col-md-3">
+    <label class="form-label small text-muted">Use Importer SDE</label>
+    {% set sde_value = (cons.use_importer_sde or '')|lower %}
+    <select class="form-select" name="use_importer_sde">
+        <option value="" {% if not sde_value %}selected{% endif %}>--</option>
+        <option value="yes" {% if sde_value == 'yes' %}selected{% endif %}>Yes</option>
+        <option value="no" {% if sde_value == 'no' %}selected{% endif %}>No</option>
+    </select>
+</div>
+<div class="col-md-3">
+    <label class="form-label small text-muted">Exporter EORI</label>
+    <input class="form-control font-monospace" name="exporter_eori" value="{{ cons.exporter_eori or '' }}" maxlength="20">
+</div>
+
+{% for role, label, street_field in [
+    ('importer', 'Importer', 'importer_street_number'),
+    ('consignor', 'Consignor', 'consignor_street_number'),
+    ('consignee', 'Consignee', 'consignee_street_number')
+] %}
+<div class="col-12 mt-2">
+    <div class="small fw-semibold text-muted border-top pt-3">{{ label }} address</div>
+</div>
+<div class="col-md-4">
+    <label class="form-label small text-muted">Street / Number</label>
+    <input class="form-control" name="{{ street_field }}" value="{{ cons[street_field] or '' }}" maxlength="70">
+</div>
+<div class="col-md-3">
+    <label class="form-label small text-muted">City</label>
+    <input class="form-control" name="{{ role }}_city" value="{{ cons[role ~ '_city'] or '' }}" maxlength="35">
+</div>
+<div class="col-md-3">
+    <label class="form-label small text-muted">Postcode</label>
+    <input class="form-control font-monospace" name="{{ role }}_postcode" value="{{ cons[role ~ '_postcode'] or '' }}" maxlength="9">
+</div>
+<div class="col-md-2">
+    <label class="form-label small text-muted">Country</label>
+    <input class="form-control font-monospace" name="{{ role }}_country" value="{{ cons[role ~ '_country'] or '' }}" maxlength="2">
+</div>
+{% endfor %}
+
+<div class="col-12 mt-2">
+    <div class="small fw-semibold text-muted border-top pt-3">Buyer / seller flags</div>
+</div>
+<div class="col-md-3">
+    <label class="form-label small text-muted">Buyer Same as Importer</label>
+    {% set buyer_same = (cons.buyer_same_as_importer or 'yes')|lower %}
+    <select class="form-select" name="buyer_same_as_importer">
+        <option value="yes" {% if buyer_same != 'no' %}selected{% endif %}>Yes</option>
+        <option value="no" {% if buyer_same == 'no' %}selected{% endif %}>No</option>
+    </select>
+</div>
+<div class="col-md-3">
+    <label class="form-label small text-muted">Seller Same as Exporter</label>
+    {% set seller_same = (cons.seller_same_as_exporter or 'yes')|lower %}
+    <select class="form-select" name="seller_same_as_exporter">
+        <option value="yes" {% if seller_same != 'no' %}selected{% endif %}>Yes</option>
+        <option value="no" {% if seller_same == 'no' %}selected{% endif %}>No</option>
+    </select>
+</div>

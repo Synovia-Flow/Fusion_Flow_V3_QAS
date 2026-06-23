@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Goods Items{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+    <div>
+        <h4 class="page-title"><i class="bi bi-tag"></i> Goods Items</h4>
+    </div>
+    <div class="page-actions">
+        <form method="POST"
+              action="{{ url_for('orchestrator.run_and_return') }}"
+              class="d-inline"
+              data-confirm
+              data-confirm-title="Sync All TSS Data"
+              data-confirm-text="Run the full tenant sync: ENS, consignments, goods, SFDs, GMR arrivals and SDI discovery?"
+              data-confirm-submit-label="Sync All TSS Data"
+              data-loading-toast
+              data-loading-message="Syncing all TSS data..."
+              data-loading-meta="Fusion is refreshing the full TSS chain for this tenant."
+              data-loading-button-text="Syncing...">
+            <input type="hidden" name="phase" value="sync_all">
+            <input type="hidden" name="next_url" value="{{ request.full_path if request.query_string else request.path }}">
+            <button class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-arrow-repeat"></i> Sync All TSS Data
+            </button>
+        </form>
+        <a href="{{ url_for('goods.create') }}" class="btn btn-sm btn-primary">
+            <i class="bi bi-plus-lg"></i> New Goods Item
+        </a>
+    </div>
+</div>
+
+{% include "partials/_alerts.html" %}
+
+{# ── STATUS FILTER TABS ── #}
+<ul class="nav nav-tabs filter-tabs mb-3">
+    {% for s in status_tabs %}
+    {% set count = status_counts.get(s, 0) %}
+    <li class="nav-item">
+        <a class="nav-link {{ 'active' if status_filter == s }}"
+           href="{{ url_for('goods.list_view', status=s, q=search, cons_id=cons_filter, ens_ref=ens_ref, show_all=1) if show_all else url_for('goods.list_view', status=s, q=search, cons_id=cons_filter, ens_ref=ens_ref) }}"
+           hx-get="{{ url_for('goods.list_view', status=s, q=search, cons_id=cons_filter, ens_ref=ens_ref, show_all=1) if show_all else url_for('goods.list_view', status=s, q=search, cons_id=cons_filter, ens_ref=ens_ref) }}"
+           hx-target="#goods-table-wrap"
+           hx-push-url="true">
+            {{ s }}
+            {% if count > 0 %}<span class="badge {{ badge_class(s) }} ms-1">{{ count }}</span>{% endif %}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+
+{# ── SEARCH + CONSIGNMENT FILTER ── #}
+<div class="mb-3">
+    <form class="d-flex gap-2 flex-wrap"
+          method="GET"
+          hx-get="{{ url_for('goods.list_view') }}"
+          hx-trigger="submit, input changed delay:350ms from:input[name='q']"
+          hx-target="#goods-table-wrap"
+          hx-swap="innerHTML"
+          hx-push-url="true">
+        <input type="hidden" name="status" value="{{ status_filter }}">
+        {% if ens_ref %}<input type="hidden" name="ens_ref" value="{{ ens_ref }}">{% endif %}
+        {% if show_all %}<input type="hidden" name="show_all" value="1">{% endif %}
+        <input type="text" name="q" class="form-control search-bar"
+               placeholder="Search description, commodity code, goods ID..."
+               value="{{ search }}">
+        {% if cons_filter %}
+        <input type="hidden" name="cons_id" value="{{ cons_filter }}">
+        <span class="badge badge-status-info align-self-center">Consignment #{{ cons_filter }}</span>
+        <a href="{{ url_for('goods.list_view', status=status_filter, q=search, ens_ref=ens_ref) }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-x"></i> Clear filter
+        </a>
+        {% endif %}
+        {% if ens_ref %}
+        <span class="badge badge-status-info align-self-center">{{ ens_ref }}</span>
+        <a href="{{ url_for('goods.list_view', status=status_filter, q=search, cons_id=cons_filter) }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-x"></i> Clear ENS
+        </a>
+        {% endif %}
+        <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-search"></i></button>
+        {% if search %}
+        <a href="{{ url_for('goods.list_view', status=status_filter, cons_id=cons_filter, ens_ref=ens_ref) }}" class="btn btn-outline-danger btn-sm">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+<div id="goods-table-wrap"
+     hx-get="{{ url_for('goods.list_view', status=status_filter, q=search, cons_id=cons_filter, ens_ref=ens_ref, show_all=1) if show_all else url_for('goods.list_view', status=status_filter, q=search, cons_id=cons_filter, ens_ref=ens_ref) }}"
+     hx-trigger="every 60s"
+     hx-target="this"
+     hx-swap="innerHTML">
+    {% include "goods/partials/_goods_list_table.html" %}
+</div>
+
+{% endblock %}

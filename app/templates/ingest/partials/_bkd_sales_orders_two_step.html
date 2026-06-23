@@ -1,0 +1,73 @@
+{% set sales_order_options = bkd_sales_orders_ens_options | default([]) %}
+{% set tenant_label = tenant.code if tenant and tenant.code else 'Tenant' %}
+{% if tenant and not attach_consignment %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+            <div>
+                <div class="fw-semibold" style="color:var(--fusion-navy);">
+                    <i class="bi bi-truck-front"></i> {{ tenant_label }} Sales Orders
+                </div>
+                <div class="small text-muted">
+                    Select an editable ENS header, then import the SynoviaFlow workbook under that ENS.
+                </div>
+            </div>
+            <a href="{{ url_for('declarations.create') }}" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-box-arrow-up-right"></i> Open ENS Create
+            </a>
+        </div>
+
+        <form method="POST"
+              action="{{ url_for('ingest.bkd_sales_orders_import') }}"
+              enctype="multipart/form-data"
+              class="row g-2 align-items-end"
+              data-loading-toast
+              data-loading-message="Importing Sales Orders..."
+              data-loading-meta="Fusion is linking consignments and goods to the selected ENS header."
+              data-loading-button-text="Importing...">
+            <div class="col-lg-5">
+                <label class="form-label small fw-semibold">ENS header</label>
+                <select name="ens_staging_id" class="form-select form-select-sm" required {% if not sales_order_options %}disabled{% endif %}>
+                    <option value="">Select ENS header...</option>
+                    {% for ens in sales_order_options %}
+                    <option value="{{ ens.staging_id }}">
+                        #{{ ens.staging_id }} - {{ ens.conveyance_ref or ens.label or 'Sales-order ENS' }}
+                        {% if ens.identity_no_of_transport %} / {{ ens.identity_no_of_transport }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                {% if not sales_order_options %}
+                <div class="form-text">Create or import an editable ENS first, then return here to import the workbook.</div>
+                {% endif %}
+            </div>
+            <div class="col-lg-3">
+                <label class="form-label small fw-semibold">Sales Orders workbook</label>
+                <input type="file"
+                       name="sales_orders_file"
+                       class="form-control form-control-sm"
+                       accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                       required
+                       {% if not sales_order_options %}disabled{% endif %}>
+            </div>
+            {% set creation_mode_wrapper = 'col-lg-2' %}
+            {% include 'ingest/partials/_creation_mode_select.html' %}
+            {% set no_sfd_reason_name = 'no_sfd_reason' %}
+            {% set no_sfd_reason_value = '' %}
+            {% set no_sfd_reason_wrapper = 'col-lg-2' %}
+            {% include 'ingest/partials/_no_sfd_reason_select.html' %}
+            <div class="col-12 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="{{ url_for('static', filename='templates/SynoviaFlow_Consignment_v2.9.5.xlsx') }}"
+                       class="btn btn-sm btn-outline-secondary"
+                       download>
+                        <i class="bi bi-file-earmark-spreadsheet"></i> SynoviaFlow template
+                    </a>
+                </div>
+                <button type="submit" class="btn btn-sm btn-success" {% if not sales_order_options %}disabled{% endif %}>
+                    <i class="bi bi-box-arrow-in-down"></i> Import Sales Orders
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}

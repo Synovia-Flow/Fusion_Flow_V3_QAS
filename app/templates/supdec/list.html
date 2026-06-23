@@ -1,0 +1,377 @@
+{% extends 'base.html' %}
+{% set page_title = "Supplementary Declarations" %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4 class="page-title"><i class="bi bi-file-earmark-check"></i> Supplementary Declarations</h4>
+        <p class="page-subtitle">Post-arrival customs declarations where the simplified flow requires them - deadline: 10th of following month</p>
+    </div>
+    <div class="page-actions">
+        <form method="POST" action="{{ url_for('orchestrator.run_and_return') }}" class="d-inline"
+              data-confirm data-confirm-title="Discover SDIs"
+              data-confirm-text="Query TSS for supplementary declarations linked to arrived SFDs and stage them locally?"
+              data-confirm-submit-label="Discover SDIs"
+              data-loading-toast data-loading-message="Discovering SDIs from TSS..."
+              data-loading-meta="Fusion is querying TSS for supplementary declarations." data-loading-button-text="Working...">
+            <input type="hidden" name="phase" value="discover_sdi">
+            <input type="hidden" name="next_url" value="{{ request.full_path }}">
+            <button class="btn btn-sm btn-outline-info"><i class="bi bi-search"></i> Discover SDIs</button>
+        </form>
+        <a href="{{ url_for('supdec.create') }}" class="btn btn-sm" style="background:var(--fusion-amber); color:white;">
+            <i class="bi bi-plus-lg"></i> New SDI
+        </a>
+        <div class="btn-group">
+            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-three-dots"></i> More
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                    <form method="POST" action="{{ url_for('orchestrator.run_and_return') }}"
+                          data-confirm data-confirm-title="Validate SDIs"
+                          data-confirm-text="Validate all PENDING supplementary declarations? Consignments and ENS goods are skipped."
+                          data-confirm-submit-label="Validate SDIs"
+                          data-loading-toast data-loading-message="Validating SDIs..."
+                          data-loading-meta="Fusion is checking supplementary declaration fields before TSS submission." data-loading-button-text="Validating...">
+                        <input type="hidden" name="phase" value="validate_pipeline">
+                        <input type="hidden" name="skip_consignments" value="1">
+                        <input type="hidden" name="skip_goods" value="1">
+                        <input type="hidden" name="next_url" value="{{ request.full_path }}">
+                        <button class="dropdown-item"><i class="bi bi-check2-circle me-2"></i>Validate SDIs</button>
+                    </form>
+                </li>
+                <li>
+                    <form method="POST" action="{{ url_for('orchestrator.run_and_return') }}"
+                          data-confirm data-confirm-title="Submit Validated SDIs"
+                          data-confirm-text="Submit only VALIDATED supplementary declarations to TSS? Consignments and ENS goods are skipped for this SDI action."
+                          data-confirm-submit-label="Submit Validated SDIs"
+                          data-loading-toast data-loading-message="Submitting validated SDIs..."
+                          data-loading-meta="Fusion is updating SDI goods/header payloads and submitting supplementary declarations to TSS." data-loading-button-text="Working...">
+                        <input type="hidden" name="phase" value="submit_pipeline">
+                        <input type="hidden" name="skip_consignments" value="1">
+                        <input type="hidden" name="skip_goods" value="1">
+                        <input type="hidden" name="next_url" value="{{ request.full_path }}">
+                        <button class="dropdown-item"><i class="bi bi-send me-2"></i>Submit Validated SDIs</button>
+                    </form>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <a href="{{ url_for('supdec.import_tss') }}" class="dropdown-item">
+                        <i class="bi bi-cloud-download me-2"></i>Import from TSS
+                    </a>
+                </li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+{% include "partials/_alerts.html" %}
+
+{# ── SDI DEADLINE BANNER ── #}
+<div class="card border-0 shadow-sm mb-3 supdec-deadline-card" style="border-left: 4px solid var(--fusion-amber) !important; background: linear-gradient(90deg, #fffbeb 0%, #fff 60%);">
+    <div class="card-body py-2 px-3">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+            <span class="fw-semibold" style="color:var(--fusion-amber); font-size:0.8rem; text-transform:uppercase; letter-spacing:.4px;">
+                <i class="bi bi-calendar-event-fill me-1"></i> SDI Monthly Deadline
+            </span>
+            <span class="fw-bold {% if days_to_deadline <= 3 %}text-danger{% elif days_to_deadline <= 7 %}text-warning{% else %}text-success{% endif %}" style="font-size:1rem;">
+                {{ deadline_date }}
+            </span>
+            <span class="text-muted small">
+                {% if days_to_deadline == 0 %}
+                <i class="bi bi-exclamation-circle-fill text-danger"></i> <strong class="text-danger">Due TODAY</strong>
+                {% elif days_to_deadline == 1 %}
+                <i class="bi bi-exclamation-circle-fill text-danger"></i> <strong class="text-danger">Due Tomorrow</strong>
+                {% elif days_to_deadline < 0 %}
+                <i class="bi bi-exclamation-triangle-fill text-danger"></i> <strong class="text-danger">OVERDUE</strong>
+                {% else %}
+                {{ days_to_deadline }} days remaining
+                {% endif %}
+            </span>
+            {% if overdue_count %}
+            <span class="badge bg-danger"><i class="bi bi-clock-fill me-1"></i>{{ overdue_count }} overdue</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<ul class="nav nav-tabs filter-tabs mb-3">
+    {% for s in status_tabs %}
+    {% set count = status_counts.get(s, 0) %}
+    <li class="nav-item">
+        <a class="nav-link {{ 'active' if status_filter == s }}"
+           href="{{ url_for('supdec.list_view', status=s, ens_ref=ens_ref, cons_ref=cons_ref, show_all=1) if show_all else url_for('supdec.list_view', status=s, ens_ref=ens_ref, cons_ref=cons_ref) }}">{{ s }}
+            {% if count > 0 %}<span class="{{ badge_class(s) }} ms-1">{{ count }}</span>{% endif %}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+
+{# ── ADVANCED MODE: full table with bulk select ── #}
+<div class="sdi-list-advanced">
+<div class="card border-0 shadow-sm" data-bulk-selection="sdi-delete">
+    <div class="card-header bg-white d-flex flex-column flex-xl-row align-items-xl-center justify-content-between gap-2">
+        <div class="small text-muted">
+            Use Select mode for local cleanup or CSV export. TSS records are not cancelled.
+        </div>
+        <form id="sdiBulkActionForm"
+              method="POST"
+              action="{{ url_for('supdec.bulk_export_selected') }}"
+              class="bulk-selection-toolbar d-flex align-items-center flex-wrap gap-2">
+            <input type="hidden" name="status" value="{{ status_filter }}">
+            <input type="hidden" name="ens_ref" value="{{ ens_ref }}">
+            <input type="hidden" name="cons_ref" value="{{ cons_ref }}">
+            <button type="submit"
+                    class="btn btn-sm btn-outline-secondary"
+                    formaction="{{ url_for('supdec.bulk_export_selected') }}"
+                    data-bulk-action
+                    data-bulk-active-only
+                    data-bulk-group="sdi-delete"
+                    disabled
+                    hidden>
+                <i class="bi bi-download"></i> CSV
+            </button>
+            <button type="submit"
+                    class="btn btn-sm btn-danger"
+                    formaction="{{ url_for('supdec.bulk_delete_selected') }}"
+                    data-bulk-action
+                    data-bulk-active-only
+                    data-bulk-group="sdi-delete"
+                    data-confirm
+                    data-confirm-title="Delete Selected SDIs"
+                    data-confirm-text="Delete the selected local SDI rows from Fusion only? TSS records are not cancelled and can be imported or synced again later."
+                    data-confirm-submit-label="Delete Selected"
+                    disabled
+                    hidden>
+                <i class="bi bi-trash"></i> Delete
+            </button>
+            <span class="small text-muted" data-bulk-active-only data-bulk-group="sdi-delete" hidden>
+                <span data-bulk-count data-bulk-group="sdi-delete">0</span> selected
+            </span>
+            <button type="button"
+                    class="bulk-mode-toggle"
+                    data-bulk-select-toggle
+                    data-bulk-group="sdi-delete"
+                    data-bulk-inactive-label="Select mode"
+                    data-bulk-active-label="Select mode"
+                    aria-pressed="false">
+                <span class="bulk-mode-toggle-switch" aria-hidden="true"></span>
+                <span data-bulk-toggle-label>Select mode</span>
+            </button>
+        </form>
+    </div>
+    <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th class="bulk-select-cell" data-bulk-select-cell>
+                    <input class="form-check-input" type="checkbox" data-bulk-select-all data-bulk-group="sdi-delete" aria-label="Select all visible SDI rows">
+                </th>
+                <th>#</th><th>Status</th><th>TSS Status</th><th>SUP Ref</th><th>Chain</th><th>Declaration</th><th>Importer</th><th>Incoterm</th><th>Goods</th><th>Deadline</th><th>Source</th><th>Created</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sd in supdecs %}
+            <tr class="js-clickable-row {{ 'row-danger' if sd.status == 'FAILED' or sd.status == 'REJECTED' }}"
+                data-row-href="{{ supdec_detail_url(sd) }}"
+                role="link"
+                tabindex="0"
+                aria-label="Open SDI {{ sd.sup_dec_number or sd.staging_id }}">
+                <td class="bulk-select-cell" data-bulk-select-cell>
+                    <label class="bulk-row-selector" title="Select for local cleanup or CSV export">
+                        <input class="form-check-input" type="checkbox" name="selected_ids" value="{{ sd.staging_id }}" form="sdiBulkActionForm" data-bulk-item data-bulk-group="sdi-delete" aria-label="Select SDI {{ sd.sup_dec_number or sd.staging_id }}">
+                    </label>
+                </td>
+                <td><a href="{{ supdec_detail_url(sd) }}" class="fw-semibold">{{ sd.staging_id }}</a></td>
+                <td><span class="{{ badge_class(sd.status) }}">{{ sd.status | status_display }}</span></td>
+                <td>
+                    {% if sd.tss_status %}
+                    <span class="{{ badge_class(sd.tss_status) }}">{{ sd.tss_status | status_display }}</span>
+                    {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td>{% if sd.sup_dec_number %}<a href="{{ supdec_detail_url(sd) }}" class="ref-link">{{ sd.sup_dec_number }}</a>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                <td>
+                    {% if sd.ens_header_ref %}<small>ENS: <a href="{{ ens_detail_url({'ens_reference': sd.ens_header_ref}) }}" class="ref-link-muted">{{ sd.ens_header_ref }}</a></small><br>{% endif %}
+                    {% if sd.sfd_reference %}<small>SFD: <a href="{{ consignment_detail_url(sd) }}" class="ref-link-muted">{{ sd.sfd_reference }}</a></small>{% else %}<small class="text-muted">SFD: —</small>{% endif %}<br>
+                    {% if sd.ens_consignment_ref %}<small>DEC: <a href="{{ consignment_detail_url(sd) }}" class="ref-link-muted">{{ sd.ens_consignment_ref }}</a></small>{% else %}<small class="text-muted">DEC: —</small>{% endif %}
+                </td>
+                <td><span class="badge badge-status-info">{{ sd.declaration_choice or '—' }}</span></td>
+                <td><code class="small">{{ sd.importer_eori or '—' }}</code></td>
+                <td>{{ sd.incoterm or '—' }}</td>
+                <td>
+                    {% if sd.goods_count > 0 %}
+                    <a href="{{ supdec_detail_url(sd) }}" class="badge badge-status-success">{{ sd.goods_count }} item{{ 's' if sd.goods_count != 1 }}</a>
+                    {% else %}<span class="text-muted">0</span>{% endif %}
+                </td>
+                <td>
+                    {% if sd.submission_due_date %}
+                    <small class="{{ 'text-danger fw-bold' if sd.submission_due_date < today else 'text-muted' }}">{{ sd.submission_due_date.strftime('%d/%m') if sd.submission_due_date else '—' }}</small>
+                    {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td><small class="text-muted">{{ sd.source or '—' }}</small></td>
+                <td><small>{{ sd.created_at|localdt('%d/%m %H:%M') if sd.created_at else '—' }}</small></td>
+                <td class="text-nowrap">
+                    {% if sd.status in ('PENDING','FAILED','REJECTED','TRADER_INPUT_REQUIRED','IMPORTED') %}
+                    <a href="{{ url_for('supdec.edit', sid=sd.staging_id) }}" class="btn btn-sm btn-outline-primary" title="Edit"><i class="bi bi-pencil"></i></a>
+                    {% endif %}
+                    <a href="{{ url_for('supdec.create_goods', sid=sd.staging_id) }}" class="btn btn-sm btn-outline-success" title="Add Goods"><i class="bi bi-plus-lg"></i></a>
+                    {% if sd.status == 'FAILED' %}
+                    <form method="POST" action="{{ url_for('supdec.retry', sid=sd.staging_id) }}" class="d-inline"
+                          data-loading-toast
+                          data-loading-message="Retrying SDI workflow..."
+                          data-loading-meta="Fusion is retrying the SDI action and refreshing local state."
+                          data-loading-button-text="Retrying...">
+                        <button class="btn btn-sm btn-outline-warning" title="Retry"><i class="bi bi-arrow-clockwise"></i></button>
+                    </form>
+                    {% endif %}
+                    {% if sd.sup_dec_number and (sd.tss_status == 'PENDING_SYNC' or sd.status == 'IMPORTED') %}
+                    <form method="POST" action="{{ url_for('supdec.refresh_tss', sid=sd.staging_id) }}" class="d-inline"
+                          data-loading-toast
+                          data-loading-message="Refreshing SDI from TSS..."
+                          data-loading-meta="Fusion is polling TSS for the latest supplementary declaration state."
+                          data-loading-button-text="Refreshing...">
+                        <button class="btn btn-sm btn-info" title="Sync live TSS status"><i class="bi bi-arrow-repeat"></i></button>
+                    </form>
+                    {% endif %}
+                    {% if sd.status in ('PENDING','FAILED','IMPORTED') %}
+                    <form method="POST" action="{{ url_for('supdec.delete', sid=sd.staging_id) }}" class="d-inline" data-confirm data-confirm-title="Delete SDI" data-confirm-text="Delete {{ sd.sup_dec_number or ('SDI #' ~ sd.staging_id) }}? This cannot be undone." data-confirm-submit-label="Delete">
+                        <button class="btn btn-sm btn-outline-danger" title="Delete"><i class="bi bi-trash"></i></button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% if sd.error_message and (sd.status in ('FAILED','REJECTED') or sd.tss_status == 'PENDING_SYNC') %}
+            <tr class="row-danger"><td colspan="14" class="small text-status-danger ps-4"><i class="bi bi-exclamation-triangle"></i> {{ sd.error_message | truncate(200) }}</td></tr>
+            {% endif %}
+            {% else %}
+            <tr><td colspan="14" class="text-center text-muted py-4">No supplementary declarations. <a href="{{ url_for('supdec.create') }}">Create one</a>.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+</div>{# /sdi-list-advanced #}
+
+{# ── SIMPLE MODE: friendly card, essentials only ── #}
+<div class="sdi-list-simple">
+<div class="card border-0 shadow-sm cons-simple-panel">
+    <div class="card-body p-0">
+        {% if supdecs %}
+        <div class="table-responsive">
+        <table class="table align-middle mb-0 cons-simple-table">
+            <thead>
+                <tr>
+                    <th class="ps-3">SDI</th>
+                    <th>Status</th>
+                    <th>SFD / ENS Chain</th>
+                    <th>Goods</th>
+                    <th>Deadline</th>
+                    <th class="pe-3 text-end"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sd in supdecs %}
+                <tr class="cons-simple-row js-clickable-row {{ 'row-danger' if sd.status in ('FAILED','REJECTED') }}"
+                    data-row-href="{{ supdec_detail_url(sd) }}"
+                    role="link" tabindex="0"
+                    aria-label="Open SDI {{ sd.sup_dec_number or sd.staging_id }}">
+                    <td class="ps-3">
+                        <div class="cons-simple-main">
+                            <a href="{{ supdec_detail_url(sd) }}" class="cons-simple-ref font-monospace">
+                                {% if sd.sup_dec_number %}{{ sd.sup_dec_number }}{% else %}SDI #{{ sd.staging_id }}{% endif %}
+                            </a>
+                            {% if sd.label %}<div class="cons-simple-meta">{{ sd.label }}</div>{% endif %}
+                            {% if sd.ens_header_ref %}<div class="cons-simple-meta">ENS: {{ sd.ens_header_ref }}</div>{% endif %}
+                            {% if sd.error_message and sd.status in ('FAILED','REJECTED') %}
+                            <div class="cons-simple-error">{{ sd.error_message | truncate(120) }}</div>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td><span class="{{ badge_class(sd.status) }}">{{ sd.status | status_display }}</span></td>
+                    <td>
+                        {% if sd.sfd_reference %}
+                        <small>SFD: <a href="{{ consignment_detail_url(sd) }}" class="ref-link-muted">{{ sd.sfd_reference }}</a></small>
+                        {% elif sd.ens_consignment_ref %}
+                        <small>DEC: <a href="{{ consignment_detail_url(sd) }}" class="ref-link-muted">{{ sd.ens_consignment_ref }}</a></small>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if sd.goods_count > 0 %}
+                        <a href="{{ supdec_detail_url(sd) }}" class="badge badge-status-success">{{ sd.goods_count }} item{{ 's' if sd.goods_count != 1 }}</a>
+                        {% else %}<span class="text-muted">0</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if sd.submission_due_date %}
+                        <small class="{{ 'text-danger fw-bold' if sd.submission_due_date < today else 'text-muted' }}">{{ sd.submission_due_date.strftime('%d/%m') }}</small>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                    <td class="pe-3 text-end">
+                        <a href="{{ supdec_detail_url(sd) }}" class="btn btn-link btn-sm text-decoration-none cons-simple-link">
+                            View <i class="bi bi-chevron-right small"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center text-muted py-4">No supplementary declarations. <a href="{{ url_for('supdec.create') }}">Create one</a>.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="cons-simple-empty py-5">
+            <i class="bi bi-file-earmark-check fs-1 d-block mb-2 opacity-25"></i>
+            No supplementary declarations.
+            <a href="{{ url_for('supdec.create') }}">Create one</a>.
+        </div>
+        {% endif %}
+    </div>
+</div>
+</div>{# /sdi-list-simple #}
+
+{% if ens_ref or cons_ref %}
+<div class="text-center mb-3">
+    {% if ens_ref %}
+    <span class="badge badge-status-info">{{ ens_ref }}</span>
+    {% endif %}
+    {% if cons_ref %}
+    <span class="badge badge-status-warning">{{ cons_ref }}</span>
+    {% endif %}
+    <a href="{{ url_for('supdec.list_view', status=status_filter) }}" class="btn btn-sm btn-outline-secondary ms-2">Clear Filters</a>
+</div>
+{% endif %}
+
+{% if total > 0 and (total_pages > 1 or show_all) %}
+<div class="d-flex justify-content-center mt-3">
+    {% if show_all %}
+    <a class="btn btn-sm btn-outline-secondary"
+       href="{{ url_for('supdec.list_view', status=status_filter, ens_ref=ens_ref, cons_ref=cons_ref, page=1) }}">
+        Paginated view
+    </a>
+    {% else %}
+    <a class="btn btn-sm btn-outline-primary"
+       href="{{ url_for('supdec.list_view', status=status_filter, ens_ref=ens_ref, cons_ref=cons_ref, show_all=1) }}">
+        Show all
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if total_pages > 1 %}
+<nav><ul class="pagination pagination-sm justify-content-center">
+    <li class="page-item {{ 'disabled' if page <= 1 }}"><a class="page-link" href="{{ url_for('supdec.list_view', status=status_filter, ens_ref=ens_ref, cons_ref=cons_ref, page=page-1) }}">Prev</a></li>
+    {% for p in range(1, total_pages + 1) %}
+    <li class="page-item {{ 'active' if p == page }}"><a class="page-link" href="{{ url_for('supdec.list_view', status=status_filter, ens_ref=ens_ref, cons_ref=cons_ref, page=p) }}">{{ p }}</a></li>
+    {% endfor %}
+    <li class="page-item {{ 'disabled' if page >= total_pages }}"><a class="page-link" href="{{ url_for('supdec.list_view', status=status_filter, ens_ref=ens_ref, cons_ref=cons_ref, page=page+1) }}">Next</a></li>
+</ul></nav>
+{% endif %}
+<div class="text-muted small text-center mb-3">
+    {% if show_all %}
+    {{ total }} SDI{{ 's' if total != 1 }} - showing all
+    {% else %}
+    {{ total }} SDI{{ 's' if total != 1 }} - page {{ page }} of {{ total_pages }}
+    {% endif %}
+</div>
+{% endblock %}

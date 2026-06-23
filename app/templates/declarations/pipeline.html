@@ -1,0 +1,154 @@
+{% extends 'base.html' %}
+{% block title %}Pipeline Status{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h4 class="mb-0 fw-bold" style="color: var(--fusion-navy);">
+            <i class="bi bi-activity"></i> Pipeline Status
+        </h4>
+        <p class="text-muted small mb-0">All submitted declarations — full status tracking with API responses</p>
+    </div>
+    <div class="d-flex gap-2">
+        <button hx-get="{{ url_for('declarations.pipeline') }}"
+                hx-target="#pipeline-content"
+                hx-indicator="#loading-spinner"
+                class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<div id="pipeline-content"
+     hx-get="{{ url_for('declarations.pipeline') }}"
+     hx-trigger="every 120s"
+     hx-target="this"
+     hx-swap="innerHTML"
+     hx-indicator="#loading-spinner">
+
+{% for d in declarations %}
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+        <div class="row">
+            <!-- Left: Status + Key Info -->
+            <div class="col-md-3">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <span class="{{ status_badge_class(d.status) }} fs-6">{{ d.status | status_display }}</span>
+                    {% if d.external_status %}
+                    <span class="badge bg-outline-primary border" style="font-size:0.7rem;">TSS: {{ d.external_status | status_display }}</span>
+                    {% endif %}
+                </div>
+                <div class="small" style="color: var(--text-body);">
+                    <strong>#{{ d.id }}</strong>
+                    {% if d.external_ref %}
+                    · <code class="text-primary">{{ d.external_ref }}</code>
+                    {% endif %}
+                </div>
+                <div class="small text-muted mt-1">
+                    Created: {{ d.created_at|localdt('%d/%m %H:%M') if d.created_at else '' }}<br>
+                    Updated: {{ d.updated_at|localdt('%d/%m %H:%M') if d.updated_at else '' }}<br>
+                    {% if d.completed_at %}
+                    Completed: {{ d.completed_at|localdt('%d/%m %H:%M') }}
+                    {% endif %}
+                </div>
+                {% if d.retry_count and d.retry_count > 0 %}
+                <div class="small text-warning mt-1">
+                    <i class="bi bi-arrow-repeat"></i> Retry {{ d.retry_count }}/{{ d.max_retries or 3 }}
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Middle: Declaration Fields -->
+            <div class="col-md-5">
+                <div class="row g-1 small">
+                    <div class="col-5 text-muted">Movement</div>
+                    <div class="col-7 font-monospace">{{ d.movement_type or '' }}</div>
+                    <div class="col-5 text-muted">Transport ID</div>
+                    <div class="col-7 font-monospace">{{ d.identity_no_of_transport or '' }}</div>
+                    <div class="col-5 text-muted">Arrival Port</div>
+                    <div class="col-7 font-monospace">{{ d.arrival_port or '' }}</div>
+                    <div class="col-5 text-muted">Arrival Date</div>
+                    <div class="col-7">{{ d.arrival_date_time or '' }}</div>
+                    <div class="col-5 text-muted">Carrier</div>
+                    <div class="col-7">{{ d.carrier_name or '' }} <code class="small">{{ d.carrier_eori or '' }}</code></div>
+                    <div class="col-5 text-muted">Nationality</div>
+                    <div class="col-7 font-monospace">{{ d.nationality_of_transport or '' }}</div>
+                    <div class="col-5 text-muted">Seal</div>
+                    <div class="col-7">{{ d.seal_number or '' }}</div>
+                    <div class="col-5 text-muted">Charges</div>
+                    <div class="col-7 font-monospace">{{ d.transport_charges or '' }}</div>
+                </div>
+            </div>
+
+            <!-- Right: API Response + Errors -->
+            <div class="col-md-4">
+                {% if d.api_http_status %}
+                <div class="small mb-1">
+                    <span class="badge {{ 'badge-status-success' if d.api_http_status == 200 else 'badge-status-danger' }}">
+                        HTTP {{ d.api_http_status }}
+                    </span>
+                </div>
+                {% endif %}
+
+                {% if d.error_message %}
+                <div class="alert alert-danger py-1 px-2 small mb-2">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <strong>Staging Error:</strong> {{ d.error_message[:200] }}
+                </div>
+                {% endif %}
+
+                {% if d.api_error_message %}
+                <div class="alert alert-warning py-1 px-2 small mb-2">
+                    <i class="bi bi-exclamation-circle-fill"></i>
+                    <strong>API Error:</strong> {{ d.api_error_message[:200] }}
+                </div>
+                {% endif %}
+
+                {% if d.api_response_json %}
+                <details class="small">
+                    <summary class="text-muted" style="cursor:pointer;">
+                        <i class="bi bi-code-slash"></i> API Response JSON
+                        {% if d.api_result_status %}
+                        <span class="{{ status_badge_class(d.api_result_status) }} ms-1">{{ d.api_result_status | status_display }}</span>
+                        {% endif %}
+                        {% if d.api_process_message %}
+                        <span class="badge {{ 'badge-status-success' if d.api_process_message == 'SUCCESS' else 'badge-status-warning' }} ms-1">
+                            {{ d.api_process_message | truncate(28) }}
+                        </span>
+                        {% endif %}
+                    </summary>
+                    <pre class="bg-light p-2 rounded mt-1 small" style="max-height:190px;overflow:auto;font-size:0.7rem;">local_status={{ d.status | status_display }}
+tss_status={{ d.external_status | status_display if d.external_status else '—' }}
+api_status={{ d.api_result_status | status_display if d.api_result_status else '—' }}
+process_message={{ d.api_process_message or '—' }}
+reference={{ d.api_reference or d.external_ref or '—' }}
+
+{{ d.api_response_json[:1000] }}</pre>
+                </details>
+                {% endif %}
+
+                <div class="mt-2">
+                    <a href="{{ ens_detail_url(d) }}" class="btn btn-sm btn-outline-primary py-0">
+                        <i class="bi bi-eye"></i> Full Detail
+                    </a>
+                    {% if d.status == 'Failed' %}
+                    <form method="POST" action="{{ url_for('jobs.retry', dec_id=d.id) }}" class="d-inline">
+                        <button class="btn btn-sm btn-outline-warning py-0">
+                            <i class="bi bi-arrow-repeat"></i> Retry
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="text-center text-muted py-5">
+    <i class="bi bi-inbox" style="font-size:2rem;"></i>
+    <p class="mt-2">No declarations in the pipeline. <a href="{{ url_for('declarations.create') }}">Create one</a> and submit it.</p>
+</div>
+{% endfor %}
+
+</div>
+{% endblock %}

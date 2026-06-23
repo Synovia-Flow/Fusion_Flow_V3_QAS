@@ -1,0 +1,15 @@
+{% set selected_mode = creation_mode_value | default(creation_mode | default((ingest_defaults.mode if ingest_defaults else 'review_required'))) %}
+{% set selected_mode = 'auto_create_if_clean' if selected_mode == 'auto_create_if_clean' else 'review_required' %}
+{% set wrapper_class = creation_mode_wrapper | default('') %}
+{% set creation_enabled = ingest_defaults.enabled if ingest_defaults else true %}
+
+<div class="{{ wrapper_class }}">
+    <label class="form-label small fw-semibold mb-1">Creation mode</label>
+    <select name="creation_mode" class="form-select form-select-sm" {% if not creation_enabled %}disabled{% endif %}>
+        <option value="review_required" {% if selected_mode != 'auto_create_if_clean' %}selected{% endif %}>Preview first</option>
+        <option value="auto_create_if_clean" {% if selected_mode == 'auto_create_if_clean' %}selected{% endif %}>Auto-create clean</option>
+    </select>
+    {% if not creation_enabled %}
+    <div class="form-text">Record creation is disabled in Operational Defaults.</div>
+    {% endif %}
+</div>

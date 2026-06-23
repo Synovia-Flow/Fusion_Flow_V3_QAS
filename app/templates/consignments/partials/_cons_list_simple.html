@@ -1,0 +1,114 @@
+<div class="card border-0 shadow-sm cons-simple-panel">
+  <div class="card-body p-0">
+    {% if consignments %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0 cons-simple-table">
+        <thead>
+          <tr>
+            <th class="ps-3">Reference</th>
+            <th>ENS Header</th>
+            <th>Local Status</th>
+            <th>TSS Status</th>
+            <th>Importer EORI</th>
+            <th>Goods</th>
+            <th>Created</th>
+            <th class="pe-3 text-end"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in consignments %}
+          {% set local_status = fixed_consignment_local_status(c.status or c.display_status, c.tss_status) %}
+          <tr class="cons-simple-row js-clickable-row"
+              data-row-href="{{ consignment_detail_url(c) }}"
+              role="link"
+              tabindex="0"
+              aria-label="Open consignment {{ c.dec_reference or c.sfd_reference or c.staging_id }}">
+            <td class="ps-3">
+              <div class="cons-simple-main">
+                <a href="{{ consignment_detail_url(c) }}" class="cons-simple-ref">
+                  {% if c.dec_reference or c.sfd_reference %}
+                  <span class="font-monospace">{{ c.dec_reference or c.sfd_reference }}</span>
+                  {% else %}
+                  <span class="cons-simple-ref-draft">Draft #{{ c.staging_id }}</span>
+                  {% endif %}
+                </a>
+                {% if c.label %}
+                <div class="cons-simple-meta">{{ c.label }}</div>
+                {% endif %}
+                {% if c.goods_description %}
+                <div class="cons-simple-meta">{{ c.goods_description | truncate(86) }}</div>
+                {% endif %}
+                {% if local_status != 'FIXED' and c.status == 'FAILED' and c.error_message %}
+                <div class="cons-simple-error">{{ c.error_message | truncate(140) }}</div>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              {% if c.ens_reference %}
+              <a href="{{ ens_detail_url(c) }}" class="ref-link font-monospace">{{ c.ens_reference }}</a>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td><span class="{{ badge_class(local_status) }}">{{ local_status | status_display }}</span></td>
+            <td>
+              {% if c.tss_status %}
+              <span class="{{ badge_class(c.tss_status) }}">{{ c.tss_status | status_display }}</span>
+              {% else %}
+              <span class="badge badge-status-pending">Pending sync</span>
+              {% endif %}
+              {% if c.needs_tss_sync %}
+              <form method="POST"
+                    action="{{ url_for('orchestrator.run_and_return') }}"
+                    class="d-inline"
+                    data-no-row-link
+                    data-confirm
+                    data-confirm-title="Sync All TSS Data"
+                    data-confirm-text="Run the full tenant sync and return to this consignment list?"
+                    data-confirm-submit-label="Sync All TSS Data"
+                    data-loading-toast
+                    data-loading-message="Syncing all TSS data..."
+                    data-loading-meta="Fusion is refreshing the full TSS chain for this tenant."
+                    data-loading-button-text="Syncing...">
+                <input type="hidden" name="phase" value="sync_all">
+                <input type="hidden" name="next_url" value="{{ request.full_path if request.query_string else request.path }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary py-0 mt-1" title="Sync live TSS status">
+                  <i class="bi bi-arrow-repeat"></i> Sync
+                </button>
+              </form>
+              {% endif %}
+            </td>
+            <td><code class="small">{{ c.importer_eori or '—' }}</code></td>
+            <td>
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="badge badge-status-info">{{ c.goods_count }} item{{ 's' if c.goods_count != 1 }}</span>
+                {% if c.controlled_goods == 'yes' %}
+                <span class="badge badge-status-warning">Controlled</span>
+                {% endif %}
+              </div>
+            </td>
+            <td>
+              <small class="text-muted">{{ c.created_at|localdt('%d %b %Y') if c.created_at else '—' }}</small>
+              {% if c.updated_at and c.created_at and c.updated_at != c.created_at %}
+              <div class="cons-simple-meta">Updated {{ c.updated_at|localdt('%d %b %H:%M') }}</div>
+              {% endif %}
+            </td>
+            <td class="pe-3 text-end">
+              <a href="{{ consignment_detail_url(c) }}" class="btn btn-link btn-sm text-decoration-none cons-simple-link">
+                View <i class="bi bi-chevron-right small"></i>
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="cons-simple-empty">
+      <i class="bi bi-box-seam d-block mb-2"></i>
+      No consignments found{{ ' matching "' ~ search ~ '"' if search else '' }}.
+      <a href="{{ url_for('consignments.create') }}">Create one</a>.
+    </div>
+    {% endif %}
+  </div>
+</div>

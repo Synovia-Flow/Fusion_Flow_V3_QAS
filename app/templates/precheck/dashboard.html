@@ -1,0 +1,1177 @@
+{% extends 'base.html' %}
+{% block title %}Pre-Check{% endblock %}
+
+{% block content %}
+<style>
+:root {
+  --brand:      #0f3d91;
+  --brand-2:    #1f6bff;
+  --good:       #027a48;
+  --good-bg:    #ecfdf3;
+  --good-bdr:   #abefc6;
+  --warn:       #b54708;
+  --warn-bg:    #fffaeb;
+  --warn-bdr:   #fedf89;
+  --bad:        #b42318;
+  --bad-bg:     #fef3f2;
+  --bad-bdr:    #fecdca;
+  --panel:      rgba(255,255,255,.94);
+  --shadow:     0 20px 60px rgba(15,23,42,.14);
+  --shadow-sm:  0 6px 20px rgba(15,23,42,.07);
+  --text:       #101828;
+  --muted:      #475467;
+  --border:     #e5e7eb;
+  --table-row:  #f3f4f6;
+  --table-head: #f9fafb;
+  --table-hover: rgba(31,107,255,.04);
+  --soft-badge-bg: #f8fafc;
+  --soft-badge-text: #111827;
+  --soft-badge-border: #d1d5db;
+}
+
+html[data-surface-tone="dark"] {
+  --panel:      rgba(31,34,40,.96);
+  --shadow:     0 20px 60px rgba(0,0,0,.30);
+  --shadow-sm:  0 8px 22px rgba(0,0,0,.22);
+  --text:       #f3f4f6;
+  --muted:      #9ca3af;
+  --border:     #374151;
+  --table-row:  #2a2f37;
+  --table-head: #232830;
+  --table-hover: rgba(59,130,246,.10);
+  --soft-badge-bg: #2b313a;
+  --soft-badge-text: #e5e7eb;
+  --soft-badge-border: #4b5563;
+}
+
+.pc-page { max-width: 1400px; margin: 0 auto; }
+.pc-inline-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: stretch;
+  justify-content: center;
+  width: 124px;
+  margin-left: auto;
+  white-space: normal;
+}
+
+/* ── Panel ── */
+.pc-panel {
+  background: var(--panel);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+  padding: 20px 22px;
+  margin-bottom: 18px;
+  border: 1.5px solid var(--border);
+}
+.pc-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px; gap: 10px; flex-wrap: wrap;
+}
+.pc-panel-title {
+  font-size: 14px; font-weight: 800; color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+}
+
+/* ── Table ── */
+.pc-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.pc-table th {
+  text-align: left; padding: 8px 10px;
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .6px;
+  color: var(--muted); border-bottom: 2px solid var(--border);
+  background: var(--table-head);
+}
+.pc-table td {
+  padding: 9px 10px; border-bottom: 1px solid var(--table-row);
+  vertical-align: middle;
+  color: var(--text);
+}
+.pc-table tr:last-child td { border-bottom: none; }
+.pc-table tr:hover td { background: var(--table-hover); }
+
+/* ── Status badges ── */
+.chk-valid   { display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:99px;font-size:10.5px;font-weight:700;background:var(--good-bg);color:var(--good);border:1px solid var(--good-bdr); }
+.chk-invalid { display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:99px;font-size:10.5px;font-weight:700;background:var(--bad-bg);color:var(--bad);border:1px solid var(--bad-bdr); }
+.chk-unknown { display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:99px;font-size:10.5px;font-weight:700;background:var(--soft-badge-bg);color:var(--muted);border:1px solid var(--soft-badge-border); }
+.chk-error   { display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:99px;font-size:10.5px;font-weight:700;background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-bdr); }
+
+/* ── Inline check btn ── */
+.btn-check-inline {
+  padding: 3px 10px; border-radius: 7px; font-size: 10.5px; font-weight: 700;
+  border: 1.5px solid var(--soft-badge-border); background: var(--surface-panel-soft, #fff); color: var(--text); cursor: pointer;
+  transition: all .15s;
+}
+.btn-check-inline:hover { background: #f0f4ff; border-color: var(--brand-2); color: var(--brand); }
+
+/* ── Mono code ── */
+.code-mono { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+
+/* ── Result cell for HTMX swap ── */
+.result-cell { min-width: 0; }
+
+.pc-soft-badge {
+  font-size: 10px;
+  background: var(--soft-badge-bg) !important;
+  color: var(--soft-badge-text) !important;
+  border: 1px solid var(--soft-badge-border) !important;
+}
+
+html[data-surface-tone="dark"] .btn-check-inline:hover {
+  background: rgba(59,130,246,.16);
+  border-color: var(--brand-2);
+  color: #dbeafe;
+}
+
+/* --- Command header and operational summary --- */
+.pc-command {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: stretch;
+  margin-bottom: 14px;
+  padding: 18px;
+  border: 1px solid var(--surface-border, var(--border));
+  border-left: 5px solid var(--pc-state, var(--brand-2));
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,250,252,.94));
+  box-shadow: var(--surface-shadow, var(--shadow-sm));
+}
+.pc-command::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--pc-state, var(--brand-2)), transparent 68%);
+}
+.pc-state-good { --pc-state: var(--good); }
+.pc-state-warn { --pc-state: var(--warn); }
+.pc-state-danger { --pc-state: var(--bad); }
+.pc-command-main {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+.pc-command-icon,
+.pc-panel-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: rgba(31,107,255,.10);
+  color: var(--brand-2);
+  border: 1px solid rgba(31,107,255,.16);
+  font-size: 20px;
+}
+.pc-kicker {
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+}
+.pc-command h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+.pc-command-sub {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.pc-trust-strip,
+.pc-command-metrics,
+.pc-command-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.pc-trust-strip { margin-top: 12px; }
+.pc-trust-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--surface-border, var(--border));
+  background: rgba(255,255,255,.72);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pc-command-side {
+  display: flex;
+  min-width: 260px;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+}
+.pc-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.pc-status-good { background: var(--good-bg); color: var(--good); border-color: var(--good-bdr); }
+.pc-status-warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-bdr); }
+.pc-status-danger { background: var(--bad-bg); color: var(--bad); border-color: var(--bad-bdr); }
+.pc-command-metrics {
+  justify-content: flex-end;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+.pc-command-metrics span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.pc-command-metrics strong {
+  color: var(--text);
+  font-size: 15px;
+}
+.pc-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+.pc-action-primary {
+  background: var(--fusion-blue, var(--brand-2));
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(26,92,204,.18);
+}
+.pc-action-primary:hover,
+.pc-action-primary:focus-visible {
+  background: var(--fusion-navy, var(--brand));
+  color: #fff;
+}
+.pc-action-secondary {
+  background: var(--surface-panel-soft, #fff);
+  color: var(--text);
+  border-color: var(--surface-border, var(--border));
+}
+.pc-action-secondary:hover,
+.pc-action-secondary:focus-visible {
+  color: var(--brand);
+  border-color: rgba(31,107,255,.36);
+  box-shadow: var(--surface-shadow-soft, var(--shadow-sm));
+}
+.pc-context-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.pc-context-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--surface-border, var(--border));
+  border-radius: 8px;
+  background: var(--surface-panel-soft, #fff);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: var(--surface-shadow-soft, var(--shadow-sm));
+  cursor: pointer;
+}
+.pc-context-link:hover,
+.pc-context-link:focus-visible {
+  color: var(--brand);
+  border-color: rgba(31,107,255,.36);
+  box-shadow: none;
+}
+.pc-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.pc-domain-card {
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border, var(--border));
+  background: var(--surface-panel, var(--panel));
+  box-shadow: var(--surface-shadow, var(--shadow-sm));
+}
+.pc-domain-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.pc-domain-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 800;
+}
+.pc-domain-title i { color: var(--pc-domain, var(--brand-2)); }
+.pc-domain-card[data-domain="eori"] { --pc-domain: var(--brand-2); }
+.pc-domain-card[data-domain="commodity"] { --pc-domain: var(--good); }
+.pc-domain-total {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.pc-domain-total strong {
+  color: var(--text);
+  font-size: 19px;
+  line-height: 1;
+}
+.pc-health-bar {
+  display: flex;
+  overflow: hidden;
+  height: 9px;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: var(--surface-muted, #eef2f7);
+  border: 1px solid var(--surface-border, var(--border));
+}
+.pc-health-segment {
+  display: block;
+  min-width: 0;
+  flex-basis: 0;
+}
+.pc-health-segment.good { background: var(--good); }
+.pc-health-segment.warn { background: var(--warn); }
+.pc-health-segment.bad { background: var(--bad); }
+.pc-health-empty {
+  display: block;
+  width: 100%;
+  background: repeating-linear-gradient(90deg, var(--surface-muted, #eef2f7), var(--surface-muted, #eef2f7) 8px, rgba(148,163,184,.18) 8px, rgba(148,163,184,.18) 12px);
+}
+.pc-health-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.pc-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.pc-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+.pc-dot.good { background: var(--good); }
+.pc-dot.warn { background: var(--warn); }
+.pc-dot.bad { background: var(--bad); }
+.pc-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.pc-metric {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border, var(--border));
+  background: var(--surface-panel-soft, #fff);
+}
+.pc-metric-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+}
+.pc-metric-value {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+.pc-metric-sub {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.pc-metric.good { border-color: var(--good-bdr); background: var(--good-bg); }
+.pc-metric.warn { border-color: var(--warn-bdr); background: var(--warn-bg); }
+.pc-metric.bad { border-color: var(--bad-bdr); background: var(--bad-bg); }
+.pc-metric.good .pc-metric-value { color: var(--good); }
+.pc-metric.warn .pc-metric-value { color: var(--warn); }
+.pc-metric.bad .pc-metric-value { color: var(--bad); }
+.pc-panel {
+  border-radius: 8px;
+}
+.pc-panel-header {
+  align-items: flex-start;
+}
+.pc-panel-title-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+.pc-panel-icon {
+  width: 34px;
+  height: 34px;
+  font-size: 16px;
+}
+.pc-panel-icon.success {
+  color: var(--good);
+  background: rgba(2,122,72,.10);
+  border-color: rgba(2,122,72,.18);
+}
+.pc-panel-sub {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+.pc-count-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--surface-border, var(--border));
+  background: var(--surface-muted, #eef2f7);
+  color: var(--text);
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.pc-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--surface-border, var(--border));
+  border-radius: 8px;
+}
+.pc-table {
+  width: 100%;
+  min-width: 640px;
+  table-layout: fixed;
+}
+.pc-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.pc-table th,
+.pc-table td {
+  overflow: hidden;
+}
+.pc-table th:last-child,
+.pc-table td:last-child {
+  text-align: right;
+}
+.pc-table-eori .pc-col-code { width: 25%; }
+.pc-table-eori .pc-col-role { width: 12%; }
+.pc-table-eori .pc-col-status { width: 15%; }
+.pc-table-eori .pc-col-trader { width: 26%; }
+.pc-table-eori .pc-col-actions { width: 22%; }
+.pc-table-eori {
+  min-width: 760px;
+  table-layout: auto;
+}
+.pc-table-eori .pc-col-code {
+  width: 220px;
+}
+.pc-table-eori th:first-child,
+.pc-table-eori td:first-child {
+  min-width: 220px;
+  overflow: visible;
+}
+.pc-table-eori .pc-cell-main {
+  width: max-content;
+  min-width: max-content;
+  max-width: none;
+}
+.pc-table-eori .pc-cell-main .pc-code-link {
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+.pc-table-commodity .pc-col-code { width: 22%; }
+.pc-table-commodity .pc-col-uses { width: 8%; }
+.pc-table-commodity .pc-col-status { width: 18%; }
+.pc-table-commodity .pc-col-description { width: 30%; }
+.pc-table-commodity .pc-col-actions { width: 22%; }
+.pc-table tbody tr {
+  border-left: 3px solid transparent;
+}
+.pc-table tbody tr.pc-row-valid { border-left-color: var(--good); }
+.pc-table tbody tr.pc-row-pending { border-left-color: var(--warn); }
+.pc-table tbody tr.pc-row-invalid { border-left-color: var(--bad); }
+.pc-table tbody tr.pc-row-valid td:first-child { box-shadow: inset 3px 0 0 var(--good); }
+.pc-table tbody tr.pc-row-pending td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+.pc-table tbody tr.pc-row-invalid td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.pc-table .pc-cell-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.pc-table .pc-cell-main .pc-code-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pc-table .pc-code-link {
+  color: var(--text);
+}
+.pc-table .pc-code-link:hover {
+  color: var(--brand);
+  text-decoration: underline !important;
+}
+.pc-origin-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+.pc-origin-xi { background: #7c3aed; }
+.pc-origin-gb { background: #0284c7; }
+.pc-origin-eu { background: #6b7280; }
+.pc-text-truncate {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11px;
+}
+.btn-check-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  max-width: 100%;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+.btn-check-inline i {
+  flex: 0 0 auto;
+}
+.pc-inline-actions a.btn-check-inline {
+  width: 100%;
+  padding-inline: 8px;
+}
+.pc-inline-actions .pc-action-text {
+  display: inline;
+}
+.btn-check-inline:focus-visible,
+.pc-context-link:focus-visible,
+.pc-action-btn:focus-visible {
+  outline: 2px solid var(--brand-2);
+  outline-offset: 2px;
+}
+.pc-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 34px 16px;
+  color: var(--muted);
+  text-align: center;
+}
+.pc-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  color: var(--good);
+  background: var(--good-bg);
+  border: 1px solid var(--good-bdr);
+  font-size: 20px;
+}
+.pc-empty-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+.pc-source-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin-bottom: 0;
+  border: 1px solid var(--surface-border, var(--border));
+  border-radius: 8px;
+  background: var(--surface-border, var(--border));
+  box-shadow: var(--surface-shadow-soft, var(--shadow-sm));
+}
+.pc-source-item {
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--surface-panel, var(--panel));
+}
+.pc-source-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+}
+.pc-source-value {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+html[data-surface-tone="dark"] .pc-command {
+  background:
+    linear-gradient(180deg, rgba(31,34,40,.98), rgba(35,40,48,.96));
+}
+html[data-surface-tone="dark"] .pc-trust-chip,
+html[data-surface-tone="dark"] .pc-action-secondary,
+html[data-surface-tone="dark"] .pc-context-link,
+html[data-surface-tone="dark"] .pc-metric {
+  background: var(--surface-panel-soft, #1f2228);
+}
+html[data-surface-tone="dark"] .pc-metric.good,
+html[data-surface-tone="dark"] .pc-metric.warn,
+html[data-surface-tone="dark"] .pc-metric.bad {
+  background: var(--surface-panel-soft, #1f2228);
+}
+html[data-surface-tone="dark"] .pc-status-good,
+html[data-surface-tone="dark"] .pc-status-warn,
+html[data-surface-tone="dark"] .pc-status-danger {
+  background: rgba(255,255,255,.06);
+}
+html[data-surface-tone="dark"] .pc-source-strip {
+  background: var(--surface-border, #2f3640);
+}
+
+@media (max-width: 1180px) {
+  .pc-command {
+    grid-template-columns: 1fr;
+  }
+  .pc-command-side {
+    min-width: 0;
+    align-items: flex-start;
+  }
+  .pc-command-metrics {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 992px) {
+  .pc-summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .pc-source-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .pc-command {
+    padding: 14px;
+  }
+  .pc-command-main {
+    grid-template-columns: 1fr;
+  }
+  .pc-command-icon {
+    display: none;
+  }
+  .pc-command-actions,
+  .pc-action-btn,
+  .pc-command-actions form {
+    width: 100%;
+  }
+  .pc-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pc-source-strip {
+    grid-template-columns: 1fr;
+  }
+  .pc-context-nav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 4px;
+  }
+  .pc-context-link {
+    flex: 0 0 auto;
+  }
+}
+</style>
+
+<div class="container-fluid py-3 px-3 px-lg-4 pc-page">
+
+  {# Flash messages #}
+  {% for cat, msg in get_flashed_messages(with_categories=true) %}
+  <div class="alert alert-{{ 'danger' if cat == 'danger' else ('warning' if cat == 'warning' else 'success') }} alert-dismissible fade show mb-3" role="alert">
+    {{ msg }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+
+  {% set eori_total = eori_stats.total or 0 %}
+  {% set eori_valid = eori_stats.valid or 0 %}
+  {% set eori_invalid = eori_stats.invalid or 0 %}
+  {% set eori_pending = eori_stats.pending or 0 %}
+  {% set commodity_total = commodity_stats.total or 0 %}
+  {% set commodity_valid = commodity_stats.valid or 0 %}
+  {% set commodity_invalid = commodity_stats.invalid or 0 %}
+  {% set commodity_pending = commodity_stats.pending or 0 %}
+  {% set total_records = eori_total + commodity_total %}
+  {% set total_valid = eori_valid + commodity_valid %}
+  {% set total_invalid = eori_invalid + commodity_invalid %}
+  {% set total_pending = eori_pending + commodity_pending %}
+  {% set readiness_class = 'danger' if total_invalid > 0 else ('warn' if total_pending > 0 else 'good') %}
+  {% set readiness_label = 'Needs review' if total_invalid > 0 else ('Pending checks' if total_pending > 0 else 'Ready') %}
+  {% set readiness_icon = 'bi-exclamation-octagon-fill' if total_invalid > 0 else ('bi-hourglass-split' if total_pending > 0 else 'bi-check-circle-fill') %}
+
+  <section class="pc-command pc-state-{{ readiness_class }}" aria-labelledby="precheck-title">
+    <div class="pc-command-main">
+      <div class="pc-command-icon" aria-hidden="true">
+        <i class="bi bi-shield-check"></i>
+      </div>
+      <div>
+        <div class="pc-kicker">Pre-check control</div>
+        <h1 id="precheck-title">Pre-Check Dashboard</h1>
+        <div class="pc-command-sub">
+          EORI / XORI validation &middot; commodity lookup &middot; HMRC Trade Tariff
+        </div>
+        <div class="pc-trust-strip" aria-label="Validation sources">
+          <span class="pc-trust-chip"><i class="bi bi-patch-check-fill text-success"></i> HMRC Trader Services</span>
+          <span class="pc-trust-chip"><i class="bi bi-upc-scan text-primary"></i> Trade Tariff v2</span>
+          <span class="pc-trust-chip"><i class="bi bi-database-check"></i> Cached results</span>
+        </div>
+      </div>
+    </div>
+    <div class="pc-command-side">
+      <span class="pc-status-pill pc-status-{{ readiness_class }}">
+        <i class="bi {{ readiness_icon }}"></i> {{ readiness_label }}
+      </span>
+      <div class="pc-command-metrics" aria-label="Current pre-check totals">
+        <span><strong>{{ total_valid }}</strong> valid</span>
+        <span><strong>{{ total_invalid }}</strong> invalid</span>
+        <span><strong>{{ total_pending }}</strong> unchecked</span>
+        <span><strong>{{ total_records }}</strong> total</span>
+      </div>
+      <div class="pc-command-actions">
+        <form method="POST" action="{{ url_for('precheck.run_all') }}" class="d-inline"
+              data-loading-toast
+              data-loading-message="Running pre-checks..."
+              data-loading-meta="Fusion is validating EORI, weights, package data and workflow readiness."
+              data-loading-button-text="Checking...">
+          <button type="submit" class="pc-action-btn pc-action-primary">
+            <i class="bi bi-lightning-charge-fill"></i> Run All Checks
+          </button>
+        </form>
+        <a href="{{ url_for('dashboard.index') }}" class="pc-action-btn pc-action-secondary">
+          <i class="bi bi-speedometer2"></i> Dashboard
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <nav class="pc-context-nav" aria-label="Related pre-check workspaces">
+    <a href="{{ url_for('dashboard.index') }}" class="pc-context-link"><i class="bi bi-speedometer2"></i> Dashboard</a>
+    <a href="{{ url_for('consignments.list_view') }}" class="pc-context-link"><i class="bi bi-truck"></i> Consignments</a>
+    <a href="{{ url_for('goods.list_view') }}" class="pc-context-link"><i class="bi bi-box-seam"></i> Goods</a>
+    <a href="{{ url_for('gmr.list_view') }}" class="pc-context-link"><i class="bi bi-truck-front-fill"></i> GMR</a>
+    <a href="{{ url_for('supdec.list_view') }}" class="pc-context-link"><i class="bi bi-file-earmark-check"></i> SDI</a>
+    <a href="{{ url_for('operations.flow') }}" class="pc-context-link"><i class="bi bi-diagram-3"></i> Flow</a>
+    <a href="{{ url_for('risk.index') }}" class="pc-context-link"><i class="bi bi-shield-exclamation"></i> Risk &amp; Validation</a>
+    <a href="{{ url_for('operations.index') }}" class="pc-context-link"><i class="bi bi-tools"></i> Operations</a>
+    <a href="{{ url_for('orchestrator.index') }}" class="pc-context-link"><i class="bi bi-lightning-charge-fill"></i> Jobs</a>
+    <a href="{{ url_for('technical.index') }}" class="pc-context-link"><i class="bi bi-terminal"></i> Technical Logs</a>
+    <a href="{{ url_for('analytics.index') }}" class="pc-context-link"><i class="bi bi-bar-chart-line"></i> Analytics</a>
+    <a href="{{ url_for('masterdata_index_alias') }}" class="pc-context-link"><i class="bi bi-database"></i> Master Data</a>
+  </nav>
+
+  <div class="pc-summary-grid">
+    <section class="pc-domain-card" data-domain="eori" aria-labelledby="eori-summary-title">
+      <div class="pc-domain-header">
+        <div class="pc-domain-title" id="eori-summary-title">
+          <i class="bi bi-person-check-fill"></i> EORI / XORI
+        </div>
+        <div class="pc-domain-total"><strong>{{ eori_total }}</strong> identifiers</div>
+      </div>
+      <div class="pc-health-bar" role="img" aria-label="{{ eori_valid }} valid, {{ eori_invalid }} invalid, {{ eori_pending }} unchecked EORI identifiers">
+        {% if eori_total > 0 %}
+          <span class="pc-health-segment good" style="flex-grow: {{ eori_valid }};"></span>
+          <span class="pc-health-segment bad" style="flex-grow: {{ eori_invalid }};"></span>
+          <span class="pc-health-segment warn" style="flex-grow: {{ eori_pending }};"></span>
+        {% else %}
+          <span class="pc-health-empty"></span>
+        {% endif %}
+      </div>
+      <div class="pc-health-legend" aria-hidden="true">
+        <span class="pc-legend-item"><span class="pc-dot good"></span>{{ eori_valid }} valid</span>
+        <span class="pc-legend-item"><span class="pc-dot bad"></span>{{ eori_invalid }} invalid</span>
+        <span class="pc-legend-item"><span class="pc-dot warn"></span>{{ eori_pending }} unchecked</span>
+      </div>
+      <div class="pc-metric-grid">
+        <div class="pc-metric">
+          <div class="pc-metric-label">Total</div>
+          <div class="pc-metric-value">{{ eori_total }}</div>
+          <div class="pc-metric-sub">unique identifiers</div>
+        </div>
+        <div class="pc-metric {% if eori_valid > 0 %}good{% endif %}">
+          <div class="pc-metric-label">Valid</div>
+          <div class="pc-metric-value">{{ eori_valid }}</div>
+          <div class="pc-metric-sub">confirmed by HMRC</div>
+        </div>
+        <div class="pc-metric {% if eori_invalid > 0 %}bad{% endif %}">
+          <div class="pc-metric-label">Invalid</div>
+          <div class="pc-metric-value">{{ eori_invalid }}</div>
+          <div class="pc-metric-sub">failed HMRC check</div>
+        </div>
+        <div class="pc-metric {% if eori_pending > 0 %}warn{% endif %}">
+          <div class="pc-metric-label">Unchecked</div>
+          <div class="pc-metric-value">{{ eori_pending }}</div>
+          <div class="pc-metric-sub">needs validation</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="pc-domain-card" data-domain="commodity" aria-labelledby="commodity-summary-title">
+      <div class="pc-domain-header">
+        <div class="pc-domain-title" id="commodity-summary-title">
+          <i class="bi bi-upc-scan"></i> Commodity Codes
+        </div>
+        <div class="pc-domain-total"><strong>{{ commodity_total }}</strong> codes</div>
+      </div>
+      <div class="pc-health-bar" role="img" aria-label="{{ commodity_valid }} valid, {{ commodity_invalid }} invalid, {{ commodity_pending }} unchecked commodity codes">
+        {% if commodity_total > 0 %}
+          <span class="pc-health-segment good" style="flex-grow: {{ commodity_valid }};"></span>
+          <span class="pc-health-segment bad" style="flex-grow: {{ commodity_invalid }};"></span>
+          <span class="pc-health-segment warn" style="flex-grow: {{ commodity_pending }};"></span>
+        {% else %}
+          <span class="pc-health-empty"></span>
+        {% endif %}
+      </div>
+      <div class="pc-health-legend" aria-hidden="true">
+        <span class="pc-legend-item"><span class="pc-dot good"></span>{{ commodity_valid }} valid</span>
+        <span class="pc-legend-item"><span class="pc-dot bad"></span>{{ commodity_invalid }} invalid</span>
+        <span class="pc-legend-item"><span class="pc-dot warn"></span>{{ commodity_pending }} unchecked</span>
+      </div>
+      <div class="pc-metric-grid">
+        <div class="pc-metric">
+          <div class="pc-metric-label">Total</div>
+          <div class="pc-metric-value">{{ commodity_total }}</div>
+          <div class="pc-metric-sub">unique codes</div>
+        </div>
+        <div class="pc-metric {% if commodity_valid > 0 %}good{% endif %}">
+          <div class="pc-metric-label">Tariff Valid</div>
+          <div class="pc-metric-value">{{ commodity_valid }}</div>
+          <div class="pc-metric-sub">found in UK Tariff</div>
+        </div>
+        <div class="pc-metric {% if commodity_invalid > 0 %}bad{% endif %}">
+          <div class="pc-metric-label">Tariff Invalid</div>
+          <div class="pc-metric-value">{{ commodity_invalid }}</div>
+          <div class="pc-metric-sub">not in UK Tariff</div>
+        </div>
+        <div class="pc-metric {% if commodity_pending > 0 %}warn{% endif %}">
+          <div class="pc-metric-label">Unchecked</div>
+          <div class="pc-metric-value">{{ commodity_pending }}</div>
+          <div class="pc-metric-sub">needs lookup</div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="row g-3">
+
+    {# ── EORI Panel ── #}
+    <div class="col-12 col-xl-6">
+      <div class="pc-panel">
+        <div class="pc-panel-header">
+          <div class="pc-panel-title-wrap">
+            <span class="pc-panel-icon" aria-hidden="true"><i class="bi bi-person-check-fill"></i></span>
+            <div>
+              <div class="pc-panel-title">EORI / XORI Validation</div>
+              <div class="pc-panel-sub">Active consignment parties matched against cached HMRC responses.</div>
+            </div>
+          </div>
+          <span class="pc-count-pill"><i class="bi bi-list-check"></i> {{ eori_rows|length }} records</span>
+        </div>
+
+        {% if not eori_rows %}
+        <div class="pc-empty-state">
+          <span class="pc-empty-icon"><i class="bi bi-check2-all"></i></span>
+          <div class="pc-empty-title">No EORIs found</div>
+          <div>No active consignments currently expose EORI values.</div>
+        </div>
+        {% else %}
+        <div class="pc-table-wrap">
+          <table class="pc-table pc-table-eori">
+            <colgroup>
+              <col class="pc-col-code">
+              <col class="pc-col-role">
+              <col class="pc-col-status">
+              <col class="pc-col-trader">
+              <col class="pc-col-actions">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>EORI</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Trader</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% set seen_eoris = [] %}
+              {% for row in eori_rows %}
+              {% if row.eori not in seen_eoris %}
+              {% set _ = seen_eoris.append(row.eori) %}
+              <tr class="js-clickable-row {% if row.checked %}{% if row.valid %}pc-row-valid{% else %}pc-row-invalid{% endif %}{% else %}pc-row-pending{% endif %}"
+                  data-row-href="{{ url_for('consignments.list_view', q=row.eori) }}"
+                  role="link"
+                  tabindex="0"
+                  aria-label="Open consignments for EORI {{ row.eori }}">
+                <td>
+                  <div class="pc-cell-main">
+                    <a href="{{ url_for('consignments.list_view', q=row.eori) }}" class="code-mono fw-semibold text-decoration-none pc-code-link">
+                      {{ row.eori }}
+                    </a>
+                    {% if row.eori.startswith('XI') %}
+                      <span class="pc-origin-badge pc-origin-xi">XORI</span>
+                    {% elif row.eori.startswith('GB') %}
+                      <span class="pc-origin-badge pc-origin-gb">GB</span>
+                    {% else %}
+                      <span class="pc-origin-badge pc-origin-eu">EU</span>
+                    {% endif %}
+                  </div>
+                </td>
+                <td><span class="text-muted small fw-semibold">{{ row.source }}</span></td>
+                <td>
+                  <div id="eori-status-{{ loop.index }}" class="result-cell">
+                    {% if row.checked %}
+                      {% if row.valid %}
+                        <span class="chk-valid"><i class="bi bi-check-circle-fill"></i> Valid</span>
+                      {% else %}
+                        <span class="chk-invalid"><i class="bi bi-x-circle-fill"></i> Invalid</span>
+                      {% endif %}
+                    {% else %}
+                      <span class="chk-unknown"><i class="bi bi-hourglass"></i> Unchecked</span>
+                    {% endif %}
+                  </div>
+                </td>
+                <td class="pc-text-truncate" title="{{ row.trader_name or '' }}">
+                  {{ row.trader_name or '—' }}
+                </td>
+                <td>
+                  <div class="pc-inline-actions">
+                    <button type="button" class="btn-check-inline"
+                      hx-post="{{ url_for('precheck.check_single_eori') }}"
+                      hx-vals='{"eori": "{{ row.eori }}"}'
+                      hx-target="#eori-status-{{ loop.index }}"
+                      hx-swap="innerHTML"
+                      hx-indicator="#loading-spinner">
+                      <i class="bi bi-arrow-repeat"></i> Check
+                    </button>
+                    <a href="{{ url_for('consignments.list_view', q=row.eori) }}" class="btn-check-inline text-decoration-none" title="Open consignments" aria-label="Open consignments for {{ row.eori }}">
+                      <i class="bi bi-truck"></i><span class="pc-action-text">Consignments</span>
+                    </a>
+                    <a href="{{ url_for('risk.index') }}" class="btn-check-inline text-decoration-none" title="Open risk validation" aria-label="Open risk validation">
+                      <i class="bi bi-shield-exclamation"></i><span class="pc-action-text">Risk</span>
+                    </a>
+                  </div>
+                </td>
+              </tr>
+              {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ── Commodity Panel ── #}
+    <div class="col-12 col-xl-6">
+      <div class="pc-panel">
+        <div class="pc-panel-header">
+          <div class="pc-panel-title-wrap">
+            <span class="pc-panel-icon success" aria-hidden="true"><i class="bi bi-upc-scan"></i></span>
+            <div>
+              <div class="pc-panel-title">Commodity Code Lookup</div>
+              <div class="pc-panel-sub">Active goods codes checked against the UK Trade Tariff.</div>
+            </div>
+          </div>
+          <span class="pc-count-pill"><i class="bi bi-list-check"></i> {{ commodity_rows|length }} unique codes</span>
+        </div>
+
+        {% if not commodity_rows %}
+        <div class="pc-empty-state">
+          <span class="pc-empty-icon"><i class="bi bi-check2-all"></i></span>
+          <div class="pc-empty-title">No commodity codes found</div>
+          <div>No active goods items currently expose commodity codes.</div>
+        </div>
+        {% else %}
+        <div class="pc-table-wrap">
+          <table class="pc-table pc-table-commodity">
+            <colgroup>
+              <col class="pc-col-code">
+              <col class="pc-col-uses">
+              <col class="pc-col-status">
+              <col class="pc-col-description">
+              <col class="pc-col-actions">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Uses</th>
+                <th>Status</th>
+                <th>Description</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in commodity_rows %}
+              <tr class="js-clickable-row {% if row.checked %}{% if row.valid %}pc-row-valid{% else %}pc-row-invalid{% endif %}{% else %}pc-row-pending{% endif %}"
+                  data-row-href="{{ url_for('goods.list_view', q=row.code) }}"
+                  role="link"
+                  tabindex="0"
+                  aria-label="Open goods for commodity {{ row.code }}">
+                <td>
+                  <a href="{{ url_for('goods.list_view', q=row.code) }}" class="code-mono fw-semibold text-decoration-none pc-code-link">
+                    {{ row.code }}
+                  </a>
+                </td>
+                <td>
+                  <a href="{{ url_for('goods.list_view', q=row.code) }}" class="badge pc-soft-badge text-decoration-none">
+                    {{ row.cnt }}
+                  </a>
+                </td>
+                <td>
+                  <div id="comm-status-{{ loop.index }}" class="result-cell">
+                    {% if row.checked %}
+                      {% if row.valid %}
+                        <span class="chk-valid"><i class="bi bi-check-circle-fill"></i> Valid</span>
+                      {% else %}
+                        <span class="chk-invalid"><i class="bi bi-x-circle-fill"></i> Not in Tariff</span>
+                      {% endif %}
+                    {% else %}
+                      <span class="chk-unknown"><i class="bi bi-hourglass"></i> Unchecked</span>
+                    {% endif %}
+                  </div>
+                </td>
+                <td class="pc-text-truncate">
+                  {% if row.description %}
+                    <span title="{{ row.description }}">{{ row.description[:55] }}{% if row.description|length > 55 %}…{% endif %}</span>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="pc-inline-actions">
+                    <button type="button" class="btn-check-inline"
+                      hx-post="{{ url_for('precheck.check_single_commodity') }}"
+                      hx-vals='{"code": "{{ row.raw_code }}"}'
+                      hx-target="#comm-status-{{ loop.index }}"
+                      hx-swap="innerHTML"
+                      hx-indicator="#loading-spinner">
+                      <i class="bi bi-arrow-repeat"></i> Check
+                    </button>
+                    <a href="{{ url_for('goods.list_view', q=row.code) }}" class="btn-check-inline text-decoration-none" title="Open goods" aria-label="Open goods for commodity {{ row.code }}">
+                      <i class="bi bi-box-seam"></i><span class="pc-action-text">Goods</span>
+                    </a>
+                    <a href="{{ url_for('masterdata_products_alias') }}" class="btn-check-inline text-decoration-none" title="Open products" aria-label="Open master data products">
+                      <i class="bi bi-database"></i><span class="pc-action-text">Products</span>
+                    </a>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>{# /row #}
+
+  <div class="pc-source-strip" aria-label="Pre-check data provenance">
+    <div class="pc-source-item">
+      <div class="pc-source-label"><i class="bi bi-patch-check-fill"></i> EORI API</div>
+      <div class="pc-source-value">HMRC Trader Services</div>
+    </div>
+    <div class="pc-source-item">
+      <div class="pc-source-label"><i class="bi bi-upc-scan"></i> Tariff API</div>
+      <div class="pc-source-value">HMRC Trade Tariff v2</div>
+    </div>
+    <div class="pc-source-item">
+      <div class="pc-source-label"><i class="bi bi-geo-alt-fill"></i> XORI</div>
+      <div class="pc-source-value">XI prefix = Northern Ireland</div>
+    </div>
+    <div class="pc-source-item">
+      <div class="pc-source-label"><i class="bi bi-database-check"></i> Cache</div>
+      <div class="pc-source-value">Results stored in DB</div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

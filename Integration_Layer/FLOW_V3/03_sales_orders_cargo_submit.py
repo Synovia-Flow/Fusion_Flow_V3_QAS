@@ -6,7 +6,7 @@ uses the existing Fusion cargo submitter. This preserves TDN grouping, goods
 payload validation, TSS consignment creation, goods creation, completion check,
 and consignment submit in one operational step.
 
-Set FUSION_FLOW_APP_ROOT when this QAS folder does not contain the Flask app.
+Uses the local QAS app/ package copied into this repository.
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ from pathlib import Path
 
 
 def _app_root() -> Path:
-    candidate = Path(os.environ.get("FUSION_FLOW_APP_ROOT") or Path(__file__).resolve().parents[2])
+    candidate = Path(__file__).resolve().parents[2]
     if not (candidate / "app").exists():
         raise SystemExit(
-            "Fusion app root not found. Set FUSION_FLOW_APP_ROOT to the repo that contains app/ and scripts/."
+            "Local QAS app root not found. Expected app/ and scripts/ in this repository."
         )
     sys.path.insert(0, str(candidate))
     try:

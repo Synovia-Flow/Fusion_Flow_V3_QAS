@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% set page_title = "Templates & Bulk Upload" %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4 class="page-title"><i class="bi bi-cloud-upload"></i> Templates & Bulk Upload</h4>
+        <p class="page-subtitle">Download CSV templates with validation rules, or upload filled templates to bulk-insert staging records.</p>
+    </div>
+</div>
+
+{% include "partials/_alerts.html" %}
+
+<div class="row g-3">
+    {% for key, spec in specs.items() %}
+    <div class="col-md-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi {{ spec.icon }}"></i> {{ spec.label }}</span>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-3">
+                    {{ spec.fields | length }} fields ·
+                    {{ spec.fields | selectattr('required') | list | length }} required ·
+                    {{ spec.fields | selectattr('cv', 'defined') | list | length }} with choice values
+                </p>
+
+                <div class="d-flex gap-2 flex-wrap">
+                    <a href="{{ url_for('templates.download_template', entity_type=key) }}"
+                       class="btn btn-sm btn-outline-primary">
+                        <i class="bi bi-download"></i> Download Template
+                    </a>
+                    <a href="{{ url_for('templates.upload', entity_type=key) }}"
+                       class="btn btn-sm btn-primary">
+                        <i class="bi bi-upload"></i> Upload Data
+                    </a>
+                </div>
+
+                {# List CV tables used by this entity #}
+                {% set cv_fields = spec.fields | selectattr('cv', 'defined') | list %}
+                {% if cv_fields %}
+                <div class="mt-3">
+                    <small class="text-muted d-block mb-1">Choice Value References:</small>
+                    <div class="d-flex gap-1 flex-wrap">
+                        {% for f in cv_fields %}
+                        <a href="{{ url_for('templates.download_cv', cv_table=f.cv) }}"
+                           class="badge bg-light text-dark border small text-decoration-none"
+                           title="Download {{ f.cv }} values">
+                            {{ f.cv | replace('CV_','') }}
+                            <i class="bi bi-download" style="font-size:10px"></i>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            <div class="card-footer bg-transparent small text-muted">
+                Target: <code>{{ spec.table }}</code> · Source: <code>CSV_Upload</code> · Status: <code>PENDING</code>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-body">
+        <h6 class="fw-semibold"><i class="bi bi-info-circle"></i> How it works</h6>
+        <div class="row g-3 small text-muted">
+            <div class="col-md-3">
+                <strong class="d-block text-dark">1. Download Template</strong>
+                CSV with column headers, human labels, validation notes, and an example row. Open in Excel.
+            </div>
+            <div class="col-md-3">
+                <strong class="d-block text-dark">2. Fill In Data</strong>
+                Use the choice value CSVs for dropdowns. Required fields are marked. Delete the notes/example rows.
+            </div>
+            <div class="col-md-3">
+                <strong class="d-block text-dark">3. Upload & Preview</strong>
+                Upload the filled CSV. Preview shows matched columns, data rows, and any duplicates already in the system.
+            </div>
+            <div class="col-md-3">
+                <strong class="d-block text-dark">4. Insert → Pipeline</strong>
+                Bulk insert as <code>PENDING</code> with <code>source=CSV_Upload</code>. Goes through the same validation → submission → sync pipeline.
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

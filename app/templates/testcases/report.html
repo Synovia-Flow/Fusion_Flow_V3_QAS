@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Automation Report — Fusion Flow</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }
+        .report-header { background: #0f172a; color: white; padding: 24px 32px; }
+        .report-header h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+        .report-header p { font-size: 0.82rem; color: #94a3b8; }
+        .summary-bar { background: white; border-bottom: 1px solid #e2e8f0; padding: 12px 32px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+        .summary-chip { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; }
+        .chip-val { font-weight: 700; font-size: 1rem; }
+        .chip-pass { color: #16a34a; }
+        .chip-fail { color: #ef4444; }
+        .chip-warn { color: #d97706; }
+        .chip-neutral { color: #475569; }
+        .container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+        .scenario-card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px; overflow: hidden; }
+        .scenario-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; }
+        .scenario-title { font-weight: 700; font-size: 0.9rem; }
+        .scenario-meta { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; }
+        .badge-pass { background: #dcfce7; color: #16a34a; }
+        .badge-fail { background: #fee2e2; color: #dc2626; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+        th { text-align: left; padding: 6px 12px; background: #f8fafc; color: #475569; font-size: 0.72rem; font-weight: 600; border-bottom: 1px solid #e2e8f0; }
+        td { padding: 6px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+        tr:last-child td { border-bottom: none; }
+        .step-ok td { background: rgba(22,163,74,0.04); }
+        .step-fail td { background: rgba(239,68,68,0.04); }
+        .icon-ok { color: #16a34a; }
+        .icon-fail { color: #ef4444; }
+        .mono { font-family: 'Courier New', monospace; font-size: 0.7rem; color: #475569; white-space: pre-wrap; word-break: break-all; max-width: 380px; }
+        .footer-bar { padding: 8px 16px; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #64748b; }
+        .print-btn { background: #0f172a; color: white; border: none; padding: 6px 14px; border-radius: 6px; font-size: 0.8rem; cursor: pointer; }
+        @media print { .print-btn { display: none; } body { background: white; } .report-header { color: black; background: #f8fafc; border: 1px solid #e2e8f0; } .chip-pass, .chip-fail { color: black !important; } }
+    </style>
+</head>
+<body>
+
+<div class="report-header">
+    <h1>&#x1f9ea; Fusion Flow — Test Automation Report</h1>
+    <p>Generated: {{ generated_at }} &nbsp;·&nbsp; End-to-end scenarios against live database and TSS API</p>
+</div>
+
+{% set total_pass = all_results | selectattr('ok') | list | length %}
+{% set total_fail = all_results | rejectattr('ok') | list | length %}
+{% set total_scenarios = all_results | length %}
+{% set total_steps = namespace(n=0) %}
+{% set passed_steps = namespace(n=0) %}
+{% for res in all_results %}
+  {% set total_steps.n = total_steps.n + res.total %}
+  {% set passed_steps.n = passed_steps.n + res.passed %}
+{% endfor %}
+
+<div class="summary-bar">
+    <div class="summary-chip">
+        <span class="chip-val chip-neutral">{{ total_scenarios }}</span>
+        <span>scenarios</span>
+    </div>
+    <div class="summary-chip">
+        <span class="chip-val chip-pass">{{ total_pass }}</span>
+        <span>passed</span>
+    </div>
+    {% if total_fail > 0 %}
+    <div class="summary-chip">
+        <span class="chip-val chip-fail">{{ total_fail }}</span>
+        <span>failed</span>
+    </div>
+    {% endif %}
+    <div class="summary-chip">
+        <span class="chip-val chip-neutral">{{ total_steps.n }}</span>
+        <span>steps total</span>
+    </div>
+    <div class="summary-chip">
+        <span class="chip-val chip-pass">{{ passed_steps.n }}</span>
+        <span>steps passed</span>
+    </div>
+    <div style="margin-left: auto;">
+        <button class="print-btn" onclick="window.print()">&#x1f5a8; Print / Save PDF</button>
+    </div>
+</div>
+
+<div class="container">
+
+{% for res in all_results %}
+{% set sc = res.scenario %}
+<div class="scenario-card" style="border-left: 4px solid {{ sc.color if sc.color else '#94a3b8' }};">
+    <div class="scenario-header">
+        <div>
+            <div class="scenario-title">
+                Scenario {{ res.scenario_id }} — {{ sc.name if sc.name else res.scenario_id }}
+            </div>
+            <div class="scenario-meta">
+                Run {{ res.run_id }} &nbsp;·&nbsp; {{ res.passed }}/{{ res.total }} steps passed &nbsp;·&nbsp; {{ res.duration }}s
+            </div>
+        </div>
+        <span class="badge {{ 'badge-pass' if res.ok else 'badge-fail' }}">
+            {{ 'PASS' if res.ok else 'FAIL' }}
+        </span>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th style="width:24px;"></th>
+                <th>Step</th>
+                <th style="width:65px;">Time</th>
+                <th>Detail</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for step in res.steps %}
+            <tr class="{{ 'step-ok' if step.ok else 'step-fail' }}">
+                <td>
+                    {% if step.ok %}
+                    <span class="icon-ok">&#x2714;</span>
+                    {% else %}
+                    <span class="icon-fail">&#x2718;</span>
+                    {% endif %}
+                </td>
+                <td><strong>{{ step.label }}</strong></td>
+                <td class="mono">{{ step.ts }}</td>
+                <td class="mono">{{ step.detail }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if sc.description %}
+    <div style="padding: 6px 12px; font-size: 0.73rem; color: #64748b; border-top: 1px solid #f1f5f9; background: #fafafa;">
+        {{ sc.description }}
+    </div>
+    {% endif %}
+</div>
+{% endfor %}
+
+</div>
+
+<div style="text-align:center; padding: 16px; font-size:0.72rem; color:#94a3b8;">
+    Fusion Flow V2 — BKD &nbsp;·&nbsp; Test Automation &nbsp;·&nbsp; {{ generated_at }}
+</div>
+
+</body>
+</html>

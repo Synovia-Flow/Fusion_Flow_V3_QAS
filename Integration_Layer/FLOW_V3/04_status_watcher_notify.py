@@ -6,7 +6,7 @@ updates local mirrors, syncs DEC/SFD/MRN/goods where available, sends TSS status
 attention notifications, and sends the final Authorised for Movement email only
 when the movement gate passes.
 
-Set FUSION_FLOW_APP_ROOT when this QAS folder does not contain the Flask app.
+Uses the local QAS scripts/ package copied into this repository.
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ from pathlib import Path
 
 
 def _app_root() -> Path:
-    candidate = Path(os.environ.get("FUSION_FLOW_APP_ROOT") or Path(__file__).resolve().parents[2])
+    candidate = Path(__file__).resolve().parents[2]
     if not (candidate / "scripts" / "sync_prd_ens_statuses.py").exists():
         raise SystemExit(
-            "Fusion app root not found. Set FUSION_FLOW_APP_ROOT to the repo that contains scripts/sync_prd_ens_statuses.py."
+            "Local QAS script root not found. Expected scripts/sync_prd_ens_statuses.py in this repository."
         )
     return candidate
 

@@ -1,0 +1,227 @@
+{# ENS Movement Pack - inline CSS + Bootstrap-free so it renders the same in
+   the email body and in the preview page. Loaded by both
+   declarations.email_pack_preview and declarations.email_pack_send. #}
+{% set ens_ref = pipeline_header.ens_reference or ('Draft #' ~ pipeline_header.staging_id) %}
+{% set ens_status = (pipeline_header.tss_status or dec.external_status or dec.status or '')|string %}
+{% set ens_status_label = ens_status | replace('_', ' ') | title if ens_status else 'Unknown' %}
+{% set ens_created_at = pipeline_header.created_at or dec.created_at %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ENS Movement Pack - {{ ens_ref }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body, body *, table, td, th, div, span, p, h1, h2, h3, h4, h5, h6 {
+      font-family: 'Montserrat', 'Segoe UI', Arial, sans-serif !important;
+    }
+    code, .mono, [style*="Courier"] {
+      font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', 'Courier New', monospace !important;
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background:#eef2f7;font-family:'Montserrat','Segoe UI',Arial,sans-serif;color:#1f2937;">
+<div style="max-width:780px;margin:24px auto;background:#ffffff;border-radius:6px;overflow:hidden;box-shadow:0 1px 3px rgba(15,23,42,0.08);">
+
+  {# ── Letterhead ── #}
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;background:#0b1d3a;color:#ffffff;">
+    <tr>
+      <td style="padding:20px 28px;vertical-align:middle;">
+        <div style="font-size:11px;letter-spacing:1.5px;color:#93c5fd;font-weight:700;text-transform:uppercase;">Synovia Integration</div>
+        <div style="font-size:22px;font-weight:700;margin-top:4px;">ENS Movement Pack</div>
+        <div style="font-size:13px;color:#cbd5f5;margin-top:2px;">Fusion Flow - Declaration Management Portal</div>
+      </td>
+      <td style="padding:20px 28px;text-align:right;vertical-align:middle;width:140px;">
+        {% if logo_data_uri %}
+        <img src="{{ logo_data_uri }}" alt="Fusion" style="height:42px;display:inline-block;background:#ffffff;padding:6px 10px;border-radius:4px;">
+        {% else %}
+        <span style="display:inline-block;background:#ffffff;color:#0b1d3a;padding:8px 14px;border-radius:4px;font-weight:700;letter-spacing:0.5px;">FUSION</span>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+
+  {% if tenant_logo_uri or ens_created_at %}
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;background:#ffffff;border-bottom:1px solid #e5e7eb;">
+    <tr>
+      <td style="padding:14px 28px;vertical-align:middle;width:30%;">
+        <div style="font-size:10px;letter-spacing:1.1px;color:#64748b;font-weight:700;text-transform:uppercase;">Prepared to</div>
+      </td>
+      <td style="padding:14px 18px;text-align:center;vertical-align:middle;width:40%;">
+        {% if tenant_logo_uri %}
+        <img src="{{ tenant_logo_uri }}" alt="Tenant logo" style="max-height:46px;max-width:190px;display:inline-block;">
+        {% endif %}
+      </td>
+      <td style="padding:14px 28px;text-align:right;vertical-align:middle;width:30%;">
+        <div style="font-size:10px;letter-spacing:1.1px;color:#64748b;font-weight:700;text-transform:uppercase;">Date of ENS creation</div>
+        <div style="font-size:13px;color:#0b1d3a;font-weight:700;margin-top:3px;">{{ ens_created_at|localdt('%d/%m/%Y %H:%M') if ens_created_at else '-' }}</div>
+      </td>
+    </tr>
+  </table>
+  {% endif %}
+
+  <div style="padding:24px 28px 0;">
+    {# ── ENS summary ── #}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;margin-bottom:16px;">
+      <tr>
+        <td style="vertical-align:top;">
+          <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;font-weight:700;">ENS Reference</div>
+          <div style="font-family:'Courier New',monospace;font-size:18px;color:#0b1d3a;font-weight:700;margin-top:4px;">{{ ens_ref }}</div>
+        </td>
+        <td style="vertical-align:top;text-align:right;">
+          <span style="display:inline-block;padding:4px 12px;border-radius:12px;background:#dcfce7;color:#15803d;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;">{{ ens_status_label }}</span>
+        </td>
+      </tr>
+    </table>
+
+    {% if note %}
+    <div style="background:#eff6ff;border-left:4px solid #2563eb;padding:12px 16px;border-radius:0 4px 4px 0;margin-bottom:18px;font-size:13px;color:#1e3a8a;">
+      <strong style="display:block;margin-bottom:2px;">Note from sender</strong>
+      {{ note }}
+    </div>
+    {% endif %}
+
+    {# ── ENS detail grid ── #}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;font-size:13px;margin-bottom:20px;">
+      <tr style="background:#f9fafb;">
+        <td colspan="2" style="padding:10px 14px;font-weight:700;color:#0b1d3a;border-bottom:1px solid #e5e7eb;">ENS Header</td>
+      </tr>
+      <tr><td style="padding:7px 14px;color:#6b7280;width:38%;">Movement Type</td><td style="padding:7px 14px;">{{ pipeline_header.movement_type or '-' }}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:7px 14px;color:#6b7280;">Arrival Port</td><td style="padding:7px 14px;">{{ pipeline_header.arrival_port or '-' }}</td></tr>
+      <tr><td style="padding:7px 14px;color:#6b7280;">Arrival Date/Time</td><td style="padding:7px 14px;">{{ pipeline_header.arrival_date_time or '-' }}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:7px 14px;color:#6b7280;">Vehicle / Transport ID</td><td style="padding:7px 14px;font-family:'Courier New',monospace;">{{ pipeline_header.identity_no_of_transport or '-' }}</td></tr>
+      <tr><td style="padding:7px 14px;color:#6b7280;">Nationality of Transport</td><td style="padding:7px 14px;">{{ pipeline_header.nationality_of_transport or '-' }}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:7px 14px;color:#6b7280;">Carrier EORI</td><td style="padding:7px 14px;font-family:'Courier New',monospace;">{{ pipeline_header.carrier_eori or '-' }}</td></tr>
+      <tr><td style="padding:7px 14px;color:#6b7280;">Carrier Name</td><td style="padding:7px 14px;">{{ pipeline_header.carrier_name or '-' }}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:7px 14px;color:#6b7280;">Haulier EORI</td><td style="padding:7px 14px;font-family:'Courier New',monospace;">{{ pipeline_header.haulier_eori or '-' }}</td></tr>
+      <tr><td style="padding:7px 14px;color:#6b7280;">Place of Loading</td><td style="padding:7px 14px;">{{ pipeline_header.place_of_loading or '-' }}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:7px 14px;color:#6b7280;">Place of Unloading</td><td style="padding:7px 14px;">{{ pipeline_header.place_of_unloading or '-' }}</td></tr>
+    </table>
+
+    {# ── Movement chain ── #}
+    <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:8px;">Movement chain</div>
+    <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:6px;padding:12px 16px;margin-bottom:24px;font-size:13px;line-height:1.6;">
+      <strong style="color:#0b1d3a;font-family:'Courier New',monospace;">{{ ens_ref }}</strong>
+      <span style="color:#9ca3af;margin:0 6px;">-&gt;</span>
+      {% for cons in consignments %}
+      {% set chain_sdi = cons.linked_supdecs|default([], true) %}
+      <span style="display:inline-block;margin:2px 6px 2px 0;">
+        <code style="font-family:'Courier New',monospace;background:#e0f2fe;color:#075985;padding:2px 8px;border-radius:3px;font-size:12px;">{{ cons.dec_reference or ('DEC pending #' ~ cons.staging_id) }}</code>
+        {% if chain_sdi %}
+        <span style="color:#9ca3af;margin:0 3px;">-&gt;</span>
+        <code style="font-family:'Courier New',monospace;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:3px;font-size:12px;">{{ chain_sdi[0].sup_dec_number or ('SDI #' ~ chain_sdi[0].staging_id) }}</code>
+        {% endif %}
+      </span>
+      {% endfor %}
+    </div>
+
+    {# ── Consignment details ── #}
+    <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-bottom:10px;">Consignment detail ({{ consignments|length }})</div>
+    {% for cons in consignments %}
+    {% set cons_goods = goods_by_cons.get(cons.staging_id, []) %}
+    {% set cons_sdi = cons.linked_supdecs|default([], true) %}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;font-size:12.5px;margin-bottom:18px;">
+      <tr>
+        <td colspan="2" style="padding:10px 14px;background:#0b1d3a;color:#ffffff;font-weight:700;">
+          <span style="font-family:'Courier New',monospace;font-size:13px;">{{ cons.dec_reference or ('DEC pending #' ~ cons.staging_id) }}</span>
+          {% if cons.tss_status %}
+          {% set cons_status_norm = (cons.tss_status or '')|string|replace('_', ' ')|lower %}
+          {% set cons_authorised = 'authorised for movement' in cons_status_norm or 'arrived' in cons_status_norm %}
+          <span style="display:inline-block;margin-left:10px;padding:2px 8px;border-radius:10px;background:{{ '#15803d' if cons_authorised else '#1d4ed8' }};color:#ffffff;font-size:10px;text-transform:uppercase;letter-spacing:0.4px;">{{ cons.tss_status | replace('_', ' ') }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      <tr><td style="padding:6px 14px;color:#6b7280;width:38%;">Goods Description</td><td style="padding:6px 14px;">{{ cons.goods_description or cons.label or '-' }}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:6px 14px;color:#6b7280;">Transport Document</td><td style="padding:6px 14px;">{{ cons.transport_document_number or '-' }}</td></tr>
+      <tr><td style="padding:6px 14px;color:#6b7280;">Importer EORI</td><td style="padding:6px 14px;font-family:'Courier New',monospace;">{{ cons.importer_eori or '-' }}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:6px 14px;color:#6b7280;">Importer Name</td><td style="padding:6px 14px;">{{ cons.importer_name or '-' }}</td></tr>
+      <tr><td style="padding:6px 14px;color:#6b7280;">Exporter EORI</td><td style="padding:6px 14px;font-family:'Courier New',monospace;">{{ cons.exporter_eori or '-' }}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:6px 14px;color:#6b7280;">Exporter Name</td><td style="padding:6px 14px;">{{ cons.exporter_name or '-' }}</td></tr>
+      <tr><td style="padding:6px 14px;color:#6b7280;">Consignor</td><td style="padding:6px 14px;">{{ cons.consignor_name or '-' }} {% if cons.consignor_country %}({{ cons.consignor_country }}){% endif %}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:6px 14px;color:#6b7280;">Consignee</td><td style="padding:6px 14px;">{{ cons.consignee_name or '-' }} {% if cons.consignee_country %}({{ cons.consignee_country }}){% endif %}</td></tr>
+      {% if cons.consignee_eori %}
+      <tr><td style="padding:6px 14px;color:#6b7280;">Consignee EORI</td><td style="padding:6px 14px;font-family:'Courier New',monospace;">{{ cons.consignee_eori }}</td></tr>
+      {% endif %}
+      <tr style="background:#fbfbfd;"><td style="padding:6px 14px;color:#6b7280;">Total Packages</td><td style="padding:6px 14px;">{{ cons.total_packages or '-' }}</td></tr>
+      <tr><td style="padding:6px 14px;color:#6b7280;">Gross Mass (kg)</td><td style="padding:6px 14px;">{{ cons.gross_mass_kg or '-' }}</td></tr>
+      <tr style="background:#fbfbfd;"><td style="padding:6px 14px;color:#6b7280;">SFD Reference</td><td style="padding:6px 14px;font-family:'Courier New',monospace;">{{ cons.sfd_reference or '-' }}</td></tr>
+      {% set customs_ref = cons.sfd_mrn or cons.movement_reference_number %}
+      {% if customs_ref %}
+      <tr><td style="padding:6px 14px;color:#6b7280;">MRN</td><td style="padding:6px 14px;font-family:'Courier New',monospace;">{{ customs_ref }}</td></tr>
+      {% elif cons.sfd_eidr %}
+      <tr><td style="padding:6px 14px;color:#6b7280;">EIDR</td><td style="padding:6px 14px;font-family:'Courier New',monospace;">{{ cons.sfd_eidr }}</td></tr>
+      {% else %}
+      <tr><td style="padding:6px 14px;color:#6b7280;">MRN / EIDR</td><td style="padding:6px 14px;font-family:'Courier New',monospace;">-</td></tr>
+      {% endif %}
+      {% if cons_sdi %}
+      <tr style="background:#fbfbfd;">
+        <td style="padding:6px 14px;color:#6b7280;">SDI / SupDec Reference</td>
+        <td style="padding:6px 14px;font-family:'Courier New',monospace;">{{ cons_sdi[0].sup_dec_number or ('SDI #' ~ cons_sdi[0].staging_id) }}</td>
+      </tr>
+      <tr>
+        <td style="padding:6px 14px;color:#6b7280;">SDI Status</td>
+        <td style="padding:6px 14px;">{{ cons_sdi[0].status or '-' }}</td>
+      </tr>
+      {% if cons_sdi[0].submission_due_date %}
+      <tr style="background:#fbfbfd;">
+        <td style="padding:6px 14px;color:#6b7280;">SDI Submission Due</td>
+        <td style="padding:6px 14px;">{{ cons_sdi[0].submission_due_date|datefmt('%d/%m/%Y') }}</td>
+      </tr>
+      {% endif %}
+      {% endif %}
+      {% if cons_goods %}
+      <tr>
+        <td colspan="2" style="padding:10px 14px;background:#f9fafb;font-weight:700;color:#0b1d3a;border-top:1px solid #e5e7eb;">Goods items ({{ cons_goods|length }})</td>
+      </tr>
+      <tr>
+        <td colspan="2" style="padding:0;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:11.5px;">
+            <thead>
+              <tr style="background:#f3f4f6;color:#6b7280;text-transform:uppercase;letter-spacing:0.3px;font-size:10.5px;">
+                <th style="padding:6px 14px;text-align:left;font-weight:700;">#</th>
+                <th style="padding:6px 8px;text-align:left;font-weight:700;">Description</th>
+                <th style="padding:6px 8px;text-align:left;font-weight:700;">Commodity</th>
+                <th style="padding:6px 8px;text-align:right;font-weight:700;">Packages</th>
+                <th style="padding:6px 14px;text-align:right;font-weight:700;">Gross kg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for g in cons_goods %}
+              <tr style="border-top:1px solid #f3f4f6;{{ 'background:#fbfbfd;' if loop.index is even else '' }}">
+                <td style="padding:6px 14px;color:#9ca3af;">{{ g.item_number or g.staging_id }}</td>
+                <td style="padding:6px 8px;">{{ g.goods_description or g.label or '-' }}</td>
+                <td style="padding:6px 8px;font-family:'Courier New',monospace;">{{ g.commodity_code or '-' }}</td>
+                <td style="padding:6px 8px;text-align:right;">{{ g.number_of_packages or '-' }}</td>
+                <td style="padding:6px 14px;text-align:right;">{{ g.gross_mass_kg or '-' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </td>
+      </tr>
+      {% endif %}
+    </table>
+    {% endfor %}
+  </div>
+
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;background:#f9fafb;border-top:1px solid #e5e7eb;">
+    <tr>
+      <td style="padding:16px 28px;color:#9ca3af;font-size:11px;vertical-align:middle;">
+        Generated by Fusion Flow on behalf of Synovia Digital. Operational data only; refer to TSS for the authoritative declaration record.
+      </td>
+      <td style="padding:16px 28px;text-align:right;vertical-align:middle;width:160px;">
+        <a href="https://synoviadigital.com/" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block;">
+          {% if synovia_logo_uri %}
+          <img src="{{ synovia_logo_uri }}" alt="Synovia Digital" style="height:32px;display:inline-block;">
+          {% else %}
+          <span style="display:inline-block;color:#0b1d3a;font-weight:700;letter-spacing:0.4px;font-size:13px;">Synovia Digital</span>
+          {% endif %}
+        </a>
+      </td>
+    </tr>
+  </table>
+</div>
+</body>
+</html>

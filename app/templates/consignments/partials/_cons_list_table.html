@@ -1,0 +1,142 @@
+﻿{# PRD consignment list table â€” uses STG.BKD_ENS_Consignments columns #}
+<div class="card border-0 shadow-sm" data-bulk-selection="consignment-delete">
+  <div class="card-header bg-white d-flex flex-column flex-xl-row align-items-xl-center justify-content-between gap-2">
+    <div class="small text-muted">
+      Use Select mode to delete local draft consignments or export to CSV. TSS records are not cancelled.
+    </div>
+    <form id="consignmentBulkActionForm"
+          method="POST"
+          action="{{ url_for('consignments.bulk_export_selected') }}"
+          class="bulk-selection-toolbar d-flex align-items-center flex-wrap gap-2">
+      <input type="hidden" name="status" value="{{ status_filter }}">
+      <input type="hidden" name="q" value="{{ search }}">
+      <input type="hidden" name="ens_ref" value="{{ ens_ref }}">
+      <button type="submit"
+              class="btn btn-sm btn-outline-secondary"
+              formaction="{{ url_for('consignments.bulk_export_selected') }}"
+              data-bulk-action
+              data-bulk-active-only
+              data-bulk-group="consignment-delete"
+              disabled
+              hidden>
+        <i class="bi bi-download"></i> CSV
+      </button>
+      <button type="submit"
+              class="btn btn-sm btn-danger"
+              formaction="{{ url_for('consignments.bulk_delete_selected') }}"
+              data-bulk-action
+              data-bulk-active-only
+              data-bulk-group="consignment-delete"
+              data-confirm
+              data-confirm-title="Delete Selected Consignments"
+              data-confirm-text="Delete selected local consignment drafts? Records with a TSS reference (DEC...) are kept. TSS records are not cancelled."
+              data-confirm-submit-label="Delete Selected"
+              disabled
+              hidden>
+        <i class="bi bi-trash"></i> Delete
+      </button>
+      <span class="small text-muted" data-bulk-active-only data-bulk-group="consignment-delete" hidden>
+        <span data-bulk-count data-bulk-group="consignment-delete">0</span> selected
+      </span>
+      <button type="button"
+              class="bulk-mode-toggle"
+              data-bulk-select-toggle
+              data-bulk-group="consignment-delete"
+              data-bulk-inactive-label="Select mode"
+              data-bulk-active-label="Exit select"
+              aria-pressed="false">
+        <span class="bulk-mode-toggle-switch" aria-hidden="true"></span>
+        <span data-bulk-toggle-label>Select mode</span>
+      </button>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th class="bulk-select-cell" data-bulk-select-cell>
+            <input class="form-check-input" type="checkbox" data-bulk-select-all data-bulk-group="consignment-delete" aria-label="Select all">
+          </th>
+          <th>ID</th>
+          <th>DEC Ref</th>
+          <th>Local Status</th>
+          <th>TSS Status</th>
+          <th>SFD</th>
+          <th>SDI</th>
+          <th>Goods Description</th>
+          <th>Doc / Ref</th>
+          <th>ENS Ref</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in consignments %}
+        {% set local_status = fixed_consignment_local_status(c.sub_status, c.TssStatus) %}
+        {% set failed = local_status in ('FAILED', 'INVALID', 'REJECTED', 'TRADER INPUT REQUIRED') %}
+        <tr class="js-clickable-row {{ 'row-danger' if failed }}"
+            data-row-href="{{ consignment_detail_url(c) }}"
+            role="link"
+            tabindex="0"
+            aria-label="Open consignment {{ c.tss_consignment_ref or ('Draft #' ~ c.stg_consignment_id) }}">
+          <td class="bulk-select-cell" data-bulk-select-cell>
+            {% if not c.tss_consignment_ref %}
+            <label class="bulk-row-selector" title="Select for local cleanup or CSV export">
+              <input class="form-check-input" type="checkbox" name="selected_ids" value="{{ c.stg_consignment_id }}" form="consignmentBulkActionForm" data-bulk-item data-bulk-group="consignment-delete" aria-label="Select consignment {{ c.stg_consignment_id }}">
+            </label>
+            {% endif %}
+          </td>
+          <td class="font-monospace small text-muted">{{ c.stg_consignment_id }}</td>
+          <td class="font-monospace small">
+            {% if c.tss_consignment_ref %}
+            <a href="{{ consignment_detail_url(c) }}" class="ref-link">{{ c.tss_consignment_ref }}</a>
+            {% else %}
+            <span class="text-muted">Draft</span>
+            {% endif %}
+          </td>
+          <td><span class="{{ badge_class(local_status) }}">{{ local_status | status_display }}</span></td>
+          <td>
+            {% if c.TssStatus %}
+            <span class="{{ badge_class(c.TssStatus) }}">{{ c.TssStatus | status_display }}</span>
+            {% else %}
+            <span class="badge badge-status-pending">Pending sync</span>
+            {% endif %}
+          </td>
+          <td class="font-monospace small">
+            {% if c.sfd_reference %}
+            <span class="ref-link">{{ c.sfd_reference }}</span>
+            {% if c.sfd_status %}
+            <div><span class="{{ badge_class(c.sfd_status) }}">{{ c.sfd_status | status_display }}</span></div>
+            {% endif %}
+            {% else %}
+            <span class="text-muted">Ã¢â‚¬â€</span>
+            {% endif %}
+          </td>
+          <td class="font-monospace small">
+            {% set linked_sdi = c.linked_supdecs|default([], true) %}
+            {% set sdi_links_menu_id = 'cons-sdi-links-partial-' ~ c.stg_consignment_id ~ '-' ~ loop.index %}
+            {% include 'consignments/partials/_sdi_links_cell.html' %}
+          </td>
+          <td class="small text-truncate" style="max-width:200px;">{{ (c.goods_description or '') | truncate(50) }}</td>
+          <td class="font-monospace small text-muted">{{ c.document_no or 'â€”' }}</td>
+          <td class="font-monospace small">
+            {% if c.tss_ens_header_ref %}
+            <a href="{{ ens_detail_url(c) }}" class="ref-link">{{ c.tss_ens_header_ref }}</a>
+            {% elif c.stg_header_id %}
+            <a href="{{ url_for('declarations.header_detail', staging_id=c.stg_header_id) }}" class="ref-link-muted">ENS #{{ c.stg_header_id }}</a>
+            {% else %}
+            <span class="text-muted">â€”</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted">{{ c.updated_at|localdt('%d/%m %H:%M') if c.updated_at else '---' }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="11" class="text-center text-muted py-4">
+            No consignments found{{ ' matching "' ~ search ~ '"' if search else '' }}.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

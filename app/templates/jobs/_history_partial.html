@@ -1,0 +1,116 @@
+<!-- 24h KPI cards -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-4 fw-bold">{{ stats.total_calls or 0 }}</div>
+            <div class="text-muted small">Total Calls (24h)</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-4 fw-bold text-status-success">{{ stats.success_calls or 0 }}</div>
+            <div class="text-muted small">Successful</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-4 fw-bold text-status-danger">{{ stats.failed_calls or 0 }}</div>
+            <div class="text-muted small">Failed</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-4 fw-bold">{{ stats.avg_duration or 0 }}ms</div>
+            <div class="text-muted small">Avg Duration</div>
+        </div>
+    </div>
+</div>
+
+<!-- P95 Latency by call type -->
+{% if latency_by_type %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom-0 fw-semibold py-2">
+        <i class="bi bi-speedometer2 text-warning"></i> Latency by Call Type
+        <span class="text-muted fw-normal small">(last 24h)</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Call Type</th>
+                    <th class="text-end">Calls</th>
+                    <th class="text-end">Avg (ms)</th>
+                    <th class="text-end">P95 (ms)</th>
+                    <th>Health</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in latency_by_type %}
+                {% set p95 = r.p95 | int if r.p95 else 0 %}
+                <tr>
+                    <td><span class="badge badge-status-pending">{{ r.call_type }}</span></td>
+                    <td class="text-end">{{ r.total }}</td>
+                    <td class="text-end">{{ r.avg_ms or 0 }}</td>
+                    <td class="text-end fw-semibold {{ 'text-status-danger' if p95 > 5000 else ('text-status-warning' if p95 > 2000 else 'text-status-success') }}">{{ p95 }}</td>
+                    <td><span class="badge {{ 'badge-status-danger' if p95 > 5000 else ('badge-status-warning' if p95 > 2000 else 'badge-status-success') }}">{{ 'Slow' if p95 > 5000 else ('Degraded' if p95 > 2000 else 'Good') }}</span></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Recent API call log -->
+<div class="card border-0 shadow-sm">
+    <div class="card-header bg-white border-bottom-0 fw-semibold py-2">
+        <i class="bi bi-list-ul"></i> Recent API Calls
+        <span class="text-muted fw-normal small">(last 100)</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>ENS Ref</th>
+                    <th>HTTP</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Error</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for l in logs %}
+                <tr>
+                    <td class="small">{{ l.called_at|localdt('%d/%m %H:%M:%S') if l.called_at else '' }}</td>
+                    <td><span class="badge badge-status-pending">{{ l.call_type or '' }}</span></td>
+                    <td class="font-monospace small">{{ l.external_ref or '' }}</td>
+                    <td>
+                        <span class="badge {{ 'badge-status-success' if l.http_status == 200 else 'badge-status-danger' }}">
+                            {{ l.http_status }}
+                        </span>
+                    </td>
+                    <td class="small">{{ l.response_status or '' }}</td>
+                    <td class="small {{ 'text-status-danger' if l.duration_ms and l.duration_ms > 5000 else ('text-status-warning' if l.duration_ms and l.duration_ms > 2000 else '') }}">
+                        {{ l.duration_ms or 0 }}ms
+                    </td>
+                    <td class="small text-status-danger text-truncate" style="max-width:200px;">{{ l.error_detail or '' }}</td>
+                    <td>
+                        {% if l.http_status != 200 and l.staging_id %}
+                        <form method="POST" action="{{ url_for('jobs.retry', dec_id=l.staging_id) }}" class="d-inline">
+                            <button class="btn btn-xs btn-outline-warning py-0 px-1" style="font-size:0.7rem;">
+                                <i class="bi bi-arrow-clockwise"></i> Retry
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="text-center text-muted py-4">No API calls yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

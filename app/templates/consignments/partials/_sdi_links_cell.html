@@ -1,0 +1,41 @@
+{% if linked_sdi %}
+<a href="{{ supdec_detail_url(linked_sdi[0]) }}" class="ref-link">
+  {{ linked_sdi[0].sup_dec_number or ('SDI #' ~ linked_sdi[0].staging_id) }}
+</a>
+{% if linked_sdi|length > 1 %}
+<span class="dropdown d-inline-block">
+  <button
+    type="button"
+    id="{{ sdi_links_menu_id }}"
+    class="badge badge-status-info border-0 ms-1 sdi-more-badge"
+    data-bs-toggle="dropdown"
+    data-bs-auto-close="outside"
+    aria-expanded="false"
+    title="Show all linked SDIs"
+  >+{{ linked_sdi|length - 1 }}</button>
+  <div class="dropdown-menu dropdown-menu-end sdi-link-dropdown p-2 shadow-sm" aria-labelledby="{{ sdi_links_menu_id }}">
+    <div class="dropdown-header px-2 py-1">Linked SDIs</div>
+    {% for sd in linked_sdi %}
+    <a href="{{ supdec_detail_url(sd) }}" class="dropdown-item rounded-2 px-2 py-2">
+      <span class="d-flex align-items-center justify-content-between gap-2">
+        <span class="font-monospace fw-semibold">{{ sd.sup_dec_number or ('SDI #' ~ sd.staging_id) }}</span>
+        {% if loop.first %}<span class="badge badge-status-info">shown</span>{% endif %}
+      </span>
+      <span class="d-block small text-muted mt-1">
+        {{ (sd.status or 'Status pending') | status_display }}
+        {% if sd.submission_due_date %}
+        - Due {{ sd.submission_due_date | datefmt('%d/%m/%Y') }}
+        {% endif %}
+      </span>
+    </a>
+    {% endfor %}
+  </div>
+</span>
+{% endif %}
+{% elif c.sdi_reference %}
+<span class="ref-link">{{ c.sdi_reference }}</span>
+{% elif c.sdi_required %}
+<span class="text-muted">No SDI yet</span>
+{% else %}
+<span class="text-muted">Not required</span>
+{% endif %}

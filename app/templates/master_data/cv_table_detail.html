@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}{{ table_name }} · TSS Choice Values{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a href="{{ url_for('master_data.index') }}">Master Data</a></li>
+                <li class="breadcrumb-item"><a href="{{ url_for('master_data.cv_tables') }}">TSS Choice Values</a></li>
+                <li class="breadcrumb-item active">{{ table_name }}</li>
+            </ol>
+        </nav>
+        <h4 class="mb-0 fw-bold font-monospace" style="color: var(--fusion-navy);">TSS.{{ table_name }}</h4>
+        <p class="text-muted small mb-0 mt-1">{{ "{:,}".format(total) }} row{{ '' if total == 1 else 's' }} · page {{ page }} of {{ total_pages }}</p>
+    </div>
+    <a href="{{ url_for('master_data.cv_tables') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i> All Tables
+    </a>
+</div>
+
+<form method="GET" class="d-flex gap-2 mb-3">
+    <input type="text" name="q" class="form-control" value="{{ search }}" placeholder="Search inside this choice value table" autofocus>
+    <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-search"></i></button>
+    {% if search %}
+    <a href="{{ url_for('master_data.cv_table_detail', table_name=table_name) }}" class="btn btn-outline-danger">Clear</a>
+    {% endif %}
+</form>
+
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+        {% if rows %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        {% for col in columns %}
+                        <th>{{ col }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        {% for col in columns %}
+                        {% set value = row.get(col) %}
+                        <td class="{% if loop.first %}font-monospace small{% endif %}">
+                            {% if value is sameas true or value == 1 %}
+                            <span class="badge bg-success">Yes</span>
+                            {% elif value is sameas false or value == 0 %}
+                            <span class="badge bg-light text-muted border">No</span>
+                            {% elif value in (None, '') %}
+                            <span class="text-muted">—</span>
+                            {% else %}
+                            {{ value }}
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="p-4 text-center text-muted">
+            <i class="bi bi-inbox display-6 d-block mb-2"></i>
+            No rows found.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if total_pages > 1 %}
+<nav class="mt-3">
+    <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if page == 1 %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('master_data.cv_table_detail', table_name=table_name, page=page-1, q=search) }}">&laquo;</a>
+        </li>
+        {% for p in range(1, total_pages + 1) %}
+        {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+        <li class="page-item {% if p == page %}active{% endif %}">
+            <a class="page-link" href="{{ url_for('master_data.cv_table_detail', table_name=table_name, page=p, q=search) }}">{{ p }}</a>
+        </li>
+        {% endif %}
+        {% endfor %}
+        <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+            <a class="page-link" href="{{ url_for('master_data.cv_table_detail', table_name=table_name, page=page+1, q=search) }}">&raquo;</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}

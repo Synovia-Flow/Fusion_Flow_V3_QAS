@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}EORI Checker · Master Data{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1">
+                <li class="breadcrumb-item"><a href="{{ url_for('master_data.index') }}">Master Data</a></li>
+                <li class="breadcrumb-item active">EORI Checker</li>
+            </ol>
+        </nav>
+        <h4 class="mb-0 fw-bold" style="color: var(--fusion-navy);"><i class="bi bi-patch-check"></i> EORI Checker</h4>
+        <p class="text-muted small mb-0 mt-1">Bulk validation for GB via HMRC and XI / EU via the EU SOAP service. TSS can still require full name and address when it cannot auto-populate a party.</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        <a href="https://ec.europa.eu/taxation_customs/dds2/eos/eori_validation.jsp?Lang=en"
+           class="btn btn-outline-primary btn-sm"
+           target="_blank"
+           rel="noopener noreferrer">
+            <i class="bi bi-box-arrow-up-right"></i> Official EU Validator
+        </a>
+        <a href="{{ url_for('master_data.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i> Master Data
+        </a>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-12 col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white fw-semibold">Enter EORIs</div>
+            <div class="card-body">
+                <form method="POST"
+                      data-loading-toast
+                      data-loading-message="Validating EORI numbers..."
+                      data-loading-meta="Fusion is checking HMRC/EU services; TSS may still require party address data later."
+                      data-loading-button-text="Validating...">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">One EORI per line (max 100)</label>
+                        <textarea name="eoris" rows="14" class="form-control font-monospace small" placeholder="GB123456789000&#10;XI123456789000">{{ raw }}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search me-1"></i> Validate EORIs
+                    </button>
+                </form>
+
+                {% if error %}
+                <div class="alert alert-danger small mt-3 mb-0">{{ error }}</div>
+                {% endif %}
+
+                <div class="text-muted small mt-3">
+                    <div><span class="badge bg-primary me-1">GB…</span> HMRC REST</div>
+                    <div class="mt-1"><span class="badge bg-info text-dark me-1">XI / EU…</span> EU SOAP</div>
+                    <div class="mt-2">
+                        A valid EORI result does not guarantee TSS can auto-populate the party. If TSS asks for input, fill the matching name, street, city, postcode and country in masterdata.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-8">
+        {% if results %}
+        {% set valid_count = results | selectattr('valid', 'equalto', true) | list | length %}
+        {% set invalid_count = results | rejectattr('valid', 'equalto', true) | list | length %}
+
+        <div class="row g-3 mb-3">
+            <div class="col-sm-6 col-xl-3">
+                <div class="workflow-stat-card">
+                    <div class="workflow-stat-label">Valid</div>
+                    <div class="workflow-stat-value">{{ valid_count }}</div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="workflow-stat-card">
+                    <div class="workflow-stat-label">Not Valid / Error</div>
+                    <div class="workflow-stat-value">{{ invalid_count }}</div>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="workflow-stat-card">
+                    <div class="workflow-stat-label">Total</div>
+                    <div class="workflow-stat-value">{{ results|length }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white fw-semibold">Results</div>
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0 align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>EORI</th>
+                            <th>Route</th>
+                            <th>Status</th>
+                            <th>Trader Name</th>
+                            <th>Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in results %}
+                        <tr>
+                            <td class="font-monospace small">{{ r.eori }}</td>
+                            <td class="small text-muted">{{ r.route }}</td>
+                            <td>
+                                {% if r.valid %}
+                                <span class="badge bg-success">Valid</span>
+                                {% elif r.status == 'Invalid' %}
+                                <span class="badge bg-danger">Invalid</span>
+                                {% else %}
+                                <span class="badge bg-warning text-dark">{{ r.status or 'Error' }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="small">{{ r.trader_name or '—' }}</td>
+                            <td class="small text-muted">{{ r.error or '—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% else %}
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4 text-center text-muted">
+                <i class="bi bi-patch-check display-6 d-block mb-2"></i>
+                Enter EORIs on the left and run a validation batch.
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

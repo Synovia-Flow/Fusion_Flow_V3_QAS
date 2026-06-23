@@ -1,0 +1,330 @@
+<div class="card shadow-sm border-0 mb-4 ens-simple-header">
+  <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span class="ens-simple-section-title">
+      <i class="bi bi-box-seam me-1"></i> Consignment Summary
+    </span>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <span class="{{ badge_class(cons.status) }}">{{ cons.status | status_display }}</span>
+      {% if can_delete_local_consignment %}
+      <form method="POST"
+            action="{{ url_for('consignments.delete', sid=cons.staging_id) }}"
+            class="d-inline"
+            data-confirm
+            data-confirm-title="Delete Consignment"
+            data-confirm-text="Delete Consignment #{{ cons.staging_id }}? This local record has no DEC/SFD reference yet and cannot be recovered."
+            data-confirm-submit-label="Delete">
+        <button class="btn btn-sm btn-outline-danger"
+                title="Delete local consignment"
+                aria-label="Delete local consignment">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+      {% endif %}
+      {% if cons.tss_status %}
+      <span class="{{ badge_class(cons.tss_status) }}">TSS: {{ cons.tss_status | status_display }}</span>
+      {% endif %}
+      <code class="small">{{ page_title }}</code>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="row g-3 small ens-simple-grid">
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">DEC Reference</div>
+        <div class="ens-simple-field-value font-monospace">{{ cons.dec_reference or '—' }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">ENS Header</div>
+        <div class="ens-simple-field-value">
+          {% if cons.ens_reference %}
+          <a href="{{ ens_detail_url(cons) }}" class="ref-link">{{ cons.ens_reference }}</a>
+          {% else %}
+          —
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">Transport Document</div>
+        <div class="ens-simple-field-value">{{ cons.transport_document_number or '—' }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">Goods Count</div>
+        <div class="ens-simple-field-value">{{ goods | length }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">Importer EORI</div>
+        <div class="ens-simple-field-value font-monospace">{{ cons.importer_eori or '—' }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">Consignee EORI</div>
+        <div class="ens-simple-field-value font-monospace">{{ cons.consignee_eori or '—' }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">Trader Ref</div>
+        <div class="ens-simple-field-value">{{ cons.trader_reference or '—' }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">Controlled</div>
+        <div class="ens-simple-field-value">{{ cons.controlled_goods or '—' }}</div>
+      </div>
+      <div class="col-md-6 col-12">
+        <div class="ens-simple-field-label">Goods Description</div>
+        <div class="ens-simple-field-value">{{ cons.goods_description or '—' }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">Created</div>
+        <div class="ens-simple-field-value">{{ cons.created_at|localdt('%d/%m/%Y %H:%M') if cons.created_at else '—' }}</div>
+      </div>
+      <div class="col-md-3 col-6">
+        <div class="ens-simple-field-label">Updated</div>
+        <div class="ens-simple-field-value">{{ cons.updated_at|localdt('%d/%m/%Y %H:%M') if cons.updated_at else '—' }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-3 ens-simple-consignment">
+  <div class="card-header bg-white py-2">
+    <span class="ens-simple-section-title">
+      <i class="bi bi-person-lines-fill me-1"></i> Party Details
+    </span>
+  </div>
+  <div class="card-body small">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Party</th>
+            <th>EORI</th>
+            <th>Name</th>
+            <th>Street / name of street</th>
+            <th>City</th>
+            <th>Postcode</th>
+            <th>Country</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for party in [
+            ('Consignor', 'consignor', cons.consignor_eori, cons.consignor_name, cons.consignor_street_number, cons.consignor_city, cons.consignor_postcode, cons.consignor_country),
+            ('Consignee', 'consignee', cons.consignee_eori, cons.consignee_name, cons.consignee_street_number, cons.consignee_city, cons.consignee_postcode, cons.consignee_country),
+            ('Importer', 'importer', cons.importer_eori, cons.importer_name, cons.importer_street_number, cons.importer_city, cons.importer_postcode, cons.importer_country),
+            ('Exporter', 'exporter', cons.exporter_eori, cons.exporter_name, cons.exporter_street_number, cons.exporter_city, cons.exporter_postcode, cons.exporter_country)
+          ] %}
+          <tr>
+            <th class="text-muted">{{ party[0] }}</th>
+            <td><span class="{{ 'cons-detail-field-error' if (party[1] ~ '_eori') in detail_issue_fields else '' }} font-monospace">{{ party[2] or '—' }}</span></td>
+            <td><span class="{{ 'cons-detail-field-error' if (party[1] ~ '_name') in detail_issue_fields else '' }}">{{ party[3] or '—' }}</span></td>
+            <td><span class="{{ 'cons-detail-field-error' if (party[1] ~ '_street_number') in detail_issue_fields else '' }}">{{ party[4] or '—' }}</span></td>
+            <td><span class="{{ 'cons-detail-field-error' if (party[1] ~ '_city') in detail_issue_fields else '' }}">{{ party[5] or '—' }}</span></td>
+            <td><span class="{{ 'cons-detail-field-error' if (party[1] ~ '_postcode') in detail_issue_fields else '' }}">{{ party[6] or '—' }}</span></td>
+            <td><span class="{{ 'cons-detail-field-error' if (party[1] ~ '_country') in detail_issue_fields else '' }} font-monospace">{{ party[7] or '—' }}</span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-3 ens-simple-consignment">
+  <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span class="ens-simple-section-title">
+      <i class="bi bi-diagram-3 me-1"></i> Workflow Context
+    </span>
+    <div class="d-flex flex-wrap gap-2">
+      {% if linked_gmr %}
+      <a href="{{ gmr_detail_url(linked_gmr) }}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-truck"></i> GMR
+      </a>
+      {% endif %}
+      {% if sfd_state and sfd_state.reference %}
+      <a href="{{ url_for('sfd.detail', sfd_ref=sfd_state.reference) }}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-file-earmark-check"></i> SFD
+      </a>
+      {% elif sfd_state and sfd_state.visible %}
+      <span class="btn btn-sm btn-outline-primary disabled">SFD pending sync</span>
+      {% endif %}
+      {% if linked_supdecs|length == 1 %}
+      <a href="{{ supdec_detail_url(linked_supdecs[0]) }}" class="btn btn-sm btn-outline-warning">
+        <i class="bi bi-file-earmark-check"></i> SDI
+      </a>
+      {% elif linked_supdecs|length > 1 %}
+      <a href="{{ url_for('supdec.list_view', cons_ref=cons.dec_reference or cons.sfd_reference) }}" class="btn btn-sm btn-outline-warning">
+        <i class="bi bi-files"></i> SDIs
+      </a>
+      {% elif sfd_state and sfd_state.reference and sdi_required and (cons.tss_status | status_display) == 'ARRIVED' %}
+      <a href="{{ url_for('supdec.create', cons_id=cons.staging_id) }}" class="btn btn-sm btn-outline-warning">
+        <i class="bi bi-file-earmark-plus"></i> Start SDI
+      </a>
+      {% elif sdi_required %}
+      <span class="btn btn-sm btn-outline-warning disabled">SDI required</span>
+      {% elif not sdi_required %}
+      <span class="btn btn-sm btn-outline-secondary disabled">No SDI required</span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body small">
+    <div class="row g-3 ens-simple-grid">
+      <div class="col-md-4 col-12">
+        <div class="ens-simple-field-label">ENS Header</div>
+        <div class="ens-simple-field-value">
+          {% if cons.ens_reference %}
+          <a href="{{ ens_detail_url(cons) }}" class="ref-link">{{ cons.ens_reference }}</a>
+          {% else %}
+          Not linked
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-md-4 col-12">
+        <div class="ens-simple-field-label">GMR</div>
+        <div class="ens-simple-field-value">
+          {% if linked_gmr %}
+          <a href="{{ gmr_detail_url(linked_gmr) }}" class="ref-link">{{ linked_gmr.gmr_id or ('GMR #' ~ linked_gmr.staging_id) }}</a>
+          {% else %}
+          No GMR yet
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-md-4 col-12">
+        <div class="ens-simple-field-label">SFD</div>
+        <div class="ens-simple-field-value">
+          {% if sfd_state and sfd_state.reference %}
+          <a href="{{ url_for('sfd.detail', sfd_ref=sfd_state.reference) }}" class="ref-link font-monospace">{{ sfd_state.reference }}</a>
+          {% elif sfd_state and sfd_state.visible %}
+          <span class="text-muted">Pending sync</span>
+          {% else %}
+          <span class="text-muted">Not created yet</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-md-4 col-12">
+        <div class="ens-simple-field-label">SDI / SupDec</div>
+        <div class="ens-simple-field-value">
+          {% if linked_supdecs|length %}
+          <a href="{{ supdec_detail_url(linked_supdecs[0]) }}" class="ref-link">{{ linked_supdecs[0].sup_dec_number or ('SDI #' ~ linked_supdecs[0].staging_id) }}</a>
+          {% elif not sdi_required %}
+          Not required
+          {% else %}
+          Not discovered yet
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% if cons.dec_reference and cons.tss_status and (cons.tss_status | status_display) not in ('AUTHORISED FOR MOVEMENT', 'ARRIVED') and not linked_gmr %}
+    <div class="alert alert-info py-2 mt-3 mb-0">
+      Route A stays blocked until TSS moves this consignment to <strong>AUTHORISED_FOR_MOVEMENT</strong>.
+      Current TSS status: <strong>{{ cons.tss_status | status_display }}</strong>.
+    </div>
+    {% elif (cons.tss_status | status_display) == 'AUTHORISED FOR MOVEMENT' and header_route_a_state and not linked_gmr %}
+    <div class="alert alert-info py-2 mt-3 mb-0">
+      This consignment is ready, but {{ header_route_a_state.remaining_count }} other consignments on the same ENS Header still need to reach
+      <strong>AUTHORISED_FOR_MOVEMENT</strong> before GMR can be created.
+    </div>
+    {% elif sfd_state and sfd_state.visible and not sfd_state.reference %}
+    <div class="alert alert-info py-2 mt-3 mb-0">
+      TSS has authorised this consignment. Fusion has not captured the SFD reference yet, so run Sync TSS Tables or Sync Cargo Statuses.
+    </div>
+    {% elif linked_gmr and not linked_supdecs and sdi_required %}
+    <div class="alert alert-info py-2 mt-3 mb-0">
+      GMR already exists. SDI becomes the next step once this movement reaches <strong>ARRIVED</strong>.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card shadow-sm border-0 mb-3 ens-simple-consignment">
+  <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <span class="ens-simple-section-title">
+      <i class="bi bi-tag me-1"></i> Goods Items ({{ goods | length }})
+    </span>
+    <div class="d-flex flex-wrap gap-2">
+      {% if can_add_goods_to_consignment %}
+      <a href="{{ url_for('ingest.queue', panel='upload', status='ALL', consignment_id=cons.staging_id) }}" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-file-earmark-arrow-up"></i> Add Goods From Invoice
+      </a>
+      <a href="{{ url_for('goods.create', cons_id=cons.staging_id) }}" class="btn btn-sm btn-outline-success">
+        <i class="bi bi-plus-lg"></i> Add Goods
+      </a>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card-body small">
+    <div class="ens-simple-goods-wrap">
+      {% if goods %}
+      <div class="table-responsive">
+        <table class="table table-sm mb-0 align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>Item</th>
+              <th>Description</th>
+              <th>HS Code</th>
+              <th>Packages</th>
+              <th>Gross KG</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in goods %}
+            {% set g_status_key = ((g.status or '') | replace('_', ' ') | upper) %}
+            {% set g_gross_value = (g.gross_mass_kg | decimal_scale(2)) if g.gross_mass_kg is not none and g.gross_mass_kg != '' else '' %}
+            <tr class="js-clickable-row"
+                data-row-href="{{ goods_detail_url(g) }}"
+                role="link"
+                tabindex="0"
+                aria-label="Open goods item {{ g.goods_id or g.item_number or g.staging_id }}">
+              <td><a href="{{ goods_detail_url(g) }}" class="ref-link">{{ g.item_number or g.staging_id }}</a></td>
+              <td data-no-row-link>
+                <span>{{ g.goods_description or '—' }}</span>
+                {% if g.goods_description %}
+                <button type="button"
+                        class="btn btn-sm btn-link p-0 ms-1 align-baseline text-muted goods-description-copy"
+                        title="Copy description"
+                        aria-label="Copy goods description"
+                        data-copy-value="{{ g.goods_description }}">
+                  <i class="bi bi-copy"></i>
+                </button>
+                {% endif %}
+              </td>
+              <td><code>{{ g.commodity_code or '—' }}</code></td>
+              <td>{{ g.number_of_packages or '—' }}</td>
+              <td data-no-row-link>
+                {% if g_status_key == 'FAILED' and g.staging_id %}
+                <input class="sales-order-inline-input text-end font-monospace"
+                       type="number"
+                       step="0.01"
+                       min="0"
+                       inputmode="decimal"
+                       data-decimal-scale="2"
+                       value="{{ g_gross_value }}"
+                       aria-label="Gross KG for goods item {{ g.item_number or g.staging_id }}"
+                       data-inline-gross-input
+                       data-inline-gross-url="{{ url_for('goods.inline_gross', sid=g.staging_id) }}"
+                       data-initial-value="{{ g_gross_value }}">
+                {% else %}
+                {{ g_gross_value or '—' }}
+                {% endif %}
+              </td>
+              <td><span data-inline-gross-status class="{{ badge_class(g.status or 'CREATED') }}">{{ (g.status or 'CREATED') | status_display }}</span></td>
+            </tr>
+            {% if g.error_message and g.status == 'FAILED' %}
+            <tr>
+              <td colspan="6" class="small text-danger">{{ g.error_message }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="ens-simple-empty">
+        No goods items linked yet.
+        {% if can_add_goods_to_consignment %}
+        <a href="{{ url_for('ingest.queue', panel='upload', status='ALL', consignment_id=cons.staging_id) }}">Add them from invoice</a>
+        or
+        <a href="{{ url_for('goods.create', cons_id=cons.staging_id) }}">add one manually</a>.
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>

@@ -1,0 +1,260 @@
+{% set email_rows = email_activity_rows|default([]) %}
+{% set email_total = total|default(0) %}
+{% set email_page = page|default(1) %}
+{% set email_total_pages = total_pages|default(1) %}
+{% set email_status_filter = status_filter|default('ALL') %}
+{% set email_status_tabs = status_tabs|default(['ALL']) %}
+{% set email_status_counts = status_counts|default({}) %}
+
+<div class="card border-0 shadow-sm" data-email-intake-log>
+    <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center gap-2 py-2">
+        <div>
+            <div class="fw-semibold small">
+                <i class="bi bi-envelope-paper"></i> Email Intake Log
+            </div>
+            <div class="small text-muted">
+                Graph mailbox capture, attachment handling, staging trace, and errors.
+            </div>
+        </div>
+        <div class="d-flex align-items-center flex-wrap gap-2">
+            <a href="{{ url_for('technical.index', tab='ingest') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-terminal"></i> Technical Logs
+            </a>
+            <div class="small text-muted">
+                {{ email_total }} email{{ 's' if email_total != 1 }}
+            </div>
+        </div>
+    </div>
+
+    <div class="card-body border-bottom py-2">
+        <ul class="nav nav-tabs filter-tabs mb-0">
+            {% for s in email_status_tabs %}
+            {% set cnt = email_status_counts.get(s, 0) %}
+            <li class="nav-item">
+                <a class="nav-link {{ 'active' if email_status_filter == s }}"
+                   href="{{ url_for('ingest.queue', status=s, page=1) }}">
+                    {{ s }}
+                    {% if cnt > 0 %}
+                    <span class="badge {% if s == 'FAILED' %}bg-danger{% elif s == 'STAGED' %}bg-success{% elif s in ['SKIPPED', 'BLOCKED'] %}bg-warning text-dark{% else %}bg-secondary{% endif %} ms-1">{{ cnt }}</span>
+                    {% endif %}
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    {% if email_rows %}
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Received</th>
+                        <th>Mailbox</th>
+                        <th>Sender</th>
+                        <th>Subject</th>
+                        <th class="text-center">Attachments</th>
+                        <th>Status</th>
+                        <th>Staging Result</th>
+                        <th class="text-end">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in email_rows %}
+                    {% set st = row.AutomationStatus or 'RECEIVED' %}
+                    {% set has_error = st == 'FAILED' or row.TransformError or row.ErrorAttachments %}
+                    <tr class="{{ 'row-danger' if has_error else '' }} js-clickable-row"
+                        data-email-log-modal-trigger
+                        data-log-title="{{ ('Email #' ~ row.EmailMessageId) | e }}"
+                        data-log-body="{{ (
+                            'EmailMessageId: ' ~ (row.EmailMessageId or '-') ~ '\n'
+                            ~ 'GraphMessageId: ' ~ (row.GraphMessageId or '-') ~ '\n'
+                            ~ 'Mailbox: ' ~ (row.Mailbox or '-') ~ '\n'
+                            ~ 'Sender: ' ~ (row.SenderName or '-') ~ ' <' ~ (row.SenderEmail or '-') ~ '>' ~ '\n'
+                            ~ 'Subject: ' ~ (row.Subject or '-') ~ '\n'
+                            ~ 'ReceivedAt: ' ~ (row.ReceivedAt or '-') ~ '\n'
+                            ~ 'LoadedAt: ' ~ (row.LoadedAt or '-') ~ '\n'
+                            ~ 'MarkedReadAt: ' ~ (row.MarkedReadAt or '-') ~ '\n'
+                            ~ 'AllowedSender: ' ~ (row.AllowedSender if row.AllowedSender is not none else '-') ~ '\n'
+                            ~ 'Skipped: ' ~ (row.Skipped if row.Skipped is not none else '-') ~ '\n'
+                            ~ 'SkipReason: ' ~ (row.SkipReason or '-') ~ '\n\n'
+                            ~ 'Attachments: ' ~ (row.AttachmentCount or 0) ~ '\n'
+                            ~ 'SavedAttachments: ' ~ (row.SavedAttachments or 0) ~ '\n'
+                            ~ 'SkippedAttachments: ' ~ (row.SkippedAttachments or 0) ~ '\n'
+                            ~ 'ErrorAttachments: ' ~ (row.ErrorAttachments or 0) ~ '\n\n'
+                            ~ 'Latest process event: ' ~ (row.EventType or '-') ~ '\n'
+                            ~ 'TransformStatus: ' ~ (row.TransformStatus or '-') ~ '\n'
+                            ~ 'TargetTable: ' ~ (row.TargetTable or '-') ~ '\n'
+                            ~ 'TargetRecordId: ' ~ (row.TargetRecordId or '-') ~ '\n'
+                            ~ 'TargetRef: ' ~ (row.TargetRef or '-') ~ '\n'
+                            ~ 'TransformedAt: ' ~ (row.TransformedAt or '-') ~ '\n\n'
+                            ~ 'TransformError:\n' ~ (row.TransformError or '-')
+                        ) | e }}"
+                        role="button"
+                        tabindex="0"
+                        aria-label="Open email intake row {{ row.EmailMessageId }} detail"
+                        title="Open detail">
+                        <td class="small text-muted text-nowrap">
+                            {% set email_display_time = row.ReceivedAt or row.LoadedAt %}
+                            {{ email_display_time|localdt('%d/%m %H:%M') if email_display_time else '-' }}
+                        </td>
+                        <td class="small text-truncate" style="max-width:150px;" title="{{ row.Mailbox or '' }}">
+                            {{ row.Mailbox or '-' }}
+                        </td>
+                        <td class="small">
+                            <div class="text-truncate fw-semibold" style="max-width:180px;" title="{{ row.SenderEmail or '' }}">
+                                {{ row.SenderEmail or '-' }}
+                            </div>
+                            {% if row.SenderName %}
+                            <div class="text-muted text-truncate" style="max-width:180px;">{{ row.SenderName }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="small text-truncate" style="max-width:320px;" title="{{ row.Subject or '' }}">
+                            {{ (row.Subject or '-') | truncate(90) }}
+                            {% if row.SkipReason %}
+                            <div class="text-warning small text-truncate" title="{{ row.SkipReason }}">
+                                {{ row.SkipReason | truncate(90) }}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-center small">
+                            <span class="fw-semibold">{{ row.AttachmentCount or 0 }}</span>
+                            {% if row.ErrorAttachments %}
+                            <span class="badge bg-danger ms-1">{{ row.ErrorAttachments }} error</span>
+                            {% elif row.SkippedAttachments %}
+                            <span class="badge bg-warning text-dark ms-1">{{ row.SkippedAttachments }} skipped</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if st == 'FAILED' %}
+                            <span class="badge bg-danger">FAILED</span>
+                            {% elif st == 'STAGED' %}
+                            <span class="badge bg-success">STAGED</span>
+                            {% elif st == 'SKIPPED' %}
+                            <span class="badge bg-secondary">SKIPPED</span>
+                            {% elif st == 'BLOCKED' %}
+                            <span class="badge bg-warning text-dark">BLOCKED</span>
+                            {% elif st == 'PROCESSED' %}
+                            <span class="badge bg-primary">PROCESSED</span>
+                            {% elif st == 'RECEIVED' %}
+                            <span class="badge bg-primary">RECEIVED</span>
+                            {% else %}
+                            <span class="badge bg-light text-dark">{{ st }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="small">
+                            {% if row.TransformStatus %}
+                            <div class="fw-semibold">{{ row.TransformStatus }}</div>
+                            <div class="text-muted text-truncate" style="max-width:220px;" title="{{ row.TargetRef or row.TargetTable or '' }}">
+                                {{ row.TargetRef or row.TargetTable or '-' }}
+                            </div>
+                            {% else %}
+                            <span class="text-muted">Waiting for parser/staging trace</span>
+                            {% endif %}
+                            {% if row.TransformError %}
+                            <div class="text-danger text-truncate" style="max-width:260px;" title="{{ row.TransformError }}">
+                                {{ row.TransformError | truncate(100) }}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if row.GraphMessageId and st != 'STAGED' %}
+                            <form method="post"
+                                  action="{{ url_for('ingest.retry_email_intake', email_message_id=row.EmailMessageId) }}"
+                                  class="d-inline"
+                                  data-no-row-link
+                                  data-loading-toast
+                                  data-loading-message="Retrying email staging..."
+                                  data-loading-meta="Fusion is re-reading the captured Graph email and writing the STG trace if it is not already staged."
+                                  data-loading-button-text="Retrying..."
+                                  onsubmit="return confirm('Retry staging from this captured Graph email? This will not create a duplicate if a successful staging trace already exists.');">
+                                <button type="submit"
+                                        class="btn btn-sm btn-outline-primary"
+                                        data-no-row-link>
+                                    <i class="bi bi-arrow-clockwise"></i> Retry
+                                </button>
+                            </form>
+                            {% else %}
+                            <span class="text-muted small">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="card-body text-center py-5">
+        <i class="bi bi-inbox fs-1 text-muted d-block mb-2"></i>
+        <h6 class="text-muted">No emails received yet</h6>
+        <p class="text-muted small mb-0">Use <strong>Fetch Emails</strong> to run the Graph mailbox worker and this table will fill from ING.BKD_EmailMessage.</p>
+    </div>
+    {% endif %}
+</div>
+
+{% if email_total_pages > 1 %}
+<nav class="mt-2">
+    <ul class="pagination pagination-sm justify-content-center">
+        <li class="page-item {{ 'disabled' if email_page <= 1 }}">
+            <a class="page-link" href="{{ url_for('ingest.queue', status=email_status_filter, page=email_page-1) }}">Prev</a>
+        </li>
+        {% for p in range(1, email_total_pages + 1) %}
+        <li class="page-item {{ 'active' if p == email_page }}">
+            <a class="page-link" href="{{ url_for('ingest.queue', status=email_status_filter, page=p) }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+        <li class="page-item {{ 'disabled' if email_page >= email_total_pages }}">
+            <a class="page-link" href="{{ url_for('ingest.queue', status=email_status_filter, page=email_page+1) }}">Next</a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+
+<div class="modal fade" id="emailIntakeDetailModal" tabindex="-1" aria-labelledby="emailIntakeDetailModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="emailIntakeDetailModalLabel">Email intake detail</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <pre id="emailIntakeDetailModalBody" class="technical-log-output mb-0"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const modalEl = document.getElementById('emailIntakeDetailModal');
+    if (!modalEl || typeof bootstrap === 'undefined') {
+        return;
+    }
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    const titleEl = document.getElementById('emailIntakeDetailModalLabel');
+    const bodyEl = document.getElementById('emailIntakeDetailModalBody');
+
+    function openEmailLogModal(trigger) {
+        titleEl.textContent = trigger.dataset.logTitle || 'Email intake detail';
+        bodyEl.textContent = trigger.dataset.logBody || 'No detail available.';
+        modal.show();
+    }
+
+    document.querySelectorAll('[data-email-log-modal-trigger]').forEach((trigger) => {
+        trigger.addEventListener('click', (event) => {
+            const nestedInteractive = event.target.closest('a, button, input, select, textarea, label');
+            if (nestedInteractive && nestedInteractive !== trigger) {
+                return;
+            }
+            openEmailLogModal(trigger);
+        });
+        trigger.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openEmailLogModal(trigger);
+            }
+        });
+    });
+});
+</script>

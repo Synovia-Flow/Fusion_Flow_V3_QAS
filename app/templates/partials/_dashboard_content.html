@@ -1,0 +1,304 @@
+<!-- ═══ AUTOMATION PIPELINE ═══ -->
+<div class="row g-3 mb-4">
+
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('ingest.queue') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 dashboard-metric-card" style="border-left: 4px solid #7c3aed !important;">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex align-items-start justify-content-between">
+                    <div>
+                        <h6 class="small mb-1 text-uppercase fw-semibold" style="color:#7c3aed; letter-spacing:.5px;">ING · Mailbox</h6>
+                        <div class="fs-2 fw-bold" style="color:#7c3aed;">{{ auto.emails_total }}</div>
+                    </div>
+                    <i class="bi bi-envelope-arrow-down fs-3 opacity-20" style="color:#7c3aed;"></i>
+                </div>
+                <div class="mt-1 small text-muted">
+                    {{ auto.emails_processed }} processed &middot; {{ auto.emails_skipped }} skipped
+                </div>
+            </div>
+        </div>
+        </a>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('ingest.queue') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 dashboard-metric-card" style="border-left: 4px solid #0284c7 !important;">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex align-items-start justify-content-between">
+                    <div>
+                        <h6 class="small mb-1 text-uppercase fw-semibold" style="color:#0284c7; letter-spacing:.5px;">ING · Documents</h6>
+                        <div class="fs-2 fw-bold" style="color:#0284c7;">{{ auto.att_total }}</div>
+                    </div>
+                    <i class="bi bi-paperclip fs-3 opacity-20" style="color:#0284c7;"></i>
+                </div>
+                <div class="mt-1 small">
+                    <span style="color:#0284c7;">{{ auto.att_saved }} saved</span>
+                    {% if auto.att_errors %} &middot; <span class="text-danger">{{ auto.att_errors }} error</span>{% endif %}
+                    {% if auto.att_skipped %} &middot; <span class="text-muted">{{ auto.att_skipped }} skipped</span>{% endif %}
+                </div>
+            </div>
+        </div>
+        </a>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('declarations.list_declarations') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 dashboard-metric-card" style="border-left: 4px solid #0891b2 !important;">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex align-items-start justify-content-between">
+                    <div>
+                        <h6 class="small mb-1 text-uppercase fw-semibold" style="color:#0891b2; letter-spacing:.5px;">TSS · API Sync</h6>
+                        <div class="fs-2 fw-bold" style="color:#0891b2;">{{ auto.ens_total }}</div>
+                    </div>
+                    <i class="bi bi-arrow-repeat fs-3 opacity-20" style="color:#0891b2;"></i>
+                </div>
+                <div class="mt-1 small text-muted">
+                    {{ auto.cons_total }} consignments &middot; {{ auto.goods_total }} goods
+                </div>
+            </div>
+        </div>
+        </a>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('declarations.list_declarations') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 dashboard-metric-card" style="border-left: 4px solid #be185d !important;">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex align-items-start justify-content-between">
+                    <div>
+                        <h6 class="small mb-1 text-uppercase fw-semibold" style="color:#be185d; letter-spacing:.5px;">GVMS · Movement Auth</h6>
+                        <div class="fs-2 fw-bold" style="color:#be185d;">{{ auto.movement_notified }}</div>
+                    </div>
+                    <i class="bi bi-check-circle-fill fs-3 opacity-20" style="color:#be185d;"></i>
+                </div>
+                <div class="mt-1 small text-muted">
+                    of {{ auto.movement_total }} ENS &middot; {{ auto.notify_sent }} notif sent
+                </div>
+            </div>
+        </div>
+        </a>
+    </div>
+
+</div>
+
+<!-- ═══ DECLARATION PIPELINE COUNTS ═══ -->
+<div class="row g-3 mb-4">
+
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('declarations.list_declarations') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 dashboard-metric-card" style="border-left: 4px solid #0d1b24 !important;">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex align-items-start justify-content-between">
+                    <div>
+                        <h6 class="text-muted small mb-1 text-uppercase" style="letter-spacing:.5px;">ENS Headers</h6>
+                        <div class="fs-2 fw-bold" style="color:#0d1b24;">{{ auto.ens_total }}</div>
+                    </div>
+                    <i class="bi bi-file-earmark-text fs-3 text-muted opacity-25"></i>
+                </div>
+                <div class="mt-2 d-flex flex-wrap gap-1">
+                    {% for st, cnt in auto.ens_by_status.items() %}
+                    <span class="{{ status_badge_class(st) }}" style="font-size:0.66rem;">{{ st }}: {{ cnt }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        </a>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('consignments.list_view') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 dashboard-metric-card" style="border-left: 4px solid #2563eb !important;">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex align-items-start justify-content-between">
+                    <div>
+                        <h6 class="text-muted small mb-1 text-uppercase" style="letter-spacing:.5px;">Consignments</h6>
+                        <div class="fs-2 fw-bold" style="color:#2563eb;">{{ auto.cons_total }}</div>
+                    </div>
+                    <i class="bi bi-box-seam fs-3 text-muted opacity-25"></i>
+                </div>
+                <div class="mt-2 d-flex flex-wrap gap-1">
+                    {% for st, cnt in auto.cons_by_status.items() %}
+                    <span class="{{ status_badge_class(st) }}" style="font-size:0.66rem;">{{ st }}: {{ cnt }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        </a>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('consignments.list_view') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 dashboard-metric-card" style="border-left: 4px solid #169B62 !important;">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex align-items-start justify-content-between">
+                    <div>
+                        <h6 class="text-muted small mb-1 text-uppercase" style="letter-spacing:.5px;">Goods Items</h6>
+                        <div class="fs-2 fw-bold" style="color:#169B62;">{{ auto.goods_total }}</div>
+                    </div>
+                    <i class="bi bi-tag fs-3 text-muted opacity-25"></i>
+                </div>
+                <div class="mt-2 d-flex flex-wrap gap-1">
+                    {% for st, cnt in auto.goods_by_status.items() %}
+                    <span class="{{ status_badge_class(st) }}" style="font-size:0.66rem;">{{ st }}: {{ cnt }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        </a>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <a href="{{ url_for('supdec.list_view') }}" class="text-decoration-none">
+        <div class="card border-0 shadow-sm h-100 dashboard-metric-card" style="border-left: 4px solid var(--fusion-amber) !important; background: linear-gradient(135deg, #fffbeb 0%, #fff 60%);">
+            <div class="card-body py-3 px-3">
+                <div class="d-flex align-items-start justify-content-between">
+                    <div>
+                        <h6 class="mb-1 text-uppercase fw-semibold" style="color:var(--fusion-amber); letter-spacing:.5px; font-size:0.72rem;">Supplementary Decs (SDI)</h6>
+                        <div class="fs-2 fw-bold" style="color:var(--fusion-amber);">{{ auto.sdi_total }}</div>
+                    </div>
+                    <i class="bi bi-receipt fs-3 opacity-25" style="color:var(--fusion-amber);"></i>
+                </div>
+                <div class="mt-2 d-flex flex-wrap gap-1">
+                    {% if auto.sdi_by_status %}
+                        {% for st, cnt in auto.sdi_by_status.items() %}
+                        <span class="{{ status_badge_class(st) }}" style="font-size:0.66rem;">{{ st }}: {{ cnt }}</span>
+                        {% endfor %}
+                    {% else %}
+                        <span class="text-muted small">No SDI records</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        </a>
+    </div>
+
+</div>
+
+<!-- ═══ BLOCKERS PANEL ═══ -->
+{% if auto.blockers %}
+<div class="card border-0 shadow-sm mb-4" style="border-left: 4px solid #dc2626 !important; background: linear-gradient(135deg, #fef2f2 0%, #fff 70%);">
+    <div class="card-header bg-transparent py-2 px-3 border-0">
+        <span class="fw-bold small text-danger text-uppercase" style="letter-spacing:.4px;">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i> Blockers — Consignments Needing Attention
+        </span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Consignment ID</th>
+                        <th>ENS Ref</th>
+                        <th>Status</th>
+                        <th>Error</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in auto.blockers %}
+                    <tr>
+                        <td class="font-monospace small">
+                            <a href="{{ url_for('consignments.detail', sid=b.stg_consignment_id) }}" class="text-danger fw-semibold text-decoration-none">
+                                {{ b.tss_consignment_ref or b.document_no or ('#' ~ b.stg_consignment_id) }}
+                            </a>
+                        </td>
+                        <td class="font-monospace small">
+                            {% if b.stg_header_id %}
+                            <a href="{{ url_for('declarations.header_detail', staging_id=b.stg_header_id) }}" class="text-decoration-none">
+                                {{ b.tss_ens_header_ref or ('Draft #' ~ b.stg_header_id) }}
+                            </a>
+                            {% else %}
+                            {{ b.tss_ens_header_ref or '—' }}
+                            {% endif %}
+                        </td>
+                        <td><span class="badge bg-danger" style="font-size:0.68rem;">{{ b.sub_status or 'FAILED' }}</span></td>
+                        <td class="small text-danger text-truncate" style="max-width:240px;">{{ (b.error_message or '') | truncate(80) }}</td>
+                        <td class="text-end">
+                            <a href="{{ url_for('consignments.detail', sid=b.stg_consignment_id) }}" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size:0.72rem;">
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- ═══ NOTIFICATION STATUS ═══ -->
+{% if auto.notify_total %}
+<a href="{{ url_for('technical.index', tab='notifications') }}" class="text-decoration-none">
+<div class="card border-0 shadow-sm mb-4 dashboard-metric-card" style="border-left: 4px solid {% if auto.notify_failed %}#dc2626{% else %}#10b981{% endif %} !important;">
+    <div class="card-body py-2 px-3">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+            <span class="fw-bold small text-uppercase" style="letter-spacing:.4px;">
+                <i class="bi bi-bell-fill me-1"></i> Automation Notifications
+            </span>
+            <span class="badge bg-success">{{ auto.notify_sent }} sent</span>
+            {% if auto.notify_failed %}<span class="badge bg-danger">{{ auto.notify_failed }} failed</span>{% endif %}
+            <span class="text-muted small ms-auto">{{ auto.notify_total }} total &middot; open logs</span>
+        </div>
+    </div>
+</div>
+</a>
+{% endif %}
+
+<!-- ═══ RECENT EMAIL INGESTION ═══ -->
+<div class="card border-0 shadow-sm dashboard-activity-card">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
+        <h6 class="mb-0 fw-semibold"><i class="bi bi-clock-history"></i> Email Automation Activity</h6>
+        <a href="{{ url_for('ingest.queue') }}" class="text-muted small text-decoration-none">Open Ingestion</a>
+    </div>
+    <div class="card-body p-0">
+        <div class="p-3 d-flex flex-wrap justify-content-between align-items-center gap-3">
+            <div class="small text-muted">
+                Full mailbox intake, attachment handling, parser trace, staging outcomes, and errors live in Ingestion.
+            </div>
+            <a href="{{ url_for('ingest.queue') }}" class="btn btn-sm btn-primary">
+                <i class="bi bi-inbox"></i> Open Ingestion
+            </a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Received</th>
+                        <th>Sender</th>
+                        <th>Subject</th>
+                        <th class="text-center">Attachments</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for msg in auto.recent_emails %}
+                    <tr>
+                        <td class="small text-muted text-nowrap">
+                            {{ msg.ReceivedAt | localdt('%d/%m %H:%M') }}
+                        </td>
+                        <td class="small text-truncate" style="max-width:160px;">{{ msg.SenderEmail or '—' }}</td>
+                        <td class="small text-truncate" style="max-width:220px;">{{ (msg.Subject or '—') | truncate(70) }}</td>
+                        <td class="small text-center">{{ msg.AttachmentCount or 0 }}</td>
+                        <td>
+                            {% if msg.Skipped %}
+                            <span class="badge bg-secondary" style="font-size:0.68rem;" title="{{ msg.SkipReason or '' }}">SKIPPED</span>
+                            {% elif not msg.AllowedSender %}
+                            <span class="badge bg-warning text-dark" style="font-size:0.68rem;">BLOCKED</span>
+                            {% else %}
+                            <span class="badge bg-success" style="font-size:0.68rem;">OK</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">
+                            No emails ingested yet. Use <strong>Fetch Emails</strong> to pull from the mailbox.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

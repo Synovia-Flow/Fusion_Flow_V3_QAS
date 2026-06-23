@@ -1,0 +1,491 @@
+{% extends 'base.html' %}
+{% block title %}Analytics{% endblock %}
+
+{% block content %}
+
+{% include 'analytics/_tabs.html' %}
+
+<!-- ── Page Header ─────────────────────────────────────────────────────────── -->
+<div class="page-header">
+    <div>
+        <h4 class="page-title"><i class="bi bi-bar-chart-line"></i> Performance &amp; Analytics</h4>
+        <p class="page-subtitle">TSS API health, latency, declaration throughput</p>
+    </div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        <!-- 1h error rate badge -->
+        <span class="badge rounded-pill {{ 'badge-status-danger' if error_rate_1h > 10 else ('badge-status-warning' if error_rate_1h > 0 else 'badge-status-success') }} px-3 py-2">
+            <i class="bi bi-circle-fill me-1" style="font-size:0.55rem;"></i>
+            1h Error Rate: {{ error_rate_1h }}%
+        </span>
+        <!-- Time range selector -->
+        <div class="btn-group" role="group">
+            <button class="btn btn-sm window-btn {{ 'btn-primary' if window == '24h' else 'btn-outline-primary' }}" data-window="24h">24h</button>
+            <button class="btn btn-sm window-btn {{ 'btn-primary' if window == '7d'  else 'btn-outline-primary' }}" data-window="7d">7d</button>
+            <button class="btn btn-sm window-btn {{ 'btn-primary' if window == '30d' else 'btn-outline-primary' }}" data-window="30d">30d</button>
+        </div>
+        <!-- Export CSV -->
+        <a id="exportLink" href="{{ url_for('analytics.export') }}?window={{ window }}"
+           class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-download"></i> Export CSV
+        </a>
+    </div>
+</div>
+
+<!-- ── KPI Row (6 cards) ───────────────────────────────────────────────────── -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-3 fw-bold">{{ kpis.total_calls_7d or 0 }}</div>
+            <div class="text-muted small">API Calls (7d)</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-3 fw-bold text-status-success">{{ kpis.success_7d or 0 }}</div>
+            <div class="text-muted small">Successful (7d)</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-3 fw-bold text-status-danger">{{ kpis.failed_7d or 0 }}</div>
+            <div class="text-muted small">Failed (7d)</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-3 fw-bold {{ 'text-status-success' if success_rate >= 95 else ('text-status-warning' if success_rate >= 80 else 'text-status-danger') }}">
+                {{ success_rate }}%
+            </div>
+            <div class="text-muted small">Success Rate (7d)</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+        <div class="card border-0 shadow-sm text-center p-3">
+            <div class="fs-3 fw-bold">{{ kpis.avg_ms_7d or 0 }}ms</div>
+            <div class="text-muted small">Avg Latency (7d)</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-4 col-xl-2">
+        {% set q_depth = (queue_health.queued or 0) + (queue_health.processing or 0) %}
+        <div class="card border-0 shadow-sm text-center p-3 {{ 'border-warning' if q_depth > 10 else '' }}">
+            <div class="fs-3 fw-bold {{ 'text-status-warning' if q_depth > 5 else 'text-status-draft' }}">{{ q_depth }}</div>
+            <div class="text-muted small">Queue Depth (live)</div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Row 1: Volume Chart + Declaration Funnel ────────────────────────────── -->
+<div class="row g-3 mb-4">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom-0 fw-semibold py-2 d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-bar-chart" style="color:var(--fusion-navy);"></i>
+                    <span id="volumeChartTitle">API Call Volume</span>
+                    <span class="text-muted fw-normal small">(last 24h)</span>
+                </span>
+            </div>
+            <div class="card-body pt-1">
+                <canvas id="chartVolume"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom-0 fw-semibold py-2">
+                <i class="bi bi-funnel text-info"></i> Declaration Status Funnel
+            </div>
+            <div class="card-body d-flex flex-column align-items-center justify-content-center">
+                {% if funnel %}
+                <canvas id="chartFunnel" style="max-height:220px;"></canvas>
+                <div class="mt-2 w-100">
+                    {% for f in funnel %}
+                    <div class="d-flex justify-content-between small px-1">
+                        <span class="text-muted">{{ f.status }}</span>
+                        <span class="fw-semibold">{{ f.cnt }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-inbox fs-2 d-block mb-2"></i>No declarations yet.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Row 2: Latency chart + Throughput chart ─────────────────────────────── -->
+<div class="row g-3 mb-4">
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom-0 fw-semibold py-2">
+                <i class="bi bi-speedometer2 text-warning"></i>
+                API Latency by Call Type
+                <span class="text-muted fw-normal small" id="latencySubtitle">(P50 / P95 — last 24h)</span>
+            </div>
+            <div class="card-body pt-1">
+                {% if latency_rows %}
+                <canvas id="chartLatency"></canvas>
+                {% else %}
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-hourglass fs-2 d-block mb-2"></i>No API calls in the last 24h.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom-0 fw-semibold py-2">
+                <i class="bi bi-graph-up text-success"></i>
+                Declaration Throughput
+                <span class="text-muted fw-normal small">(completed per day)</span>
+            </div>
+            <div class="card-body pt-1">
+                <canvas id="chartThroughput"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Queue Health bar ────────────────────────────────────────────────────── -->
+{% set q_total = queue_health.total or 1 %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom-0 fw-semibold py-2">
+        <i class="bi bi-layers text-primary"></i> Declaration Queue Health
+        <span class="text-muted fw-normal small">(all time totals)</span>
+    </div>
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col text-center">
+                <div class="fs-5 fw-bold text-status-pending">{{ queue_health.draft or 0 }}</div>
+                <div class="text-muted small">Draft</div>
+            </div>
+            <div class="col text-center">
+                <div class="fs-5 fw-bold text-status-warning">{{ queue_health.queued or 0 }}</div>
+                <div class="text-muted small">Queued</div>
+            </div>
+            <div class="col text-center">
+                <div class="fs-5 fw-bold text-status-draft">{{ queue_health.processing or 0 }}</div>
+                <div class="text-muted small">Processing</div>
+            </div>
+            <div class="col text-center">
+                <div class="fs-5 fw-bold text-status-success">{{ queue_health.success_count or 0 }}</div>
+                <div class="text-muted small">Success</div>
+            </div>
+            <div class="col text-center">
+                <div class="fs-5 fw-bold text-status-danger">{{ queue_health.failed_count or 0 }}</div>
+                <div class="text-muted small">Failed</div>
+            </div>
+        </div>
+        <div class="progress" style="height:10px; border-radius:6px;">
+            {% set s_pct = ((queue_health.success_count or 0) / q_total * 100) | round(1) %}
+            {% set f_pct = ((queue_health.failed_count  or 0) / q_total * 100) | round(1) %}
+            {% set q_pct = ((queue_health.queued        or 0) / q_total * 100) | round(1) %}
+            {% set p_pct = ((queue_health.processing    or 0) / q_total * 100) | round(1) %}
+            {% set d_pct = ((queue_health.draft         or 0) / q_total * 100) | round(1) %}
+            <div class="progress-bar" style="width:{{ s_pct }}%;background:var(--status-success);" title="Success {{ s_pct }}%"></div>
+            <div class="progress-bar" style="width:{{ p_pct }}%;background:var(--status-draft);"   title="Processing {{ p_pct }}%"></div>
+            <div class="progress-bar" style="width:{{ q_pct }}%;background:var(--status-warning);" title="Queued {{ q_pct }}%"></div>
+            <div class="progress-bar" style="width:{{ d_pct }}%;background:var(--status-pending);" title="Draft {{ d_pct }}%"></div>
+            <div class="progress-bar" style="width:{{ f_pct }}%;background:var(--status-danger);"  title="Failed {{ f_pct }}%"></div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Latency Breakdown Table ─────────────────────────────────────────────── -->
+{% if latency_rows %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom-0 fw-semibold py-2">
+        <i class="bi bi-table"></i> Latency Breakdown by Call Type
+        <span class="text-muted fw-normal small">(last 24h · P95 &gt; 5s = Slow, &gt; 2s = Degraded)</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Call Type</th>
+                    <th class="text-end">Calls</th>
+                    <th class="text-end">Avg (ms)</th>
+                    <th class="text-end">P50 (ms)</th>
+                    <th class="text-end">P95 (ms)</th>
+                    <th>Health</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in latency_rows %}
+                {% set p95 = r.p95 | int if r.p95 else 0 %}
+                <tr>
+                    <td><span class="badge badge-status-pending">{{ r.call_type }}</span></td>
+                    <td class="text-end">{{ r.total }}</td>
+                    <td class="text-end">{{ r.avg_ms or 0 }}</td>
+                    <td class="text-end">{{ r.p50 or 0 }}</td>
+                    <td class="text-end fw-semibold {{ 'text-status-danger' if p95 > 5000 else ('text-status-warning' if p95 > 2000 else 'text-status-success') }}">
+                        {{ p95 }}
+                    </td>
+                    <td>
+                        {% if p95 > 5000 %}
+                        <span class="badge badge-status-danger">Slow</span>
+                        {% elif p95 > 2000 %}
+                        <span class="badge badge-status-warning">Degraded</span>
+                        {% else %}
+                        <span class="badge badge-status-success">Good</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- ── Top Errors Table (dynamic via JS) ──────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom-0 fw-semibold py-2">
+        <i class="bi bi-exclamation-triangle text-danger"></i> Top Errors
+        <span class="text-muted fw-normal small" id="errorsSubtitle">(last 24h)</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Call Type</th>
+                    <th>Error / Message</th>
+                    <th class="text-end">Count</th>
+                </tr>
+            </thead>
+            <tbody id="errors-tbody">
+                {% if top_errors %}
+                {% for e in top_errors %}
+                <tr>
+                    <td><span class="badge bg-secondary">{{ e.call_type }}</span></td>
+                    <td class="small text-danger">{{ e.error_summary or '—' }}</td>
+                    <td class="text-end fw-semibold">{{ e.frequency }}</td>
+                </tr>
+                {% endfor %}
+                {% else %}
+                <tr><td colspan="3" class="text-center text-muted py-3">No errors in this window.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ── Polling Tracker Summary ─────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-white border-bottom-0 fw-semibold py-2">
+        <i class="bi bi-arrow-repeat text-primary"></i> Polling Tracker Summary
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4 text-center">
+                <div class="fs-4 fw-bold text-status-draft">{{ polling_stats.active_trackers or 0 }}</div>
+                <div class="text-muted small">Active Trackers</div>
+            </div>
+            <div class="col-md-4 text-center">
+                <div class="fs-4 fw-bold text-status-success">{{ polling_stats.completed_trackers or 0 }}</div>
+                <div class="text-muted small">Completed Trackers</div>
+            </div>
+            <div class="col-md-4 text-center">
+                <div class="fs-4 fw-bold">{{ polling_stats.max_poll_count or 0 }}</div>
+                <div class="text-muted small">Highest Poll Count</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script>
+/* ── Theme colours ──────────────────────────────────────────────────────── */
+const NAVY  = '#0b1d3a';
+const GREEN = '#16a34a';
+const RED   = '#dc2626';
+const AMBER = '#d97706';
+const BLUE  = '#2563eb';
+const GREY  = '#6b7280';
+
+/* ── State ──────────────────────────────────────────────────────────────── */
+let currentWindow = '{{ window }}';
+let volumeChart   = null;
+
+/* ── Time range selector ─────────────────────────────────────────────────── */
+document.querySelectorAll('.window-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        currentWindow = btn.dataset.window;
+
+        // Update button styles
+        document.querySelectorAll('.window-btn').forEach(b => {
+            b.classList.toggle('btn-primary',         b.dataset.window === currentWindow);
+            b.classList.toggle('btn-outline-primary', b.dataset.window !== currentWindow);
+        });
+
+        // Update export link
+        document.getElementById('exportLink').href = `/analytics/export?window=${currentWindow}`;
+
+        // Reload charts that adapt to window
+        loadVolumeChart(currentWindow);
+        loadErrorsTable(currentWindow);
+
+        // Update latency subtitle
+        const labels = {'24h': 'last 24h', '7d': 'last 7 days', '30d': 'last 30 days'};
+        document.getElementById('latencySubtitle').textContent = `(P50 / P95 — ${labels[currentWindow]})`;
+        document.getElementById('errorsSubtitle').textContent  = `(${labels[currentWindow]})`;
+    });
+});
+
+/* ── Volume chart (adaptive: bar for 24h, line for 7d/30d) ─────────────── */
+function loadVolumeChart(win) {
+    fetch(`/analytics/api/volume?window=${win}`)
+        .then(r => r.json())
+        .then(data => {
+            if (volumeChart) volumeChart.destroy();
+            const chartType = (win === '24h') ? 'bar' : 'line';
+            const titleSuffix = {'24h': 'last 24h (hourly)', '7d': 'last 7 days', '30d': 'last 30 days'};
+            document.getElementById('volumeChartTitle').textContent =
+                `API Call Volume — ${titleSuffix[win] || win}`;
+
+            volumeChart = new Chart(document.getElementById('chartVolume'), {
+                type: chartType,
+                data: {
+                    labels: data.map(d => d.label),
+                    datasets: [
+                        {
+                            label: 'Success',
+                            data: data.map(d => d.success),
+                            backgroundColor: GREEN,
+                            borderColor: GREEN,
+                            fill: chartType === 'line',
+                            tension: 0.3,
+                        },
+                        {
+                            label: 'Failed',
+                            data: data.map(d => d.failed),
+                            backgroundColor: RED,
+                            borderColor: RED,
+                            fill: chartType === 'line',
+                            tension: 0.3,
+                        },
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom' } },
+                    scales: {
+                        x: { stacked: chartType === 'bar' },
+                        y: { stacked: chartType === 'bar', beginAtZero: true, ticks: { precision: 0 } }
+                    }
+                }
+            });
+        })
+        .catch(() => {});
+}
+
+/* ── Errors table (dynamic) ──────────────────────────────────────────────── */
+function loadErrorsTable(win) {
+    fetch(`/analytics/api/errors?window=${win}`)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('errors-tbody');
+            if (!data.length) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">No errors in this window.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.map(e => `
+                <tr>
+                    <td><span class="badge badge-status-pending">${e.call_type || ''}</span></td>
+                    <td class="small text-status-danger">${e.error_summary || '—'}</td>
+                    <td class="text-end fw-semibold">${e.frequency}</td>
+                </tr>`
+            ).join('');
+        })
+        .catch(() => {});
+}
+
+/* ── Throughput chart ────────────────────────────────────────────────────── */
+function loadThroughputChart(win) {
+    fetch(`/analytics/api/throughput?window=${win}`)
+        .then(r => r.json())
+        .then(data => {
+            new Chart(document.getElementById('chartThroughput'), {
+                type: 'bar',
+                data: {
+                    labels: data.map(d => d.day),
+                    datasets: [{
+                        label: 'Completed Declarations',
+                        data: data.map(d => d.submitted),
+                        backgroundColor: 'rgba(25,135,84,0.7)',
+                        borderColor: GREEN,
+                        borderWidth: 1,
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
+            });
+        })
+        .catch(() => {});
+}
+
+{% if latency_rows %}
+/* ── Latency by call_type (horizontal grouped bar — from server data) ────── */
+const latencyData = {{ latency_rows | tojson }};
+new Chart(document.getElementById('chartLatency'), {
+    type: 'bar',
+    data: {
+        labels: latencyData.map(d => d.call_type),
+        datasets: [
+            { label: 'P50 (ms)', data: latencyData.map(d => d.p50  || 0), backgroundColor: BLUE  },
+            { label: 'P95 (ms)', data: latencyData.map(d => d.p95  || 0), backgroundColor: AMBER },
+            { label: 'Avg (ms)', data: latencyData.map(d => d.avg_ms || 0), backgroundColor: GREY },
+        ]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: { legend: { position: 'bottom' } },
+        scales: { x: { beginAtZero: true } }
+    }
+});
+{% endif %}
+
+{% if funnel %}
+/* ── Declaration funnel (doughnut) ───────────────────────────────────────── */
+const funnelData = {{ funnel | tojson }};
+const funnelPalette = {
+    Draft:      '#6b7280',
+    Queued:     '#d97706',
+    Processing: '#2563eb',
+    Success:    '#16a34a',
+    Failed:     '#dc2626',
+};
+new Chart(document.getElementById('chartFunnel'), {
+    type: 'doughnut',
+    data: {
+        labels: funnelData.map(d => d.status),
+        datasets: [{
+            data: funnelData.map(d => d.cnt),
+            backgroundColor: funnelData.map(d => funnelPalette[d.status] || '#6c757d'),
+            borderWidth: 2,
+        }]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { display: false } }
+    }
+});
+{% endif %}
+
+/* ── Initial load ────────────────────────────────────────────────────────── */
+loadVolumeChart(currentWindow);
+loadThroughputChart(currentWindow);
+</script>
+{% endblock %}

@@ -126,12 +126,7 @@ fails.
 
 ## Running The Flow
 
-Step 01 runs inside QAS. Steps 02-05 call the existing Fusion app logic. If the
-app is not inside this QAS folder, set:
-
-```powershell
-$env:FUSION_FLOW_APP_ROOT = "C:\path\to\Fusion_Flow_V2_BKD"
-```
+All five steps are intended to run from this QAS repository. Step 01 uses the QAS Graph layer. Steps 02-05 use the local `app/` and `scripts/` folders copied from the proven V2 implementation and will be simplified/adapted here over time.
 
 Commands:
 

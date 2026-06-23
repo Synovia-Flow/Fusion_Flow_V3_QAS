@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}Email Automation{% endblock %}
+
+{% block content %}
+<div class="ingest-shell">
+    <div class="page-header mb-3">
+        <div>
+            <h4 class="page-title"><i class="bi bi-inbox-fill"></i> Email Automation</h4>
+            <p class="page-subtitle">Graph mailbox intake, staging trace, operational notifications, and manual test upload.</p>
+        </div>
+        <div class="page-actions">
+            <form method="POST"
+                  action="{{ url_for('ingest.fetch_mailbox') }}"
+                  class="d-inline"
+                  data-loading-toast
+                  data-loading-message="Fetching new emails..."
+                  data-loading-meta="Fusion is running the configured Graph/IMAP mailbox worker once."
+                  data-loading-button-text="Fetching...">
+                <input type="hidden" name="provider" value="auto">
+                <input type="hidden" name="limit" value="25">
+                {% if mailbox_fetch_tenants %}
+                <div class="input-group input-group-sm">
+                    <label class="input-group-text" for="mailboxFetchTenant">Target</label>
+                    <select id="mailboxFetchTenant" name="tenant_code" class="form-select" aria-label="Mailbox fetch target tenant">
+                        {% for item in mailbox_fetch_tenants %}
+                        <option value="{{ item.code }}" {% if item.code == mailbox_fetch_default_tenant %}selected{% endif %}>{{ item.code }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit"
+                            class="btn btn-primary"
+                            title="Run the mailbox worker now for unread Graph/IMAP messages in the target tenant.">
+                        <i class="bi bi-cloud-arrow-down"></i> Fetch New Emails
+                    </button>
+                </div>
+                {% else %}
+                <input type="hidden" name="tenant_code" value="{{ mailbox_fetch_default_tenant or tenant.code }}">
+                <button type="submit"
+                        class="btn btn-sm btn-primary"
+                        title="Run the mailbox worker now for unread Graph/IMAP messages."
+                        {% if not ((graph_settings and graph_settings.enabled) or (imap_settings and imap_settings.enabled)) %}disabled{% endif %}>
+                    <i class="bi bi-cloud-arrow-down"></i> Fetch New Emails
+                </button>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        {% include 'ingest/partials/_intake_dropzone.html' %}
+    </div>
+
+    {% include 'ingest/partials/_email_intake_log.html' %}
+</div>
+{% endblock %}

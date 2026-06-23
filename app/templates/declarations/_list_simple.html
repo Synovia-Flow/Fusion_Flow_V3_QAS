@@ -1,0 +1,148 @@
+<div class="card border-0 shadow-sm cons-simple-panel">
+    <div class="card-body p-0">
+        {% if declarations %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0 cons-simple-table">
+                <thead>
+                    <tr>
+                        <th class="ps-3">ENS Reference</th>
+                        <th>Local Status</th>
+                        <th>TSS Status</th>
+                        <th>Carrier</th>
+                        <th>Arrival</th>
+                        <th>Created</th>
+                        <th class="pe-3 text-end"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for d in declarations %}
+                    {% set row_status = d.display_status or d.status %}
+                    {% set local_status = row_status %}
+                    {% set row_url = ens_detail_url(d) %}
+                    <tr class="cons-simple-row js-clickable-row"
+                        data-row-href="{{ row_url }}"
+                        role="link"
+                        tabindex="0"
+                        aria-label="Open ENS {{ d.external_ref or ('Draft #' ~ (d.id or d.pipeline_staging_id)) }}">
+                        <td class="ps-3">
+                            <div class="cons-simple-main">
+                                <a href="{{ row_url }}" class="cons-simple-ref">
+                                    {% if d.external_ref %}
+                                    <span class="font-monospace">{{ d.external_ref }}</span>
+                                    {% else %}
+                                    <span>Draft ENS</span>
+                                    {% endif %}
+                                </a>
+                                {% if d.label %}
+                                <div class="cons-simple-meta">{{ d.label }}</div>
+                                {% endif %}
+                                <div class="cons-simple-meta">
+                                    {% if d.pipeline_staging_id and not d.id %}
+                                    Sales Orders parent
+                                    {% elif not d.id %}
+                                    Imported from TSS
+                                    {% elif d.source %}
+                                    {{ d.source | replace('_', ' ') | title }}
+                                    {% else %}
+                                    App Form
+                                    {% endif %}
+                                </div>
+                                {% if row_status in ('Validation_Error', 'Submit_Error') and d.error_message %}
+                                {% set row_error = explain_tss_error(d.error_message, local_status=d.status, tss_status=d.external_status, entity_label='this ENS header') %}
+                                <div class="cons-simple-error">
+                                    {% if row_error %}
+                                    {{ row_error.title }}: {{ row_error.next_step }}
+                                    {% else %}
+                                    {{ d.error_message | truncate(140) }}
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <span class="{{ status_badge_class(local_status) }}">{{ local_status | status_display }}</span>
+                        </td>
+                        <td>
+                            {% if d.external_status %}
+                            <span class="{{ status_badge_class(d.external_status) }}">{{ d.external_status | status_display }}</span>
+                            {% else %}
+                            <span class="badge badge-status-pending">Pending sync</span>
+                            {% endif %}
+                            {% if d.needs_tss_sync %}
+                            <form method="POST"
+                                  action="{{ url_for('orchestrator.run_and_return') }}"
+                                  class="d-inline"
+                                  data-no-row-link
+                                  data-confirm
+                                  data-confirm-title="{{ d.sync_label }}"
+                                  data-confirm-text="Run {{ d.sync_label }} now and return to this ENS list?"
+                                  data-confirm-submit-label="{{ d.sync_label }}"
+                                  data-loading-toast
+                                  data-loading-message="{{ d.sync_label }}..."
+                                  data-loading-meta="Fusion is polling TSS and refreshing this ENS list."
+                                  data-loading-button-text="Syncing...">
+                                <input type="hidden" name="phase" value="{{ d.sync_phase }}">
+                                <input type="hidden" name="next_url" value="{{ request.full_path if request.query_string else request.path }}">
+                                <button class="btn btn-sm btn-outline-primary py-0 mt-1" title="{{ d.sync_label }}">
+                                    <i class="bi bi-arrow-repeat"></i> Sync
+                                </button>
+                            </form>
+                            {% if d.error_message %}
+                            <div class="cons-simple-error mt-1">{{ d.error_message | truncate(140) }}</div>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="cons-simple-main">
+                                <div class="cons-simple-ref">{{ d.carrier_name or 'Carrier not set' }}</div>
+                                <div class="cons-simple-meta">
+                                    {% if d.carrier_eori %}
+                                    {{ d.carrier_eori }}
+                                    {% elif d.identity_no_of_transport %}
+                                    Transport {{ d.identity_no_of_transport }}
+                                    {% else %}
+                                    Awaiting transport details
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="cons-simple-main">
+                                <div class="cons-simple-ref">{{ d.arrival_port or 'Port pending' }}</div>
+                                <div class="cons-simple-meta">
+                                    {% if d.arrival_date_time %}
+                                    {{ d.arrival_date_time|datefmt('%d/%m/%Y %H:%M') }}
+                                    {% else %}
+                                    Arrival time pending
+                                    {% endif %}
+                                </div>
+                                {% if d.movement_type %}
+                                <div class="cons-simple-meta">Movement {{ d.movement_type }}</div>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <small class="text-muted">{{ d.created_at|localdt('%d %b %Y') if d.created_at else '---' }}</small>
+                            {% if d.updated_at and d.created_at and d.updated_at != d.created_at %}
+                            <div class="cons-simple-meta">Updated {{ d.updated_at|localdt('%d %b %H:%M') }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="pe-3 text-end">
+                            <a href="{{ row_url }}" class="btn btn-link btn-sm text-decoration-none cons-simple-link">
+                                View <i class="bi bi-chevron-right small"></i>
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="cons-simple-empty">
+            <i class="bi bi-file-earmark-text d-block mb-2"></i>
+            No ENS records found{{ ' matching "' ~ search ~ '"' if search else '' }}.
+            <a href="{{ url_for('declarations.create') }}">Create one</a>.
+        </div>
+        {% endif %}
+    </div>
+</div>

@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Master Data{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h4 class="page-title"><i class="bi bi-database"></i> Master Data</h4>
+        <p class="page-subtitle">Reference data for declarations: company, partners, products, TSS choice values and EORI validation.</p>
+        <p class="text-muted small mb-0">Active tenant: <span class="fw-semibold">{{ tenant.code }}</span> · {{ tenant.name }}</p>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
+        <div>
+            <div class="fw-semibold">
+                <i class="bi bi-shield-check text-primary"></i> Local Validation Controls
+            </div>
+            {% set strict_setting = validation_settings[0] if validation_settings else none %}
+            <div class="text-muted small">
+                Strict masterdata validation is
+                <span class="fw-semibold {{ 'text-success' if strict_setting and strict_setting.enabled else 'text-warning' }}">
+                    {{ 'ON' if strict_setting and strict_setting.enabled else 'OFF' }}
+                </span>.
+                When OFF, Fusion allows random party/carrier test values through local validation so TSS can return the real API response.
+            </div>
+            {% if strict_setting %}
+            <div class="text-muted small">
+                Source: {{ config_source_label(strict_setting.source) }}.
+                {{ strict_setting.help }}
+            </div>
+            {% endif %}
+        </div>
+        <form method="POST" action="{{ url_for('master_data.validation_settings_save') }}" class="d-flex align-items-center gap-2 masterdata-advanced-only">
+            <input type="hidden" name="STRICT_MASTERDATA_VALIDATION" value="{{ 'false' if strict_setting and strict_setting.enabled else 'true' }}">
+            <button type="submit" class="btn {{ 'btn-outline-warning text-dark' if strict_setting and strict_setting.enabled else 'btn-outline-success' }}" {{ '' if has_app_config else 'disabled' }}>
+                <i class="bi {{ 'bi-toggle-off' if strict_setting and strict_setting.enabled else 'bi-toggle-on' }}"></i>
+                {{ 'Disable strict validation' if strict_setting and strict_setting.enabled else 'Enable strict validation' }}
+            </button>
+        </form>
+    </div>
+    {% if not has_app_config %}
+    <div class="card-footer text-warning small">
+        {{ tenant.schema }}.AppConfiguration is not available, so validation settings cannot be saved here.
+    </div>
+    {% endif %}
+</div>
+
+<div class="row g-3 master-hub-grid">
+    <div class="col-12 col-md-6 col-xl-4">
+        <a href="{{ url_for('masterdata_company_alias') }}" class="master-hub-card text-decoration-none">
+            <div class="master-hub-icon master-hub-icon-primary"><i class="bi bi-building"></i></div>
+            <div class="master-hub-title">Company</div>
+            <div class="master-hub-text">Operator details, tenant-aware ingest defaults and declaration setup for the current tenant.</div>
+            <div class="master-hub-meta">
+                {% if company %}Configured{% else %}Not configured{% endif %}
+            </div>
+        </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-xl-4">
+        <a href="{{ url_for('masterdata_partners_alias') }}" class="master-hub-card text-decoration-none">
+            <div class="master-hub-icon master-hub-icon-success"><i class="bi bi-people"></i></div>
+            <div class="master-hub-title">Partners</div>
+            <div class="master-hub-text">Importers, exporters, consignors, consignees, carriers and hauliers.</div>
+            <div class="master-hub-meta">{{ partner_count }} active partner{{ '' if partner_count == 1 else 's' }}</div>
+        </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-xl-4">
+        <a href="{{ url_for('masterdata_products_alias') }}" class="master-hub-card text-decoration-none">
+            <div class="master-hub-icon master-hub-icon-warning"><i class="bi bi-box-seam"></i></div>
+            <div class="master-hub-title">Products</div>
+            <div class="master-hub-text">Commodity catalogue with tariff codes, package defaults, weights and values.</div>
+            <div class="master-hub-meta">
+                {% if product_count is none %}Migration required{% else %}{{ product_count }} active product{{ '' if product_count == 1 else 's' }}{% endif %}
+                {% if catalog_count %}<span class="d-block">DocProductCatalog: {{ catalog_count }}</span>{% endif %}
+            </div>
+        </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-xl-4">
+        <a href="{{ url_for('masterdata_cv_tables_alias') }}" class="master-hub-card text-decoration-none">
+            <div class="master-hub-icon master-hub-icon-info"><i class="bi bi-table"></i></div>
+            <div class="master-hub-title">TSS Choice Values</div>
+            <div class="master-hub-text">Browse the `TSS.CV_*` tables used by ENS, SFD, GMR and SDI declarations.</div>
+            <div class="master-hub-meta">{{ cv_table_count }} tables detected</div>
+        </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-xl-4">
+        <a href="{{ url_for('masterdata_eori_checker_alias') }}" class="master-hub-card text-decoration-none">
+            <div class="master-hub-icon master-hub-icon-secondary"><i class="bi bi-patch-check"></i></div>
+            <div class="master-hub-title">EORI Checker</div>
+            <div class="master-hub-text">Validate GB, XI and EU EORIs in bulk. TSS may still require full party name and address when it cannot auto-populate details.</div>
+            <div class="master-hub-meta">
+                {% if eori_cache_stats %}
+                    Cached: {{ eori_cache_stats.valid or 0 }} valid / {{ eori_cache_stats.invalid or 0 }} invalid
+                {% else %}
+                    Bulk check up to 100 EORIs
+                {% endif %}
+            </div>
+        </a>
+    </div>
+
+    <div class="col-12 col-md-6 col-xl-4">
+        <a href="https://ec.europa.eu/taxation_customs/dds2/eos/eori_validation.jsp?Lang=en"
+           class="master-hub-card text-decoration-none"
+           target="_blank"
+           rel="noopener noreferrer">
+            <div class="master-hub-icon master-hub-icon-info"><i class="bi bi-box-arrow-up-right"></i></div>
+            <div class="master-hub-title">Official EU EORI Validator</div>
+            <div class="master-hub-text">Open the European Commission EORI checker for a single external validation before updating partner masterdata.</div>
+            <div class="master-hub-meta">Opens in a new tab</div>
+        </a>
+    </div>
+</div>
+{% endblock %}

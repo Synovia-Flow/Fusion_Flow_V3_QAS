@@ -1,0 +1,159 @@
+<div class="card border-0 shadow-sm" data-bulk-selection="ens-headers">
+    <div class="card-header bg-white d-flex flex-column flex-xl-row align-items-xl-center justify-content-between gap-2">
+        <div class="small text-muted">
+            Use Select mode for local cleanup or CSV export. TSS records are not cancelled.
+        </div>
+        <form id="ensHeaderBulkActionForm"
+              method="POST"
+              action="{{ url_for('declarations.bulk_export_selected') }}"
+              class="bulk-selection-toolbar d-flex align-items-center flex-wrap gap-2">
+            <input type="hidden" name="status" value="{{ status_filter if status_filter != 'ALL' else '' }}">
+            <input type="hidden" name="q" value="{{ search }}">
+            <input type="hidden" name="sort" value="{{ sort }}">
+            <button type="submit"
+                    class="btn btn-sm btn-primary"
+                    formaction="{{ url_for('declarations.bulk_validate_submit_selected') }}"
+                    data-bulk-action
+                    data-bulk-active-only
+                    data-bulk-group="ens-headers"
+                    data-confirm
+                    data-confirm-title="Validate + Submit Selected"
+                    data-confirm-text="Validate the selected local ENS headers and submit the ones that pass?"
+                    data-confirm-submit-label="Validate + Submit"
+                    disabled
+                    hidden>
+                <i class="bi bi-send-check-fill"></i> Validate + Submit
+            </button>
+            <button type="submit"
+                    class="btn btn-sm btn-outline-secondary"
+                    formaction="{{ url_for('declarations.bulk_export_selected') }}"
+                    data-bulk-action
+                    data-bulk-active-only
+                    data-bulk-group="ens-headers"
+                    disabled
+                    hidden>
+                <i class="bi bi-download"></i> CSV
+            </button>
+            <button type="submit"
+                    class="btn btn-sm btn-danger"
+                    formaction="{{ url_for('declarations.bulk_delete_selected') }}"
+                    data-bulk-action
+                    data-bulk-active-only
+                    data-bulk-group="ens-headers"
+                    data-confirm
+                    data-confirm-title="Delete Selected ENS Headers"
+                    data-confirm-text="Delete the selected local ENS draft rows? Records with a TSS reference are kept. TSS records are not cancelled."
+                    data-confirm-submit-label="Delete Selected"
+                    disabled
+                    hidden>
+                <i class="bi bi-trash"></i> Delete
+            </button>
+            <span class="small text-muted" data-bulk-active-only data-bulk-group="ens-headers" hidden>
+                <span data-bulk-count data-bulk-group="ens-headers">0</span> selected
+            </span>
+            <button type="button"
+                    class="bulk-mode-toggle"
+                    data-bulk-select-toggle
+                    data-bulk-group="ens-headers"
+                    data-bulk-inactive-label="Select mode"
+                    data-bulk-active-label="Select mode"
+                    aria-pressed="false">
+                <span class="bulk-mode-toggle-switch" aria-hidden="true"></span>
+                <span data-bulk-toggle-label>Select mode</span>
+            </button>
+        </form>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 clickable-rows sortable-table" data-sortable-table>
+            <thead class="table-light">
+                <tr>
+                    <th class="bulk-select-cell" data-bulk-select-cell>
+                        <input class="form-check-input" type="checkbox" data-bulk-select-all data-bulk-group="ens-headers" aria-label="Select all visible local ENS rows">
+                    </th>
+                    <th data-sort-key="id" data-sort-type="number" role="button" tabindex="0">ID</th>
+                    <th data-sort-key="ens_ref" role="button" tabindex="0">ENS Ref</th>
+                    <th data-sort-key="local_status" role="button" tabindex="0">Local Status</th>
+                    <th data-sort-key="tss_status" role="button" tabindex="0">TSS Status</th>
+                    <th data-sort-key="notified" data-sort-type="number" role="button" tabindex="0">Notified</th>
+                    <th data-sort-key="movement" role="button" tabindex="0">Movement</th>
+                    <th data-sort-key="port" role="button" tabindex="0">Port</th>
+                    <th data-sort-key="arrival" data-sort-type="date" role="button" tabindex="0" aria-sort="{{ 'ascending' if sort == 'arrival_asc' else ('descending' if sort == 'arrival_desc' else 'none') }}">Arrival</th>
+                    <th data-sort-key="carrier" role="button" tabindex="0">Carrier</th>
+                    <th data-sort-key="cargo" data-sort-type="number" role="button" tabindex="0">Cargo</th>
+                    <th data-sort-key="source" role="button" tabindex="0">Source</th>
+                    <th data-sort-key="created" data-sort-type="date" role="button" tabindex="0">Created</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for h in headers %}
+                {% set raw_local_status = h.sub_status or 'PENDING' %}
+                {% set local_status = 'SUBMITTED' if raw_local_status == 'VALIDATED' and h.tss_ens_header_ref else raw_local_status %}
+                {% set failed = local_status in ('FAILED', 'INVALID', 'REJECTED') %}
+                {% set row_url = ens_detail_url(h) %}
+                <tr class="js-clickable-row {{ 'row-danger' if failed }}"
+                    data-row-href="{{ row_url }}"
+                    role="link"
+                    tabindex="0"
+                    aria-label="Open ENS {{ h.tss_ens_header_ref or ('Draft #' ~ h.stg_header_id) }}">
+                    <td class="bulk-select-cell" data-bulk-select-cell>
+                        <label class="bulk-row-selector" title="Select for local cleanup or CSV export">
+                            <input class="form-check-input" type="checkbox" name="selected_ids" value="{{ h.stg_header_id }}" form="ensHeaderBulkActionForm" data-bulk-item data-bulk-group="ens-headers" aria-label="Select ENS header {{ h.stg_header_id }}">
+                        </label>
+                    </td>
+                    <td class="font-monospace"
+                        data-sort-value="{{ h.chronological_id or h.stg_header_id }}"
+                        title="Local #{{ h.stg_header_id }}">
+                        {{ h.chronological_id or h.stg_header_id }}
+                    </td>
+                    <td class="font-monospace small" data-sort-value="{{ h.tss_ens_header_ref or ('Draft #' ~ h.stg_header_id) }}">
+                        {% if h.tss_ens_header_ref %}
+                        <a href="{{ row_url }}" class="ref-link">{{ h.tss_ens_header_ref }}</a>
+                        {% else %}
+                        <a href="{{ row_url }}" class="ref-link-muted">Draft #{{ h.stg_header_id }}</a>
+                        {% if h.label %}<div class="small text-muted">{{ h.label }}</div>{% endif %}
+                        {% if h.source in ('EXCEL_SALES_ORDERS', 'EXCEL_SALES_ORDERS_DETAILS') %}
+                        <div class="small text-muted">Sales Orders parent</div>
+                        {% endif %}
+                        {% if h.consignment_count %}<div class="small text-muted">{{ h.consignment_count }} cons</div>{% endif %}
+                        {% endif %}
+                    </td>
+                    <td data-sort-value="{{ local_status }}"><span class="{{ status_badge_class(local_status) }}">{{ local_status | status_display }}</span></td>
+                    <td data-sort-value="{{ h.TssStatus or 'PENDING_SYNC' }}">
+                        {% if h.TssStatus %}
+                        <span class="{{ status_badge_class(h.TssStatus) }}">{{ h.TssStatus | status_display }}</span>
+                        {% else %}
+                        <span class="badge badge-status-pending">Pending sync</span>
+                        {% endif %}
+                    </td>
+                    <td class="small" data-sort-value="{{ 1 if h.movement_notified_at else 0 }}">
+                        {% if h.movement_notified_at %}
+                        <span class="text-success d-inline-flex align-items-center gap-1">
+                            <i class="bi bi-check2-circle"></i> Yes
+                        </span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="font-monospace" data-sort-value="{{ h.movement_type or '' }}">{{ h.movement_type or '' }}</td>
+                    <td class="small" data-sort-value="{{ h.arrival_port or '' }}">{{ h.arrival_port or '' }}</td>
+                    <td class="small" data-sort-value="{{ h.arrival_date_time | datefmt('%Y-%m-%dT%H:%M:%S') if h.arrival_date_time else '' }}">{{ h.arrival_date_time | datefmt('%d/%m/%Y %H:%M') if h.arrival_date_time else '' }}</td>
+                    <td class="small text-truncate" style="max-width:120px;" data-sort-value="{{ h.carrier_name or '' }}">{{ h.carrier_name or '' }}</td>
+                    <td class="small" data-sort-value="{{ ((h.consignment_count or 0) * 100000) + (h.goods_count or 0) }}">
+                        {% if h.consignment_count or h.goods_count %}
+                        <span class="fw-semibold">{{ h.consignment_count or 0 }}</span> cons
+                        <span class="text-muted">/ {{ h.goods_count or 0 }} goods</span>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="small" data-sort-value="{{ h.source or '' }}">{{ h.source or '' }}</td>
+                    {% set created_sort_source = h.stg_created_at or h.updated_at %}
+                    <td class="small text-muted" data-sort-value="{{ created_sort_source | datefmt('%Y-%m-%dT%H:%M:%S') if created_sort_source else '' }}">{{ h.stg_created_at | localdt('%d/%m %H:%M') if h.stg_created_at else (h.updated_at | localdt('%d/%m %H:%M') if h.updated_at else '') }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="13" class="text-center text-muted py-4">No ENS headers found{{ ' matching "' ~ search ~ '"' if search else '' }}.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>

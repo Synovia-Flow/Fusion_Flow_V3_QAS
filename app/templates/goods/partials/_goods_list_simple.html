@@ -1,0 +1,114 @@
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>#</th>
+          <th>Status</th>
+          <th>Consignment</th>
+          <th>Description</th>
+          <th>HS Code</th>
+          <th>Packages</th>
+          <th>Weight</th>
+          <th>Origin</th>
+          <th>Goods ID</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in goods_items %}
+        <tr class="js-clickable-row {{ 'row-danger' if g.status == 'FAILED' }}"
+            data-row-href="{{ goods_detail_url(g) }}"
+            role="link"
+            tabindex="0"
+            aria-label="Open goods item {{ g.goods_id or g.item_number or g.staging_id }}">
+          <td><a href="{{ goods_detail_url(g) }}" class="ref-link">{{ g.staging_id }}</a></td>
+          <td>
+            <span class="{{ badge_class(g.status) }}">{{ g.status | status_display }}</span>
+            {% if g.tss_status %}
+            <div class="small mt-1"><span class="{{ badge_class(g.tss_status) }}">TSS: {{ g.tss_status | status_display }}</span></div>
+            {% elif g.goods_id %}
+            <div class="small text-muted mt-1">TSS: Pending sync</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if g.consignment_ref %}
+            <a href="{{ consignment_detail_url(g) }}" class="ref-link">{{ g.consignment_ref }}</a>
+            {% else %}
+            <small class="text-muted">--</small>
+            {% endif %}
+            {% if g.ens_reference %}<br><small><a href="{{ ens_detail_url(g) }}" class="ref-link-muted">{{ g.ens_reference }}</a></small>{% endif %}
+          </td>
+          <td class="small text-truncate" style="max-width:320px;">{{ (g.goods_description or g.label or '') | truncate(70) }}</td>
+          <td><code>{{ g.commodity_code or '--' }}</code></td>
+          <td>
+            {% if g.number_of_packages %}
+            {{ g.number_of_packages }} x {{ g.type_of_packages or '--' }}
+            {% else %}
+            <span class="text-muted">--</span>
+            {% endif %}
+          </td>
+          <td class="small">
+            <div>Gross: {{ (g.gross_mass_kg | decimal_scale(2)) if g.gross_mass_kg is not none and g.gross_mass_kg != '' else '--' }}</div>
+            <div class="text-muted">Net: {{ g.net_mass_kg if g.net_mass_kg is not none and g.net_mass_kg != '' else '--' }}</div>
+          </td>
+          <td>{{ g.country_of_origin or '--' }}</td>
+          <td>
+            {% if g.goods_id %}
+            <a href="{{ goods_detail_url(g) }}" class="ref-link">{{ g.goods_id[:12] }}...</a>
+            {% else %}<span class="text-muted">--</span>{% endif %}
+          </td>
+          <td class="text-nowrap">
+            {% if can_edit_goods_locally(g) %}
+            <a href="{{ url_for('goods.edit', sid=g.staging_id) }}" class="btn btn-sm btn-outline-primary" title="Edit">
+              <i class="bi bi-pencil"></i>
+            </a>
+            {% endif %}
+            {% if can_change_goods_data(g) and g.status == 'FAILED' %}
+            <form method="POST" action="{{ url_for('goods.retry', sid=g.staging_id) }}" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-outline-warning" title="Retry"><i class="bi bi-arrow-clockwise"></i></button>
+            </form>
+            {% endif %}
+            {% if g.needs_tss_sync %}
+            <form method="POST"
+                  action="{{ url_for('orchestrator.run_and_return') }}"
+                  class="d-inline"
+                  data-confirm
+                  data-confirm-title="Sync All TSS Data"
+                  data-confirm-text="Run the full tenant sync and return to this goods list?"
+                  data-confirm-submit-label="Sync All TSS Data"
+                  data-loading-toast
+                  data-loading-message="Syncing all TSS data..."
+                  data-loading-meta="Fusion is refreshing the full TSS chain for this tenant."
+                  data-loading-button-text="Syncing...">
+              <input type="hidden" name="phase" value="sync_all">
+              <input type="hidden" name="next_url" value="{{ request.full_path if request.query_string else request.path }}">
+              <button type="submit" class="btn btn-sm btn-outline-primary" title="Sync live TSS status"><i class="bi bi-arrow-repeat"></i></button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% if g.error_message and (g.status == 'FAILED' or g.needs_tss_sync) %}
+        {% set row_error = explain_tss_error(g.error_message, local_status=g.status, tss_status=g.tss_status, entity_label='this goods item') %}
+        <tr class="row-danger">
+          <td colspan="10" class="small text-danger ps-4">
+            <i class="bi bi-exclamation-triangle"></i>
+            {% if row_error %}
+            <strong>{{ row_error.title }}:</strong> {{ row_error.next_step }}
+            {% else %}
+            {{ g.error_message | truncate(200) }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endif %}
+        {% else %}
+        <tr>
+          <td colspan="10" class="text-center text-muted py-4">
+            No goods items found. <a href="{{ url_for('goods.create') }}">Create one</a>.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+{% set page_title = "GMR - Goods Movement References" %}
+{% block title %}GMR{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+
+  <div class="page-header mb-3">
+    <div>
+      <h4 class="page-title"><i class="bi bi-truck"></i> Goods Movement References</h4>
+      <div class="page-subtitle">
+        Route A Step 5 - GVMS digital document for port crossing. One GMR per ENS Header.
+      </div>
+    </div>
+    <div class="page-actions d-flex gap-2">
+      <form method="POST" action="{{ url_for('orchestrator.run_and_return') }}" class="d-inline"
+            data-confirm data-confirm-title="Submit GMRs"
+            data-confirm-text="Run Submit GMR now? Processes all PENDING GMRs and submits them to GVMS."
+            data-confirm-submit-label="Submit GMRs"
+            data-loading-toast data-loading-message="Submitting GMRs..."
+            data-loading-meta="Fusion is submitting GMRs to GVMS." data-loading-button-text="Working...">
+        <input type="hidden" name="phase" value="submit_gmr">
+        <input type="hidden" name="next_url" value="{{ request.full_path }}">
+        <button class="btn btn-sm btn-primary"><i class="bi bi-truck-front-fill"></i> Submit GMRs</button>
+      </form>
+      <form method="POST" action="{{ url_for('orchestrator.run_and_return') }}" class="d-inline"
+            data-confirm data-confirm-title="Sync All TSS Data"
+            data-confirm-text="Run the full tenant sync: ENS, consignments, goods, SFDs, GMR arrivals and SDI discovery?"
+            data-confirm-submit-label="Sync All TSS Data"
+            data-loading-toast data-loading-message="Syncing all TSS data..."
+            data-loading-meta="Fusion is refreshing the full TSS chain for this tenant." data-loading-button-text="Working...">
+        <input type="hidden" name="phase" value="sync_all">
+        <input type="hidden" name="next_url" value="{{ request.full_path }}">
+        <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Sync All TSS Data</button>
+      </form>
+      <a href="{{ url_for('gmr.create') }}" class="btn btn-sm btn-success">
+        <i class="bi bi-plus-lg"></i> New GMR
+      </a>
+    </div>
+  </div>
+
+  {# Route A reminder banner #}
+  <div class="alert alert-info py-2 mb-3 d-flex align-items-center gap-2" style="font-size:0.85rem;">
+    <i class="bi bi-info-circle-fill fs-5"></i>
+    <div>
+      <strong>Route A - GVMS requirement:</strong>
+      Create a GMR only after <em>all</em> consignments on the ENS Header reach
+      <span class="badge bg-success">AUTHORISED_FOR_MOVEMENT</span>.
+      After creating, the system must immediately submit - GVMS will return a barcode
+      the haulier presents at the port.
+    </div>
+  </div>
+
+  {# Status filter tabs #}
+  <ul class="nav nav-tabs filter-tabs gmr-filter-tabs mb-3">
+    {% for s in status_tabs %}
+    <li class="nav-item">
+      <a class="nav-link py-1 px-3 {% if status_filter == s %}active fw-semibold{% endif %}"
+         href="?status={{ s }}{% if ens_ref %}&ens_ref={{ ens_ref }}{% endif %}"
+         style="font-size:0.82rem;">
+        {{ s }}
+        {% set cnt = status_counts.get(s, 0) %}
+        {% if cnt %}<span class="badge bg-secondary ms-1" style="font-size:0.7rem;">{{ cnt }}</span>{% endif %}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+
+  {# ── ADVANCED MODE: compact table with all columns + bulk select ── #}
+  <div class="gmr-list-advanced">
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        {% if gmrs %}
+        <table class="table table-sm table-hover mb-0">
+          <thead class="gmr-table-head">
+            <tr>
+              <th class="ps-3">#</th>
+              <th>Label</th>
+              <th>ENS Ref</th>
+              <th>GMR ID</th>
+              <th>Vehicle</th>
+              <th>Trailer</th>
+              <th>Consignments</th>
+              <th>GVMS Status</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for g in gmrs %}
+            <tr class="js-clickable-row"
+                data-row-href="{{ gmr_detail_url(g) }}"
+                role="link"
+                tabindex="0"
+                aria-label="Open GMR {{ g.gmr_id or g.label or g.staging_id }}">
+              <td class="ps-3 text-muted small">{{ g.staging_id }}</td>
+              <td>
+                <a href="{{ gmr_detail_url(g) }}" class="text-decoration-none fw-semibold">
+                  {{ g.gmr_id or g.label or ('GMR-' ~ g.staging_id) }}
+                </a>
+                {% if g.error_message %}
+                <div class="text-danger small mt-1" title="{{ g.error_message }}">
+                  <i class="bi bi-exclamation-triangle-fill"></i>
+                  {{ g.error_message[:60] }}{% if g.error_message|length > 60 %}...{% endif %}
+                </div>
+                {% endif %}
+              </td>
+              <td>{% if g.ens_reference %}<a href="{{ ens_detail_url(g) }}" class="ref-link">{{ g.ens_reference }}</a>{% else %}<span class="text-muted">-</span>{% endif %}</td>
+              <td>
+                {% if g.gmr_id %}
+                  <code class="small text-success">{{ g.gmr_id }}</code>
+                {% else %}
+                  <span class="text-muted">-</span>
+                {% endif %}
+              </td>
+              <td><code class="small">{{ g.vehicle_registration or '-' }}</code></td>
+              <td><code class="small">{{ g.trailer_registration or '-' }}</code></td>
+              <td class="text-center">
+                {% if g.cons_count is not none %}
+                  {% if g.auth_count == g.cons_count and g.cons_count > 0 %}
+                    <span class="badge bg-success">{{ g.auth_count }}/{{ g.cons_count }} Auth</span>
+                  {% else %}
+                    <span class="badge bg-warning text-dark">{{ g.auth_count or 0 }}/{{ g.cons_count }} Auth</span>
+                  {% endif %}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td>
+                {% if g.gvms_status %}
+                  <span class="badge {% if g.gvms_status == 'Open' %}bg-success{% elif g.gvms_status == 'Closed' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
+                    {{ g.gvms_status | status_display }}
+                  </span>
+                {% else %}
+                  <span class="text-muted">-</span>
+                {% endif %}
+              </td>
+              <td><span class="{{ badge_class(g.status) }}">{{ g.status | status_display }}</span></td>
+              <td class="text-muted small">{{ g.created_at|localdt('%d %b %H:%M') if g.created_at else '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        {# Pagination #}
+        {% if total_pages > 1 %}
+        <div class="d-flex justify-content-between align-items-center px-3 py-2 gmr-pagination-bar" style="font-size:0.8rem;">
+          <span class="text-muted">{{ total }} total</span>
+          <nav>
+            <ul class="pagination pagination-sm mb-0">
+              {% if page > 1 %}
+              <li class="page-item"><a class="page-link" href="?status={{ status_filter }}{% if ens_ref %}&ens_ref={{ ens_ref }}{% endif %}&page={{ page-1 }}">Prev</a></li>
+              {% endif %}
+              <li class="page-item disabled"><span class="page-link">{{ page }} / {{ total_pages }}</span></li>
+              {% if page < total_pages %}
+              <li class="page-item"><a class="page-link" href="?status={{ status_filter }}{% if ens_ref %}&ens_ref={{ ens_ref }}{% endif %}&page={{ page+1 }}">Next</a></li>
+              {% endif %}
+            </ul>
+          </nav>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-truck fs-1 d-block mb-2 opacity-25"></i>
+          No GMRs found.
+          <a href="{{ url_for('gmr.create') }}" class="d-block mt-2">Create your first GMR</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── SIMPLE MODE: friendly card, essentials only ── #}
+  <div class="gmr-list-simple">
+    <div class="card border-0 shadow-sm cons-simple-panel">
+      <div class="card-body p-0">
+        {% if gmrs %}
+        <div class="table-responsive">
+          <table class="table align-middle mb-0 cons-simple-table">
+            <thead>
+              <tr>
+                <th class="ps-3">GMR</th>
+                <th>ENS Ref</th>
+                <th>GVMS Status</th>
+                <th>Status</th>
+                <th class="pe-3 text-end"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for g in gmrs %}
+              <tr class="cons-simple-row js-clickable-row"
+                  data-row-href="{{ gmr_detail_url(g) }}"
+                  role="link" tabindex="0"
+                  aria-label="Open GMR {{ g.gmr_id or g.label or g.staging_id }}">
+                <td class="ps-3">
+                  <div class="cons-simple-main">
+                    <a href="{{ gmr_detail_url(g) }}" class="cons-simple-ref">
+                      {{ g.gmr_id or g.label or ('GMR-' ~ g.staging_id) }}
+                    </a>
+                    {% if g.vehicle_registration %}
+                    <div class="cons-simple-meta">{{ g.vehicle_registration }}{% if g.trailer_registration %} / {{ g.trailer_registration }}{% endif %}</div>
+                    {% endif %}
+                    {% if g.cons_count is not none %}
+                    <div class="cons-simple-meta">
+                      {% if g.auth_count == g.cons_count and g.cons_count > 0 %}
+                      <span class="badge bg-success" style="font-size:0.68rem;">{{ g.auth_count }}/{{ g.cons_count }} Auth</span>
+                      {% else %}
+                      <span class="badge bg-warning text-dark" style="font-size:0.68rem;">{{ g.auth_count or 0 }}/{{ g.cons_count }} Auth</span>
+                      {% endif %}
+                    </div>
+                    {% endif %}
+                    {% if g.error_message %}
+                    <div class="cons-simple-error">{{ g.error_message[:80] }}{% if g.error_message|length > 80 %}...{% endif %}</div>
+                    {% endif %}
+                  </div>
+                </td>
+                <td>
+                  {% if g.ens_reference %}
+                  <a href="{{ ens_detail_url(g) }}" class="ref-link font-monospace">{{ g.ens_reference }}</a>
+                  {% else %}<span class="text-muted">-</span>{% endif %}
+                </td>
+                <td>
+                  {% if g.gvms_status %}
+                  <span class="badge {% if g.gvms_status == 'Open' %}bg-success{% elif g.gvms_status == 'Closed' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">
+                    {{ g.gvms_status | status_display }}
+                  </span>
+                  {% else %}<span class="text-muted">-</span>{% endif %}
+                </td>
+                <td><span class="{{ badge_class(g.status) }}">{{ g.status | status_display }}</span></td>
+                <td class="pe-3 text-end">
+                  <a href="{{ gmr_detail_url(g) }}" class="btn btn-link btn-sm text-decoration-none cons-simple-link">
+                    View <i class="bi bi-chevron-right small"></i>
+                  </a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {# Pagination #}
+        {% if total_pages > 1 %}
+        <div class="d-flex justify-content-between align-items-center px-3 py-2" style="font-size:0.8rem;">
+          <span class="text-muted">{{ total }} total</span>
+          <nav>
+            <ul class="pagination pagination-sm mb-0">
+              {% if page > 1 %}
+              <li class="page-item"><a class="page-link" href="?status={{ status_filter }}{% if ens_ref %}&ens_ref={{ ens_ref }}{% endif %}&page={{ page-1 }}">Prev</a></li>
+              {% endif %}
+              <li class="page-item disabled"><span class="page-link">{{ page }} / {{ total_pages }}</span></li>
+              {% if page < total_pages %}
+              <li class="page-item"><a class="page-link" href="?status={{ status_filter }}{% if ens_ref %}&ens_ref={{ ens_ref }}{% endif %}&page={{ page+1 }}">Next</a></li>
+              {% endif %}
+            </ul>
+          </nav>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="cons-simple-empty py-5">
+          <i class="bi bi-truck fs-1 d-block mb-2 opacity-25"></i>
+          No GMRs found.
+          <a href="{{ url_for('gmr.create') }}" class="d-block mt-2">Create your first GMR</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {% if ens_ref %}
+  <div class="text-center mt-2">
+    <span class="badge badge-status-info">{{ ens_ref }}</span>
+    <a href="{{ url_for('gmr.list_view', status=status_filter) }}" class="btn btn-sm btn-outline-secondary ms-2">Clear ENS</a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

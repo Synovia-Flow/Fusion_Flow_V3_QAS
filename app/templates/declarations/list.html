@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% block title %}Declarations{% endblock %}
+
+{% block content %}
+{% set active_status = status_filter or 'ALL' %}
+<div class="page-header">
+    <div>
+        <h4 class="page-title"><i class="bi bi-file-earmark-text"></i> Declarations</h4>
+        <p class="page-subtitle">ENS headers - auto-refreshes every 2 minutes</p>
+    </div>
+    <div class="page-actions">
+        <button hx-get="{{ url_for('declarations.list_partial', status='' if active_status == 'ALL' else active_status, q=search, sort=sort or None, page=page) }}"
+                hx-target="#list-content"
+                hx-indicator="#loading-spinner"
+                class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+        <a href="{{ url_for('declarations.create') }}" class="btn btn-sm btn-primary">
+            <i class="bi bi-plus-circle"></i> New ENS
+        </a>
+        <div class="btn-group ens-list-actions">
+            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="bi bi-three-dots"></i> More
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                    <form method="POST"
+                          action="{{ url_for('declarations.sync_visible_headers_tss') }}"
+                          data-loading-toast
+                          data-loading-title="Syncing TSS statuses"
+                          data-loading-text="Refreshing visible ENS, DEC, SFD and MRN data from TSS.">
+                        <input type="hidden" name="status" value="{{ '' if active_status == 'ALL' else active_status }}">
+                        <input type="hidden" name="q" value="{{ search or '' }}">
+                        <input type="hidden" name="sort" value="{{ sort or '' }}">
+                        <input type="hidden" name="page" value="{{ page }}">
+                        <button type="submit" class="dropdown-item">
+                            <i class="bi bi-arrow-repeat me-2"></i>Sync TSS statuses
+                        </button>
+                    </form>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <a class="dropdown-item" href="{{ url_for('declarations.import_ens') }}">
+                        <i class="bi bi-cloud-download me-2"></i>Import from TSS
+                    </a>
+                </li>
+                <li><a class="dropdown-item" href="{{ url_for('ingest.queue') }}"><i class="bi bi-inbox me-2"></i>Ingestion Queue</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('technical.index', tab='api') }}"><i class="bi bi-terminal me-2"></i>Technical Logs</a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+{% include 'partials/_alerts.html' %}
+
+<ul class="nav nav-tabs filter-tabs mb-3" id="ensStatusTabs">
+    {% for value in status_tabs %}
+    {% set count = total if value == 'ALL' else status_counts.get(value, 0) %}
+    {% if value == 'ALL' or count > 0 %}
+    <li class="nav-item">
+        <a class="nav-link {{ 'active' if active_status == value }} {{ 'text-danger fw-semibold' if value in ('FAILED', 'TRADER INPUT REQUIRED') and count > 0 }}"
+           href="{{ url_for('declarations.list_declarations', status='' if value == 'ALL' else value, q=search, sort=sort or None) }}">
+            {{ value | status_display }}
+            {% if count > 0 %}
+            <span class="{{ status_badge_class(value) }} ms-1">{{ count }}</span>
+            {% endif %}
+        </a>
+    </li>
+    {% endif %}
+    {% endfor %}
+</ul>
+
+<div class="mb-3">
+    <form class="d-flex gap-2"
+          method="GET"
+          action="{{ url_for('declarations.list_declarations') }}"
+          hx-get="{{ url_for('declarations.list_declarations') }}"
+          hx-trigger="submit, input changed delay:350ms from:input[name='q']"
+          hx-target="#list-content"
+          hx-swap="innerHTML"
+          hx-push-url="true"
+          hx-indicator="#loading-spinner">
+        {% if active_status != 'ALL' %}<input type="hidden" name="status" value="{{ active_status }}">{% endif %}
+        {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+        <input type="search"
+               name="q"
+               class="form-control search-bar"
+               placeholder="Search ENS ref, carrier, EORI, port, transport identity..."
+               value="{{ search or '' }}">
+        <button type="submit" class="btn btn-outline-secondary"><i class="bi bi-search"></i></button>
+        {% if search %}
+        <a href="{{ url_for('declarations.list_declarations', status='' if active_status == 'ALL' else active_status, sort=sort or None) }}"
+           class="btn btn-outline-danger btn-sm">Clear</a>
+        {% endif %}
+    </form>
+</div>
+
+<div id="list-content"
+     hx-get="{{ url_for('declarations.list_partial', status='' if active_status == 'ALL' else active_status, q=search, sort=sort or None, page=page) }}"
+     hx-trigger="every 120s"
+     hx-target="this"
+     hx-swap="innerHTML"
+     hx-indicator="#loading-spinner">
+    {% include 'declarations/_list_partial.html' %}
+</div>
+{% endblock %}

@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% set page_title = item.goods_id or ("Goods Item #" ~ item.staging_id) %}
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mt-1 mb-2">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ url_for('dashboard.index') }}">Dashboard</a></li>
+        {% if item.ens_reference %}
+        <li class="breadcrumb-item"><a href="{{ ens_detail_url(item) }}">{{ item.ens_reference }}</a></li>
+        {% endif %}
+        {% if item.consignment_ref or item.staging_cons_id %}
+        <li class="breadcrumb-item"><a href="{{ consignment_detail_url(item) }}">{{ item.consignment_ref or ('Consignment #' ~ item.staging_cons_id) }}</a></li>
+        {% endif %}
+        <li class="breadcrumb-item"><a href="{{ url_for('goods.list_view') }}">Goods Items</a></li>
+        <li class="breadcrumb-item active">{{ page_title }}</li>
+    </ol>
+</nav>
+
+<div class="page-header mb-3">
+    <div>
+        <h4 class="page-title">{{ page_title }}</h4>
+        <p class="page-subtitle">{{ item.goods_description or 'Goods item detail' }}</p>
+    </div>
+    <div class="page-actions">
+        <span class="{{ badge_class(item.status) }} fs-6">{{ item.status | status_display }}</span>
+        {% if can_edit_goods_locally %}
+        <a href="{{ url_for('goods.edit', sid=item.staging_id) }}" class="btn btn-sm btn-primary">
+            <i class="bi bi-pencil"></i> Edit
+        </a>
+        {% endif %}
+        {% if item.goods_id and can_change_goods_data %}
+        <form method="POST" action="{{ url_for('goods.delete_from_tss', sid=item.staging_id) }}" class="d-inline"
+              data-confirm data-confirm-title="Delete goods in TSS"
+              data-confirm-text="Delete {{ item.goods_id }} in TSS and remove it locally? This cannot be undone."
+              data-confirm-submit-label="Delete in TSS"
+              data-loading-toast
+              data-loading-message="Deleting goods in TSS..."
+              data-loading-button-text="Deleting...">
+            <button class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-trash"></i> Delete in TSS
+            </button>
+        </form>
+        {% endif %}
+        <a href="{{ url_for('goods.list_view', cons_id=item.staging_cons_id) }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Back
+        </a>
+    </div>
+</div>
+
+{% if error_explanation %}
+<div class="alert alert-{{ 'danger' if error_explanation.tone == 'danger' else 'warning' }} mb-3">
+    <div class="d-flex gap-2">
+        <i class="bi bi-exclamation-triangle"></i>
+        <div>
+            <strong>{{ error_explanation.title }}</strong>
+            <div class="small mt-1">{{ error_explanation.summary }}</div>
+            <div class="small mt-1">{{ error_explanation.detail }}</div>
+            <div class="small mt-2 fw-semibold">{{ error_explanation.next_step }}</div>
+            {% if error_explanation.technical %}
+            <details class="mt-2">
+                <summary class="small">Technical detail</summary>
+                <code class="small d-block mt-1 text-break">{{ error_explanation.technical }}</code>
+            </details>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% elif item.error_message %}
+<div class="alert alert-danger mb-3">
+    <i class="bi bi-exclamation-triangle"></i> <strong>Error:</strong> {{ item.error_message }}
+</div>
+{% endif %}
+
+{% if guidance %}
+<div class="alert alert-{{ 'danger' if guidance.tone == 'danger' else ('warning' if guidance.tone == 'warning' else ('success' if guidance.tone == 'success' else 'info')) }} mb-3">
+    <strong>{{ guidance.title }}</strong>
+    {% if guidance.detail %}<div class="small mt-1">{{ guidance.detail }}</div>{% endif %}
+    {% if guidance.actions %}
+    <div class="d-flex flex-wrap gap-2 mt-3 guidance-actions">
+        {% for action in guidance.actions %}
+            {% if action.phase %}
+            <form method="POST"
+                  action="{{ url_for('orchestrator.run_and_return') }}"
+                  class="d-inline"
+                  data-confirm
+                  data-confirm-title="{{ action.label }}"
+                  data-confirm-text="{{ action.confirm_text or ('Run ' ~ action.label ~ ' now?') }}"
+                  data-confirm-submit-label="{{ action.label }}"
+                  data-loading-toast
+                  data-loading-message="{{ action.label }}..."
+                  data-loading-meta="Fusion is running the selected cargo pipeline and waiting for TSS/API responses."
+                  data-loading-button-text="Working...">
+                <input type="hidden" name="phase" value="{{ action.phase }}">
+                <input type="hidden" name="next_url" value="{{ request.full_path if request.query_string else request.path }}">
+                <button class="btn btn-sm {{ 'btn-primary' if action.kind == 'primary' else 'btn-outline-warning' }}">
+                    <i class="bi bi-arrow-right-circle"></i> {{ action.label }}
+                </button>
+            </form>
+            {% elif action.post_to %}
+            <form method="POST"
+                  action="{{ action.post_to }}"
+                  class="d-inline"
+                  data-confirm
+                  data-confirm-title="{{ action.label }}"
+                  data-confirm-text="{{ action.confirm_text or ('Run ' ~ action.label ~ ' now?') }}"
+                  data-confirm-submit-label="{{ action.label }}"
+                  data-loading-toast
+                  data-loading-message="{{ action.label }}..."
+                  data-loading-meta="Fusion is sending the request and waiting for the API response."
+                  data-loading-button-text="Working...">
+                <button class="btn btn-sm {{ 'btn-primary' if action.kind == 'primary' else 'btn-outline-warning' }}">
+                    <i class="bi bi-arrow-right-circle"></i> {{ action.label }}
+                </button>
+            </form>
+            {% else %}
+            <a href="{{ action.href }}" class="btn btn-sm {{ 'btn-primary' if action.kind == 'primary' else 'btn-outline-warning' }}">
+                <i class="bi bi-arrow-right-circle"></i> {{ action.label }}
+            </a>
+            {% endif %}
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm mb-3">
+    <div class="card-header section-header section-header-green py-2">
+        <div class="section-header-title"><i class="bi bi-diagram-3"></i> Parent Journey</div>
+        <div class="section-header-sub">This goods item sits under a consignment which sits under an ENS header.</div>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="workflow-link-card">
+                    <div class="workflow-link-label">ENS</div>
+                    {% if item.ens_reference %}
+                    <a href="{{ ens_detail_url(item) }}" class="ref-link">{{ item.ens_reference }}</a>
+                    {% else %}
+                    <span class="text-muted">Not linked</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="workflow-link-card">
+                    <div class="workflow-link-label">Consignment</div>
+                    {% if item.consignment_ref %}
+                    <a href="{{ consignment_detail_url(item) }}" class="ref-link">{{ item.consignment_ref }}</a>
+                    {% else %}
+                    <span class="text-muted">No DEC reference yet</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="workflow-link-card">
+                    <div class="workflow-link-label">Goods</div>
+                    <span class="ref-link-static">{{ item.goods_id or ('Local #' ~ item.staging_id) }}</span>
+                    <div class="small text-muted mt-1">{{ sibling_goods|length }} items on same consignment</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-8">
+        <div class="card border-0 shadow-sm">
+            <div class="card-header py-2"><span class="fw-semibold small">Goods Details</span></div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <table class="table table-sm">
+                            <tr>
+                                <th class="text-muted" style="width:42%">Goods ID</th>
+                                <td>
+                                    <div class="d-flex flex-column gap-1">
+                                        <span class="ref-link-static">{{ item.goods_id or 'Not issued yet' }}</span>
+                                        {% if goods_state %}
+                                        <span class="badge align-self-start {{ 'badge-status-success' if goods_state.tone == 'success' else ('badge-status-danger' if goods_state.tone == 'danger' else ('badge-status-warning' if goods_state.tone == 'warning' else 'badge-status-info')) }}">
+                                            {{ goods_state.label }}
+                                        </span>
+                                        {% if goods_state.detail %}
+                                        <div class="small text-muted">{{ goods_state.detail }}</div>
+                                        {% endif %}
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr><th class="text-muted">Item Number</th><td>{{ item.item_number or '—' }}</td></tr>
+                            <tr><th class="text-muted">Description</th><td>{{ item.goods_description or '—' }}</td></tr>
+                            <tr><th class="text-muted">Commodity Code</th><td><code>{{ item.commodity_code or '—' }}</code></td></tr>
+                            <tr><th class="text-muted">Procedure Code</th><td><code>{{ item.procedure_code or '—' }}</code></td></tr>
+                            <tr><th class="text-muted">Country of Origin</th><td>{{ item.country_of_origin or '—' }}</td></tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <table class="table table-sm">
+                            <tr><th class="text-muted" style="width:42%">Packages</th><td>{{ item.number_of_packages or '—' }} × {{ item.type_of_packages or '—' }}</td></tr>
+                            <tr><th class="text-muted">Package Marks</th><td>{{ item.package_marks or '—' }}</td></tr>
+                            <tr><th class="text-muted">Gross Mass</th><td>{{ (item.gross_mass_kg | decimal_scale(2)) if item.gross_mass_kg is not none and item.gross_mass_kg != '' else '—' }}</td></tr>
+                            <tr><th class="text-muted">Net Mass</th><td>{{ item.net_mass_kg or '—' }}</td></tr>
+                            <tr><th class="text-muted">Controlled Goods</th><td>{{ item.controlled_goods or '—' }}</td></tr>
+                            <tr><th class="text-muted">Created</th><td>{{ item.created_at|localdt if item.created_at else '—' }}</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm mb-3">
+            <div class="card-header py-2"><span class="fw-semibold small">Sibling Goods</span></div>
+            <div class="card-body p-0">
+                {% if sibling_goods %}
+                <div class="list-group list-group-flush">
+                    {% for sibling in sibling_goods %}
+                    <a href="{{ goods_detail_url(sibling) }}" class="list-group-item list-group-item-action small d-flex justify-content-between align-items-center">
+                        <span>{{ sibling.item_number or sibling.staging_id }} · {{ sibling.goods_description|truncate(24) }}</span>
+                        <span class="{{ badge_class(sibling.status) }}">{{ sibling.status | status_display }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="p-3 text-muted small">No sibling goods found.</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm">
+            <div class="card-header py-2"><span class="fw-semibold small">API Calls</span></div>
+            <div class="card-body p-0">
+                {% if api_calls %}
+                <div class="list-group list-group-flush">
+                    {% for log in api_calls %}
+                    <div class="list-group-item small">
+                        <div class="d-flex justify-content-between">
+                            <span><span class="badge {{ 'badge-status-success' if log.http_status and log.http_status < 300 else 'badge-status-danger' }}">{{ log.http_status or '—' }}</span> {{ log.call_type or 'API' }}</span>
+                            <span class="text-muted">{{ log.called_at|localdt if log.called_at else '' }}</span>
+                        </div>
+                        <div class="text-muted mt-1">{{ log.response_message or log.error_detail or '—' }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="p-3 text-muted small">
+                    No API calls logged.
+                    {% if api_log_hint %}
+                    <div class="mt-2">{{ api_log_hint }}</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

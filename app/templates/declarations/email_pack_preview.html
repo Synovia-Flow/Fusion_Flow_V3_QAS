@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+{% set ens_ref = pipeline_header.ens_reference or ('Draft #' ~ pipeline_header.staging_id) %}
+{% block title %}Email ENS Pack - {{ ens_ref }}{% endblock %}
+{% block content %}
+<div class="container-fluid px-4">
+  <nav aria-label="breadcrumb" class="mt-3">
+    <ol class="breadcrumb">
+      <li class="breadcrumb-item"><a href="{{ url_for('dashboard.index') }}">Dashboard</a></li>
+      <li class="breadcrumb-item"><a href="{{ url_for('declarations.list_declarations') }}">ENS</a></li>
+      <li class="breadcrumb-item"><a href="{{ url_for('declarations.header_detail', staging_id=pipeline_header.staging_id) }}">{{ ens_ref }}</a></li>
+      <li class="breadcrumb-item active">Email Pack</li>
+    </ol>
+  </nav>
+
+  <div class="page-header mb-3">
+    <div>
+      <h4 class="page-title"><i class="bi bi-envelope-paper"></i> Email ENS Movement Pack</h4>
+      <div class="page-subtitle">Preview the pack as the recipient will see it, then send it to the right address.</div>
+    </div>
+    <div class="page-actions d-flex gap-2">
+      <a href="{{ url_for('declarations.email_pack_pdf', staging_id=pipeline_header.staging_id, include_cancelled='1' if include_cancelled else '0') }}"
+         class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">
+        <i class="bi bi-printer"></i> Print PDF
+      </a>
+      <a href="{{ url_for('declarations.header_detail', staging_id=pipeline_header.staging_id) }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Back to ENS
+      </a>
+    </div>
+  </div>
+
+  {% include "partials/_alerts.html" %}
+
+  <div class="row g-3">
+    <div class="col-lg-4">
+      <div class="card shadow-sm">
+        <div class="card-header fw-semibold">Send</div>
+        <div class="card-body">
+          <form method="POST" action="{{ url_for('declarations.email_pack_send', staging_id=pipeline_header.staging_id) }}"
+                data-loading-toast
+                data-loading-message="Sending ENS pack..."
+                data-loading-button-text="Sending...">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Recipients (To) <span class="text-danger">*</span></label>
+              <input type="text" name="to_email" class="form-control" required value="{{ to_email }}"
+                     placeholder="customer@example.com, ops@example.com">
+              <div class="form-text">Separate multiple addresses with commas, semicolons or spaces.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">CC <span class="text-muted small">(optional)</span></label>
+              <input type="text" name="cc_email" class="form-control" value="{{ cc_email }}"
+                     placeholder="agent@example.com, manager@example.com">
+              <div class="form-text">Same format as To. Duplicates with To are dropped automatically.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Subject</label>
+              <input type="text" name="subject" class="form-control" value="{{ suggested_subject }}">
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Note (optional)</label>
+              <textarea name="note" class="form-control" rows="3" placeholder="Anything specific the recipient should know about this movement..."></textarea>
+              <div class="form-text">If provided, the note appears at the top of the pack inside a highlighted box.</div>
+            </div>
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" role="switch"
+                     id="includeCancelledConsignments" name="include_cancelled" value="1"
+                     data-include-url="{{ url_for('declarations.email_pack_preview', staging_id=pipeline_header.staging_id, include_cancelled='1') }}"
+                     data-exclude-url="{{ url_for('declarations.email_pack_preview', staging_id=pipeline_header.staging_id, include_cancelled='0') }}"
+                     {% if include_cancelled %}checked{% endif %}>
+              <label class="form-check-label fw-semibold" for="includeCancelledConsignments">
+                Include cancelled consignments
+              </label>
+              <div class="form-text">
+                Leave off for customer-facing packs. Changing this reloads the preview.
+              </div>
+            </div>
+            <div class="d-grid">
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-send"></i> Send pack
+              </button>
+            </div>
+          </form>
+        </div>
+        <div class="card-footer small text-muted">
+          Pack includes ENS summary + chain + full detail for {{ consignments|length }} consignment{{ 's' if consignments|length != 1 }}.
+          {% if excluded_cancelled_count %}
+            {{ excluded_cancelled_count }} cancelled consignment{{ 's' if excluded_cancelled_count != 1 }} excluded.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-8">
+      <div class="card shadow-sm">
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+          <span>Preview</span>
+          <span class="small text-muted">As recipient will see it</span>
+        </div>
+        <div class="card-body p-0">
+          <iframe srcdoc="{{ pack_html|e }}"
+                  style="width:100%;min-height:720px;border:0;background:#eef2f7;"
+                  title="ENS pack preview"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const toggle = document.getElementById('includeCancelledConsignments');
+  if (!toggle) {
+    return;
+  }
+  toggle.addEventListener('change', function () {
+    const target = new URL(this.checked ? this.dataset.includeUrl : this.dataset.excludeUrl, window.location.origin);
+    ['to_email', 'cc_email'].forEach(function (fieldName) {
+      const field = document.querySelector('[name="' + fieldName + '"]');
+      const value = field && field.value ? field.value.trim() : '';
+      if (value) {
+        target.searchParams.set(fieldName, value);
+      }
+    });
+    window.location.href = target.toString();
+  });
+})();
+</script>
+{% endblock %}

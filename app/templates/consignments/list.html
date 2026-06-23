@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}Consignments{% endblock %}
+
+{% block content %}
+{% set active_status = status_filter or 'ALL' %}
+<div class="page-header">
+    <div>
+        <h4 class="page-title"><i class="bi bi-box-seam"></i> Consignments</h4>
+        <p class="page-subtitle">STG consignments with linked ENS context and TSS status mirror.</p>
+    </div>
+    <div class="page-actions">
+        <a href="{{ url_for('consignments.list_view', status=status_filter if status_filter != 'ALL' else '', q=search, ens_ref=ens_ref, arrival_from=arrival_from, arrival_to=arrival_to, arrival_month=arrival_month, sort=sort, page_size=page_size_param) }}"
+           class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </a>
+    </div>
+</div>
+
+{% include "partials/_alerts.html" %}
+
+<ul class="nav nav-tabs filter-tabs mb-3" id="consignmentStatusTabs">
+    {% for value in status_tabs %}
+    {% set count = total if value == 'ALL' else status_counts.get(value, 0) %}
+    {% if value == 'ALL' or count > 0 %}
+    {% set tab_url = url_for('consignments.list_view', q=search, ens_ref=ens_ref, arrival_from=arrival_from, arrival_to=arrival_to, arrival_month=arrival_month, sort=sort, page_size=page_size_param) if value == 'ALL' else url_for('consignments.list_view', status=value, q=search, ens_ref=ens_ref, arrival_from=arrival_from, arrival_to=arrival_to, arrival_month=arrival_month, sort=sort, page_size=page_size_param) %}
+    <li class="nav-item">
+        <a class="nav-link {{ 'active' if active_status == value }} {{ 'text-danger fw-semibold' if value in ('FAILED', 'TRADER INPUT REQUIRED') and count > 0 }}"
+           href="{{ tab_url }}">
+            {{ value | status_display }}
+            {% if count > 0 %}
+            <span class="{{ badge_class(value) }} ms-1">{{ count }}</span>
+            {% endif %}
+        </a>
+    </li>
+    {% endif %}
+    {% endfor %}
+</ul>
+
+<form class="d-flex flex-column flex-lg-row gap-2 mb-3"
+      method="GET"
+      action="{{ url_for('consignments.list_view') }}">
+    <input type="hidden" name="status" value="{{ status_filter if status_filter != 'ALL' else '' }}">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    {% if ens_ref %}<input type="hidden" name="ens_ref" value="{{ ens_ref }}">{% endif %}
+    <input type="search" name="q" class="form-control search-bar"
+           placeholder="Search DEC, SDI, goods description, conveyance ref, ENS ref..."
+           value="{{ search }}">
+    <div class="input-group flex-nowrap" style="max-width: 190px;">
+        <span class="input-group-text" title="Full arrival month">
+            <i class="bi bi-calendar-month"></i>
+        </span>
+        <input type="month"
+               name="arrival_month"
+               class="form-control"
+               value="{{ arrival_month }}"
+               aria-label="Filter consignments by arrival month"
+               onchange="this.form.arrival_from.value=''; this.form.arrival_to.value=''; this.form.submit()">
+    </div>
+    <div class="input-group flex-nowrap" style="max-width: 190px;">
+        <span class="input-group-text" title="Arrival from">
+            <i class="bi bi-calendar3"></i>
+        </span>
+        <input type="date"
+               name="arrival_from"
+               class="form-control"
+               value="{{ arrival_from }}"
+               aria-label="Filter consignments from arrival date"
+               onchange="this.form.arrival_month.value=''; this.form.submit()">
+    </div>
+    <div class="input-group flex-nowrap" style="max-width: 190px;">
+        <span class="input-group-text" title="Arrival to">
+            <i class="bi bi-calendar-check"></i>
+        </span>
+        <input type="date"
+               name="arrival_to"
+               class="form-control"
+               value="{{ arrival_to }}"
+               aria-label="Filter consignments to arrival date"
+               onchange="this.form.arrival_month.value=''; this.form.submit()">
+    </div>
+    <button type="submit" class="btn btn-outline-secondary">
+        <i class="bi bi-search"></i>
+    </button>
+    <select name="page_size"
+            class="form-select w-auto"
+            aria-label="Rows per page"
+            onchange="this.form.submit()">
+        {% for option in page_size_options %}
+        <option value="{{ option }}" {% if page_size_param == option|string %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+        <option value="all" {% if page_size_param == 'all' %}selected{% endif %}>All</option>
+    </select>
+    {% if ens_ref %}
+    <span class="badge badge-status-info align-self-center">{{ ens_ref }}</span>
+    <a href="{{ url_for('consignments.list_view', status=status_filter, q=search, arrival_from=arrival_from, arrival_to=arrival_to, arrival_month=arrival_month, sort=sort, page_size=page_size_param) }}" class="btn btn-outline-secondary btn-sm">Clear ENS</a>
+    {% endif %}
+    {% if search %}
+    <a href="{{ url_for('consignments.list_view', status=status_filter, ens_ref=ens_ref, arrival_from=arrival_from, arrival_to=arrival_to, arrival_month=arrival_month, sort=sort, page_size=page_size_param) }}" class="btn btn-outline-danger btn-sm">Clear search</a>
+    {% endif %}
+    {% if arrival_from or arrival_to or arrival_month %}
+    <a href="{{ url_for('consignments.list_view', status=status_filter, q=search, ens_ref=ens_ref, sort=sort, page_size=page_size_param) }}" class="btn btn-outline-danger btn-sm">Clear dates</a>
+    {% endif %}
+</form>
+
+<div class="card border-0 shadow-sm" data-bulk-selection="consignments">
+    <div class="card-header bg-white d-flex flex-column flex-xl-row align-items-xl-center justify-content-between gap-2">
+        <div class="small text-muted">
+            Use Select mode for local cleanup or Excel export. TSS records are not cancelled.
+        </div>
+        <form id="consignmentBulkActionForm"
+              method="POST"
+              action="{{ url_for('consignments.bulk_export_selected') }}"
+              class="bulk-selection-toolbar d-flex align-items-center flex-wrap gap-2">
+            <input type="hidden" name="status" value="{{ status_filter }}">
+            <input type="hidden" name="q" value="{{ search }}">
+            <input type="hidden" name="ens_ref" value="{{ ens_ref }}">
+            <input type="hidden" name="created_on" value="{{ created_on }}">
+            <input type="hidden" name="arrival_from" value="{{ arrival_from }}">
+            <input type="hidden" name="arrival_to" value="{{ arrival_to }}">
+            <input type="hidden" name="arrival_month" value="{{ arrival_month }}">
+            <input type="hidden" name="sort" value="{{ sort }}">
+            <input type="hidden" name="page_size" value="{{ page_size_param }}">
+            {% for c in consignments %}
+            <input type="hidden" name="visible_ids" value="{{ c.stg_consignment_id }}">
+            {% endfor %}
+            <button type="submit"
+                    class="btn btn-sm btn-outline-secondary"
+                    title="Export the current table rows with all linked goods as Excel">
+                <i class="bi bi-download"></i> Excel
+            </button>
+            <button type="submit"
+                    formaction="{{ url_for('consignments.bulk_delete_selected') }}"
+                    formmethod="POST"
+                    class="btn btn-sm btn-danger"
+                    data-bulk-action
+                    data-bulk-active-only
+                    data-bulk-group="consignments"
+                    data-confirm
+                    data-confirm-title="Delete Selected Consignments"
+                    data-confirm-text="Delete selected local consignment drafts? Records with a TSS reference (DEC...) are kept. TSS records are not cancelled."
+                    data-confirm-submit-label="Delete Selected"
+                    disabled
+                    hidden>
+                <i class="bi bi-trash"></i> Delete
+            </button>
+            <span class="small text-muted" data-bulk-active-only data-bulk-group="consignments" hidden>
+                <span data-bulk-count data-bulk-group="consignments">0</span> selected
+            </span>
+            <button type="button"
+                    class="bulk-mode-toggle"
+                    data-bulk-select-toggle
+                    data-bulk-group="consignments"
+                    data-bulk-inactive-label="Select mode"
+                    data-bulk-active-label="Select mode"
+                    aria-pressed="false">
+                <span class="bulk-mode-toggle-switch" aria-hidden="true"></span>
+                <span data-bulk-toggle-label>Select mode</span>
+            </button>
+        </form>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 align-middle clickable-rows sortable-table" data-sortable-table>
+            <thead class="table-light">
+                <tr>
+                    <th class="bulk-select-cell" data-bulk-select-cell>
+                        <input class="form-check-input" type="checkbox" data-bulk-select-all data-bulk-group="consignments" aria-label="Select all">
+                    </th>
+                    <th data-sort-key="id" data-sort-type="number" role="button" tabindex="0">ID</th>
+                    <th data-sort-key="dec_ref" role="button" tabindex="0">DEC Ref</th>
+                    <th data-sort-key="local_status" role="button" tabindex="0">Local Status</th>
+                    <th data-sort-key="tss_status" role="button" tabindex="0">TSS Status</th>
+                    <th data-sort-key="sfd" role="button" tabindex="0">SFD</th>
+                    <th data-sort-key="sdi" role="button" tabindex="0">SDI</th>
+                    <th data-sort-key="goods" data-sort-type="number" role="button" tabindex="0">Goods</th>
+                    <th data-sort-key="goods_description" role="button" tabindex="0">Goods Description</th>
+                    <th data-sort-key="doc_ref" role="button" tabindex="0">Doc / Ref</th>
+                    <th data-sort-key="ens_ref" role="button" tabindex="0">ENS Ref</th>
+                    <th data-sort-key="arrival" data-sort-type="date" role="button" tabindex="0" aria-sort="{{ 'ascending' if sort == 'arrival_asc' else ('descending' if sort == 'arrival_desc' else 'none') }}">Arrival</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in consignments %}
+                {% set local_status = fixed_consignment_local_status(c.sub_status, c.TssStatus) %}
+                {% set failed = local_status in ('FAILED', 'INVALID', 'REJECTED', 'TRADER INPUT REQUIRED') %}
+                <tr class="js-clickable-row {{ 'row-danger' if failed }}"
+                    data-row-href="{{ consignment_detail_url(c) }}"
+                    role="link"
+                    tabindex="0"
+                    aria-label="Open consignment {{ c.tss_consignment_ref or ('Draft #' ~ c.stg_consignment_id) }}">
+                    <td class="bulk-select-cell" data-bulk-select-cell>
+                        <label class="bulk-row-selector" title="Select for local cleanup or Excel export">
+                            <input class="form-check-input" type="checkbox" name="selected_ids" value="{{ c.stg_consignment_id }}" form="consignmentBulkActionForm" data-bulk-item data-bulk-group="consignments" aria-label="Select consignment {{ c.stg_consignment_id }}">
+                        </label>
+                    </td>
+                    <td class="font-monospace" data-sort-value="{{ c.stg_consignment_id }}">{{ c.stg_consignment_id }}</td>
+                    <td class="font-monospace small" data-sort-value="{{ c.tss_consignment_ref or ('Draft #' ~ c.stg_consignment_id) }}">
+                        {% if c.tss_consignment_ref %}
+                        <a href="{{ consignment_detail_url(c) }}" class="ref-link">{{ c.tss_consignment_ref }}</a>
+                        {% else %}
+                        <a href="{{ consignment_detail_url(c) }}" class="ref-link-muted">Draft #{{ c.stg_consignment_id }}</a>
+                        {% endif %}
+                    </td>
+                    <td data-sort-value="{{ local_status }}"><span class="{{ badge_class(local_status) }}">{{ local_status | status_display }}</span></td>
+                    <td data-sort-value="{{ c.TssStatus or 'PENDING_SYNC' }}">
+                        {% if c.TssStatus %}
+                        <span class="{{ badge_class(c.TssStatus) }}">{{ c.TssStatus | status_display }}</span>
+                        {% else %}
+                        <span class="text-muted small">&mdash;</span>
+                        {% endif %}
+                    </td>
+                    <td class="font-monospace small" data-sort-value="{{ c.sfd_reference or '' }}">
+                        {% if c.sfd_reference %}
+                        <span class="ref-link">{{ c.sfd_reference }}</span>
+                        {% else %}
+                        <span class="text-muted">&mdash;</span>
+                        {% endif %}
+                    </td>
+                    <td class="font-monospace small" data-sort-value="{{ c.sdi_references or c.sdi_reference or '' }}">
+                        {% set linked_sdi = c.linked_supdecs|default([], true) %}
+                        {% set sdi_links_menu_id = 'cons-sdi-links-' ~ c.stg_consignment_id ~ '-' ~ loop.index %}
+                        {% include 'consignments/partials/_sdi_links_cell.html' %}
+                    </td>
+                    <td class="small fw-semibold text-center" data-sort-value="{{ c.goods_count or 0 }}">{{ c.goods_count or 0 }}</td>
+                    <td class="small text-truncate" style="max-width:200px;" data-sort-value="{{ c.goods_description or '' }}">{{ (c.goods_description or '') | truncate(50) }}</td>
+                    <td class="font-monospace small text-muted" data-sort-value="{{ c.document_no or '' }}">{{ c.document_no or '&mdash;'|safe }}</td>
+                    <td class="font-monospace small" data-sort-value="{{ c.tss_ens_header_ref or c.stg_header_id or '' }}">
+                        {% if c.tss_ens_header_ref %}
+                        <a href="{{ ens_detail_url(c) }}" class="ref-link">{{ c.tss_ens_header_ref }}</a>
+                        {% elif c.stg_header_id %}
+                        <a href="{{ url_for('declarations.header_detail', staging_id=c.stg_header_id) }}" class="ref-link-muted">ENS #{{ c.stg_header_id }}</a>
+                        {% else %}
+                        <span class="text-muted">&mdash;</span>
+                        {% endif %}
+                    </td>
+                    <td class="small text-muted" data-sort-value="{{ c.arrival_date_time|datefmt('%Y-%m-%dT%H:%M:%S') if c.arrival_date_time else '' }}">
+                        {{ c.arrival_date_time|datefmt('%d/%m/%Y %H:%M') if c.arrival_date_time else '&mdash;'|safe }}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="12" class="text-center text-muted py-4">
+                        No consignments found{{ ' matching "' ~ search ~ '"' if search else '' }}.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% include "consignments/partials/_cons_list_pagination.html" %}
+{% endblock %}
