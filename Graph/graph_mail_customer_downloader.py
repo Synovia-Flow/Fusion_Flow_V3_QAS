@@ -9,6 +9,8 @@ Current confirmed tenant:
 Current confirmed behavior:
     - Emails from @birkdalesales.com go to BKD.
     - If the email has file attachments, save the attachments.
+    - Excel attachments are validated from the Graph attachment content.
+    - A validation CSV is written with errors, warnings, and pending mapping items.
     - If the email has no file attachments, keep it visible for the future API/body stage.
 
 No-attachment note:
@@ -28,14 +30,17 @@ import argparse
 import base64
 import csv
 import datetime as dt
+import io
 import json
 import os
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
 
 
 SCRIPT_FOLDER = Path(__file__).resolve().parent
@@ -288,23 +293,26 @@ def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, A
     if not destination_path.is_absolute():
         destination_path = REPO_ROOT / destination_path
 
-    return {
-        "tenant_name": tenant_name,
-        "tenant_code": tenant_code,
-        "active": active,
-        "sender_domains": [
-            domain.lower().lstrip("@") for domain in as_list(raw_config.get("sender_domains"))
-        ],
-        "sender_addresses": [
-            address.lower() for address in as_list(raw_config.get("sender_addresses"))
-        ],
-        "file_types": normalise_file_types(as_list(raw_config.get("file_types"))),
-        "save_mode": str(raw_config.get("save_mode") or "attachments_only").strip().lower(),
-        "historic_start_date": str(raw_config.get("historic_start_date") or "").strip(),
-        "destination_folder": destination_path,
-        "config_file": str(path),
-    }
-
+    config = dict(raw_config)
+    config.update(
+        {
+            "tenant_name": tenant_name,
+            "tenant_code": tenant_code,
+            "active": active,
+            "sender_domains": [
+                domain.lower().lstrip("@") for domain in as_list(raw_config.get("sender_domains"))
+            ],
+            "sender_addresses": [
+                address.lower() for address in as_list(raw_config.get("sender_addresses"))
+            ],
+            "file_types": normalise_file_types(as_list(raw_config.get("file_types"))),
+            "save_mode": str(raw_config.get("save_mode") or "attachments_only").strip().lower(),
+            "historic_start_date": str(raw_config.get("historic_start_date") or "").strip(),
+            "destination_folder": destination_path,
+            "config_file": str(path),
+        }
+    )
+    return config
 
 def load_tenant_configs() -> list[dict[str, Any]]:
     """Load active customer configs from Graph/config/customers/*.yml."""
@@ -328,7 +336,136 @@ TENANT_CONFIGS = load_tenant_configs()
 
 
 # =============================================================================
-# STEP 5 - MICROSOFT GRAPH FUNCTIONS
+# STEP 5 - EXCEL MAPPING AND API VALIDATION CONFIGURATION
+# =============================================================================
+#
+# Files are saved locally for audit/support, but the preferred processing path is
+# direct: read the Graph attachment bytes, parse the Excel in memory, map columns,
+# and report API readiness issues immediately.
+#
+# Tenant config can extend aliases with keys such as:
+#
+#   map_transport_document_number:
+#     - Customer TDN
+#     - Document Number
+#
+# The code below keeps every source column accounted for: mapped to an API field,
+# retained for audit, or reported as an unmapped source column.
+
+EXCEL_SUFFIXES = {".xlsx"}
+
+FIELD_RULES: dict[str, dict[str, Any]] = {
+    "transport_document_number": {
+        "label": "Transport document number",
+        "required": True,
+        "max_length": 35,
+        "aliases": ["transport_document_number", "transport doc number", "tdn", "transport document", "document number", "document no"],
+    },
+    "goods_description": {
+        "label": "Goods description",
+        "required": True,
+        "max_length": 255,
+        "aliases": ["goods_description", "description", "item description", "product description", "commodity description", "goods desc"],
+    },
+    "controlled_goods": {
+        "label": "Controlled goods",
+        "required": True,
+        "value_type": "yes_no",
+        "aliases": ["controlled_goods", "controlled goods", "is controlled goods", "controlled"],
+    },
+    "consignor_eori": {
+        "label": "Consignor EORI",
+        "required": True,
+        "max_length": 200,
+        "value_type": "eori",
+        "aliases": ["consignor_eori", "consignor eori", "shipper eori", "sender eori"],
+    },
+    "consignee_eori": {
+        "label": "Consignee EORI",
+        "required": True,
+        "max_length": 200,
+        "value_type": "eori",
+        "aliases": ["consignee_eori", "consignee eori", "receiver eori"],
+    },
+    "importer_eori": {
+        "label": "Importer EORI",
+        "required": True,
+        "max_length": 200,
+        "value_type": "eori",
+        "aliases": ["importer_eori", "importer eori", "importer eori number"],
+    },
+    "exporter_eori": {
+        "label": "Exporter EORI",
+        "required": True,
+        "max_length": 200,
+        "value_type": "eori",
+        "aliases": ["exporter_eori", "exporter eori"],
+    },
+    "type_of_packages": {
+        "label": "Type of packages",
+        "required": True,
+        "max_length": 40,
+        "aliases": ["type_of_packages", "type of packages", "package type", "kind of packages", "package kind"],
+    },
+    "number_of_packages": {
+        "label": "Number of packages",
+        "required": True,
+        "value_type": "integer",
+        "min": 1,
+        "max": 99999,
+        "aliases": ["number_of_packages", "number of packages", "packages", "package count", "no of packages", "number packages"],
+    },
+    "package_marks": {
+        "label": "Package marks",
+        "required": True,
+        "max_length": 140,
+        "aliases": ["package_marks", "package marks", "marks", "shipping marks"],
+    },
+    "gross_mass_kg": {
+        "label": "Gross mass kg",
+        "required": True,
+        "value_type": "decimal",
+        "max_digits": 13,
+        "max_decimals": 2,
+        "aliases": ["gross_mass_kg", "gross mass kg", "gross mass", "gross weight", "gross weight kg", "gross kg"],
+    },
+    "commodity_code": {
+        "label": "Commodity code",
+        "required": False,
+        "value_type": "commodity_code",
+        "aliases": ["commodity_code", "commodity code", "hs code", "tariff code", "cn code", "goods code"],
+    },
+    "country_of_origin": {
+        "label": "Country of origin",
+        "required": False,
+        "value_type": "country_code",
+        "aliases": ["country_of_origin", "country of origin", "origin country", "coo", "origin"],
+    },
+    "item_invoice_amount": {
+        "label": "Invoice amount",
+        "required": False,
+        "value_type": "decimal",
+        "max_digits": 13,
+        "max_decimals": 2,
+        "aliases": ["item_invoice_amount", "invoice amount", "item value", "value", "customs value"],
+    },
+    "item_invoice_currency": {
+        "label": "Invoice currency",
+        "required": False,
+        "value_type": "currency_code",
+        "aliases": ["item_invoice_currency", "invoice currency", "currency", "value currency"],
+    },
+}
+
+AUDIT_COLUMN_ALIASES = {
+    "goods_item_number": ["goods_item_number", "goods item number", "item number", "item no", "line number", "line no"],
+    "trader_reference": ["trader_reference", "trader reference", "customer reference", "manifest reference"],
+    "destination_country": ["destination_country", "destination country", "country of destination"],
+}
+
+
+# =============================================================================
+# STEP 6 - MICROSOFT GRAPH FUNCTIONS
 # =============================================================================
 
 def check_graph_configuration() -> None:
@@ -474,7 +611,7 @@ def read_one_attachment(
 
 
 # =============================================================================
-# STEP 6 - TENANT MATCHING
+# STEP 7 - TENANT MATCHING
 # =============================================================================
 
 def get_sender_email(message: dict[str, Any]) -> str:
@@ -506,7 +643,7 @@ def find_tenant_config(message: dict[str, Any]) -> dict[str, Any] | None:
 
 
 # =============================================================================
-# STEP 7 - FILE HELPERS
+# STEP 8 - FILE HELPERS
 # =============================================================================
 
 def file_attachments_only(attachments: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -588,8 +725,8 @@ def save_attachment_file(
     config: dict[str, Any],
     attachment: dict[str, Any],
     args: argparse.Namespace,
-) -> tuple[str, Path]:
-    """Save one attachment using original name plus received date."""
+) -> tuple[str, Path, bytes]:
+    """Save one attachment for audit and return the same bytes for validation."""
     original_name = safe_filename(attachment.get("name", ""), "attachment")
     original_path = Path(original_name)
     filename = f"{original_path.stem}_{received_date_for_filename(message)}{original_path.suffix}"
@@ -597,7 +734,7 @@ def save_attachment_file(
 
     content = base64.b64decode(attachment["contentBytes"])
     result = save_bytes(path, content, args)
-    return result, path
+    return result, path, content
 
 
 def normalise_graph_date(value: str, end_of_day: bool = False) -> str:
@@ -661,7 +798,570 @@ def apply_run_mode_dates(args: argparse.Namespace) -> None:
 
 
 # =============================================================================
-# STEP 8 - QUALITY REPORT HELPERS
+# STEP 9 - EXCEL PARSING AND API READINESS VALIDATION
+# =============================================================================
+
+def normalize_column_name(value: str) -> str:
+    """Return a stable comparison key for Excel headers and aliases."""
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[_\-/]+", " ", text)
+    text = re.sub(r"[^a-z0-9 ]+", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def config_aliases_for_field(config: dict[str, Any], field_name: str) -> list[str]:
+    """Read optional tenant aliases from map_<field_name> config keys."""
+    return [normalize_column_name(value) for value in as_list(config.get(f"map_{field_name}"))]
+
+
+def build_alias_lookup(config: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    """Build normalized alias -> (field kind, field name)."""
+    lookup: dict[str, tuple[str, str]] = {}
+
+    for field_name, rule in FIELD_RULES.items():
+        aliases = [*rule.get("aliases", []), *config_aliases_for_field(config, field_name)]
+        for alias in aliases:
+            normalized = normalize_column_name(alias)
+            if normalized:
+                lookup[normalized] = ("api", field_name)
+
+    for field_name, aliases in AUDIT_COLUMN_ALIASES.items():
+        tenant_aliases = config_aliases_for_field(config, field_name)
+        for alias in [*aliases, *tenant_aliases]:
+            normalized = normalize_column_name(alias)
+            if normalized and normalized not in lookup:
+                lookup[normalized] = ("audit", field_name)
+
+    for alias in as_list(config.get("audit_columns")):
+        normalized = normalize_column_name(alias)
+        if normalized and normalized not in lookup:
+            lookup[normalized] = ("audit", "tenant_audit")
+
+    return lookup
+
+
+def configured_field_source(config: dict[str, Any], field_name: str) -> str:
+    """Return non-Excel source configured for an API field, if present."""
+    for key in (f"source_{field_name}", f"default_{field_name}", f"derive_{field_name}"):
+        value = str(config.get(key, "")).strip()
+        if value:
+            return value
+    return ""
+
+
+def read_shared_strings(workbook: zipfile.ZipFile) -> list[str]:
+    """Read XLSX shared strings with only the standard library."""
+    try:
+        xml = workbook.read("xl/sharedStrings.xml")
+    except KeyError:
+        return []
+
+    root = ET.fromstring(xml)
+    ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    values = []
+    for item in root.findall("s:si", ns):
+        values.append("".join(text.text or "" for text in item.findall(".//s:t", ns)))
+    return values
+
+
+def column_index_from_reference(cell_reference: str) -> int:
+    """Return zero-based column index from an Excel cell reference like B12."""
+    letters = re.sub(r"[^A-Z]", "", cell_reference.upper())
+    index = 0
+    for letter in letters:
+        index = index * 26 + (ord(letter) - ord("A") + 1)
+    return max(index - 1, 0)
+
+
+def worksheet_path(workbook: zipfile.ZipFile) -> str:
+    """Return the first worksheet path from an XLSX file."""
+    ns = {
+        "s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+        "r": "http://schemas.openxmlformats.org/package/2006/relationships",
+    }
+    book_root = ET.fromstring(workbook.read("xl/workbook.xml"))
+    rels_root = ET.fromstring(workbook.read("xl/_rels/workbook.xml.rels"))
+    first_sheet = book_root.find("s:sheets/s:sheet", ns)
+    if first_sheet is None:
+        raise ValueError("Workbook has no worksheets")
+
+    relationship_id = first_sheet.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+    for relationship in rels_root:
+        if relationship.get("Id") == relationship_id:
+            target = relationship.get("Target", "")
+            return "xl/" + target.lstrip("/")
+
+    raise ValueError("Workbook first worksheet relationship was not found")
+
+
+def cell_text(cell: ET.Element, shared_strings: list[str]) -> str:
+    """Return a readable value from one XLSX cell."""
+    ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    cell_type = cell.get("t", "")
+
+    if cell_type == "inlineStr":
+        return "".join(text.text or "" for text in cell.findall(".//s:t", ns)).strip()
+
+    value = cell.find("s:v", ns)
+    if value is None or value.text is None:
+        return ""
+
+    raw = value.text.strip()
+    if cell_type == "s" and raw.isdigit():
+        index = int(raw)
+        if 0 <= index < len(shared_strings):
+            return shared_strings[index].strip()
+    return raw
+
+
+def header_candidate_score(row: list[str], alias_lookup: dict[str, tuple[str, str]]) -> int:
+    """Score a row as a possible Excel table header."""
+    business_words = {
+        "address",
+        "amount",
+        "commodity",
+        "consignee",
+        "consignor",
+        "country",
+        "currency",
+        "customer",
+        "description",
+        "document",
+        "email",
+        "eori",
+        "exporter",
+        "gross",
+        "importer",
+        "invoice",
+        "item",
+        "line",
+        "marks",
+        "measure",
+        "number",
+        "origin",
+        "package",
+        "packages",
+        "postcode",
+        "price",
+        "quantity",
+        "qty",
+        "ship",
+        "tariff",
+        "unit",
+        "weight",
+    }
+    technical_words = {
+        "autohide",
+        "autotable",
+        "fields",
+        "filters",
+        "formula",
+        "formulas",
+        "headers",
+        "hide",
+        "linkfield",
+        "links",
+        "lookup",
+        "option",
+        "tables",
+        "values",
+    }
+
+    normalized_values = [normalize_column_name(value) for value in row if str(value or "").strip()]
+    if len(normalized_values) < 2:
+        return -100
+
+    score = min(len(normalized_values), 25)
+    for normalized in normalized_values:
+        words = set(normalized.split())
+        if normalized in alias_lookup:
+            score += 10
+        score += len(words & business_words)
+        if any(word in normalized for word in technical_words):
+            score -= 8
+
+    return score
+
+
+def select_header_index(raw_rows: list[list[str]]) -> int:
+    """Choose the most likely business header row from an Excel worksheet."""
+    alias_lookup = build_alias_lookup({})
+    best_index = 0
+    best_score = -999
+
+    for index, row in enumerate(raw_rows[:60]):
+        score = header_candidate_score(row, alias_lookup)
+        if score > best_score:
+            best_index = index
+            best_score = score
+
+    if best_score > 2:
+        return best_index
+
+    for index, row in enumerate(raw_rows[:10]):
+        if sum(1 for value in row if value.strip()) >= 2:
+            return index
+    return 0
+
+
+def unique_headers(raw_header_row: list[str]) -> list[str]:
+    """Return readable unique headers while keeping blank columns obvious."""
+    headers: list[str] = []
+    seen: dict[str, int] = {}
+
+    for index, value in enumerate(raw_header_row):
+        header = value.strip() or f"Column {index + 1}"
+        count = seen.get(header, 0) + 1
+        seen[header] = count
+        if count > 1:
+            header = f"{header} ({count})"
+        headers.append(header)
+
+    return headers
+
+
+def is_summary_excel_row(row_data: dict[str, str], header_count: int) -> bool:
+    """Skip worksheet total rows that are not customer goods lines."""
+    values = [normalize_column_name(value) for value in row_data.values() if str(value or "").strip()]
+    if not values:
+        return True
+    has_total_marker = any(value in {"total", "grand total"} for value in values)
+    return has_total_marker and len(values) < max(6, header_count // 2)
+
+def read_xlsx_rows(content: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """Read first worksheet into headers and row dictionaries."""
+    with zipfile.ZipFile(io.BytesIO(content)) as workbook:
+        shared_strings = read_shared_strings(workbook)
+        sheet_xml = workbook.read(worksheet_path(workbook))
+
+    ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    root = ET.fromstring(sheet_xml)
+    raw_rows: list[list[str]] = []
+
+    for row in root.findall(".//s:sheetData/s:row", ns):
+        values: list[str] = []
+        for cell in row.findall("s:c", ns):
+            column_index = column_index_from_reference(cell.get("r", "A1"))
+            while len(values) <= column_index:
+                values.append("")
+            values[column_index] = cell_text(cell, shared_strings)
+        if any(value.strip() for value in values):
+            raw_rows.append(values)
+
+    if not raw_rows:
+        return [], []
+
+    header_index = select_header_index(raw_rows)
+    headers = unique_headers(raw_rows[header_index])
+    rows: list[dict[str, str]] = []
+
+    for raw_row in raw_rows[header_index + 1:]:
+        row_data = {}
+        for index, header in enumerate(headers):
+            row_data[header] = raw_row[index].strip() if index < len(raw_row) else ""
+        if any(value.strip() for value in row_data.values()) and not is_summary_excel_row(row_data, len(headers)):
+            rows.append(row_data)
+
+    return headers, rows
+
+def add_validation_issue(
+    validation_rows: list[dict[str, str]],
+    message: dict[str, Any],
+    config: dict[str, Any],
+    attachment_name: str,
+    saved_path: Path | str,
+    row_number: int,
+    source_column: str,
+    technical_field: str,
+    severity: str,
+    rule: str,
+    details: str,
+) -> None:
+    """Append one validation issue to the run validation report."""
+    validation_rows.append(
+        {
+            "receivedDateTime": message.get("receivedDateTime", ""),
+            "tenantCode": config.get("tenant_code", ""),
+            "tenantName": config.get("tenant_name", ""),
+            "sender": get_sender_email(message),
+            "subject": message.get("subject", ""),
+            "attachmentName": attachment_name,
+            "savedPath": str(saved_path),
+            "rowNumber": str(row_number),
+            "sourceColumn": source_column,
+            "technicalField": technical_field,
+            "severity": severity,
+            "rule": rule,
+            "details": details,
+        }
+    )
+
+
+def mapped_columns(headers: list[str], config: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Return mapping details keyed by source header."""
+    lookup = build_alias_lookup(config)
+    mapping = {}
+    for header in headers:
+        normalized = normalize_column_name(header)
+        if normalized.startswith("column ") or normalized in {"autotable", "auto table"}:
+            mapping[header] = {"kind": "ignored", "field_name": ""}
+            continue
+        kind, field_name = lookup.get(normalized, ("unmapped", ""))
+        mapping[header] = {"kind": kind, "field_name": field_name}
+    return mapping
+
+
+def first_source_column_for_field(mapping: dict[str, dict[str, str]], field_name: str) -> str:
+    """Return the source column mapped to a technical field, if any."""
+    for source_column, details in mapping.items():
+        if details["field_name"] == field_name:
+            return source_column
+    return ""
+
+
+def validate_required_mappings(
+    headers: list[str],
+    mapping: dict[str, dict[str, str]],
+    validation_rows: list[dict[str, str]],
+    message: dict[str, Any],
+    config: dict[str, Any],
+    attachment_name: str,
+    saved_path: Path | str,
+) -> None:
+    """Report every source column and missing mandatory API mappings."""
+    for source_column, details in mapping.items():
+        if details["kind"] == "unmapped":
+            add_validation_issue(
+                validation_rows,
+                message,
+                config,
+                attachment_name,
+                saved_path,
+                0,
+                source_column,
+                "",
+                "PENDING",
+                "Unmapped source column",
+                "Column is present in the Excel but not currently mapped to API, derived, audit, or ignored data.",
+            )
+        elif details["kind"] == "audit":
+            add_validation_issue(
+                validation_rows,
+                message,
+                config,
+                attachment_name,
+                saved_path,
+                0,
+                source_column,
+                details["field_name"],
+                "INFO",
+                "Audit column accounted for",
+                "Column is retained for traceability/support and is not sent directly to the API.",
+            )
+
+    for field_name, rule in FIELD_RULES.items():
+        if not rule.get("required"):
+            continue
+        if not first_source_column_for_field(mapping, field_name):
+            configured_source = configured_field_source(config, field_name)
+            if configured_source:
+                add_validation_issue(
+                    validation_rows,
+                    message,
+                    config,
+                    attachment_name,
+                    saved_path,
+                    0,
+                    configured_source,
+                    field_name,
+                    "INFO",
+                    "Mandatory API field source accounted for",
+                    "Field is not expected as an Excel column; it must be resolved from this configured source before API submission.",
+                )
+                continue
+            add_validation_issue(
+                validation_rows,
+                message,
+                config,
+                attachment_name,
+                saved_path,
+                0,
+                "",
+                field_name,
+                "ERROR",
+                "Missing API mandatory mapping",
+                "No Excel column is mapped to this mandatory API field. Provide a column or approved tenant/master-data source.",
+            )
+
+
+def is_blank(value: str) -> bool:
+    """Return True for empty Excel values."""
+    return str(value or "").strip() == ""
+
+
+def decimal_parts(value: str) -> tuple[str, str]:
+    """Return integer and decimal parts for simple numeric validation."""
+    text = value.strip().replace(" ", "")
+    if text.startswith("-"):
+        text = text[1:]
+    if "." in text:
+        left, right = text.split(".", 1)
+        return left, right
+    return text, ""
+
+
+def normalize_excel_decimal_noise(value: str, max_decimals: int) -> str:
+    """Collapse harmless Excel floating-point noise before decimal validation."""
+    if "." not in value:
+        return value
+    try:
+        number = float(value)
+    except ValueError:
+        return value
+
+    rounded = f"{number:.{max_decimals}f}"
+    if abs(number - float(rounded)) < 0.000000001:
+        return rounded.rstrip("0").rstrip(".") or "0"
+    return value
+
+def validate_field_value(field_name: str, value: str) -> list[tuple[str, str, str]]:
+    """Return validation issues as severity/rule/details tuples."""
+    rule = FIELD_RULES[field_name]
+    issues: list[tuple[str, str, str]] = []
+    text = str(value or "").strip()
+
+    if rule.get("required") and is_blank(text):
+        return [("ERROR", "Missing API mandatory value", "Value is required by the TSS/API contract.")]
+    if is_blank(text):
+        return []
+
+    max_length = rule.get("max_length")
+    if max_length and len(text) > int(max_length):
+        issues.append(("ERROR", "API maximum length", f"Value has {len(text)} characters; maximum is {max_length}."))
+
+    value_type = rule.get("value_type")
+    if value_type == "yes_no" and text.lower() not in {"yes", "no", "y", "n", "true", "false", "1", "0"}:
+        issues.append(("ERROR", "Yes/no value", "Expected yes/no, true/false, or 1/0."))
+
+    if value_type == "integer":
+        if not re.fullmatch(r"\d+", text):
+            issues.append(("ERROR", "Integer value", "Expected a whole number."))
+        else:
+            number = int(text)
+            if number < int(rule.get("min", 0)) or number > int(rule.get("max", number)):
+                issues.append(("ERROR", "Integer range", f"Expected value between {rule.get('min')} and {rule.get('max')}."))
+
+    if value_type == "decimal":
+        if "," in text:
+            issues.append(("ERROR", "Decimal format", "Commas are not allowed in API numeric values."))
+        normalized = text.replace(" ", "")
+        max_decimals = int(rule.get("max_decimals", 2))
+        normalized = normalize_excel_decimal_noise(normalized, max_decimals)
+        if not re.fullmatch(r"-?\d+(\.\d+)?", normalized):
+            issues.append(("ERROR", "Decimal value", "Expected a valid number."))
+        else:
+            left, right = decimal_parts(normalized)
+            total_digits = len(left.lstrip("0")) + len(right)
+            if total_digits > int(rule.get("max_digits", total_digits)):
+                issues.append(("ERROR", "Decimal max digits", f"Maximum total digits is {rule.get('max_digits')}."))
+            if len(right) > max_decimals:
+                issues.append(("ERROR", "Decimal precision", f"Maximum decimals is {rule.get('max_decimals')}."))
+
+    if value_type == "eori" and field_name == "consignor_eori" and text.upper().startswith("GB"):
+        issues.append(("ERROR", "Consignor EORI", "TSS guidance says GB EORI is not accepted for consignor_eori."))
+
+    if value_type == "commodity_code":
+        if not re.fullmatch(r"\d+", text):
+            issues.append(("ERROR", "Commodity code format", "Commodity code must contain digits only."))
+        elif len(text) < 6 or len(text) == 7 or len(text) > 10:
+            issues.append(("ERROR", "Commodity code length", "Expected 8-10 digits, or 6 digits only when APC is 1SG."))
+        elif len(text) == 6:
+            issues.append(("WARNING", "Conditional commodity code", "6 digits are only valid when APC is 1SG; confirm before API submission."))
+
+    if value_type == "country_code" and not re.fullmatch(r"[A-Za-z]{2}", text):
+        issues.append(("ERROR", "Country code", "Expected a 2-letter country code."))
+
+    if value_type == "currency_code" and not re.fullmatch(r"[A-Za-z]{3}", text):
+        issues.append(("WARNING", "Currency code", "Expected a 3-letter currency code when supplied."))
+
+    return issues
+
+
+def validate_xlsx_attachment(
+    message: dict[str, Any],
+    config: dict[str, Any],
+    attachment_name: str,
+    content: bytes,
+    saved_path: Path | str,
+    validation_rows: list[dict[str, str]],
+    stats: dict[str, Any],
+) -> None:
+    """Parse and validate one Excel attachment directly from Graph bytes."""
+    suffix = Path(attachment_name).suffix.lower()
+    if suffix not in EXCEL_SUFFIXES:
+        return
+
+    stats["validated_excels"] += 1
+
+    try:
+        headers, data_rows = read_xlsx_rows(content)
+    except Exception as error:
+        stats["validation_errors"] += 1
+        add_validation_issue(
+            validation_rows,
+            message,
+            config,
+            attachment_name,
+            saved_path,
+            0,
+            "",
+            "",
+            "ERROR",
+            "Unreadable Excel",
+            str(error),
+        )
+        return
+
+    mapping = mapped_columns(headers, config)
+    issue_start = len(validation_rows)
+    validate_required_mappings(headers, mapping, validation_rows, message, config, attachment_name, saved_path)
+
+    for row_index, row in enumerate(data_rows, 2):
+        for source_column, details in mapping.items():
+            if details["kind"] != "api":
+                continue
+            field_name = details["field_name"]
+            for severity, rule, details_text in validate_field_value(field_name, row.get(source_column, "")):
+                if severity == "ERROR":
+                    stats["validation_errors"] += 1
+                elif severity == "WARNING":
+                    stats["validation_warnings"] += 1
+                else:
+                    stats["validation_pending"] += 1
+                add_validation_issue(
+                    validation_rows,
+                    message,
+                    config,
+                    attachment_name,
+                    saved_path,
+                    row_index,
+                    source_column,
+                    field_name,
+                    severity,
+                    rule,
+                    details_text,
+                )
+
+    # Missing mandatory mappings are added after row counters so the summary also
+    # reflects file-level errors.
+    for issue in validation_rows[issue_start:]:
+        if issue["rule"] == "Missing API mandatory mapping":
+            stats["validation_errors"] += 1
+        if issue["severity"] == "PENDING":
+            stats["validation_pending"] += 1
+
+# =============================================================================
+# STEP 10 - QUALITY REPORT HELPERS
 # =============================================================================
 
 def new_stats() -> dict[str, Any]:
@@ -674,6 +1374,10 @@ def new_stats() -> dict[str, Any]:
         "skipped_existing": 0,
         "no_file_attachments": 0,
         "failed": 0,
+        "validated_excels": 0,
+        "validation_errors": 0,
+        "validation_warnings": 0,
+        "validation_pending": 0,
         "file_types": {},
     }
 
@@ -757,8 +1461,45 @@ def write_run_log(
     return path
 
 
+
+def write_validation_report(
+    rows: list[dict[str, str]],
+    started_at: dt.datetime,
+    args: argparse.Namespace,
+) -> Path | None:
+    """Write Excel mapping/API validation output for support and QA."""
+    if not rows:
+        return None
+
+    RUN_LOG_FOLDER.mkdir(parents=True, exist_ok=True)
+    run_type = "dry_run" if args.dry_run else "run"
+    path = RUN_LOG_FOLDER / f"graph_validation_report_{started_at:%Y%m%d_%H%M%S}_{run_type}.csv"
+
+    columns = [
+        "receivedDateTime",
+        "tenantCode",
+        "tenantName",
+        "sender",
+        "subject",
+        "attachmentName",
+        "savedPath",
+        "rowNumber",
+        "sourceColumn",
+        "technicalField",
+        "severity",
+        "rule",
+        "details",
+    ]
+
+    with path.open("w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return path
+
 # =============================================================================
-# STEP 9 - PROCESS ONE EMAIL
+# STEP 11 - PROCESS ONE EMAIL
 # =============================================================================
 
 def process_one_message(
@@ -766,6 +1507,7 @@ def process_one_message(
     message: dict[str, Any],
     stats: dict[str, Any],
     rows: list[dict[str, str]],
+    validation_rows: list[dict[str, str]],
     args: argparse.Namespace,
 ) -> None:
     """Process one email in the simplest possible order."""
@@ -810,7 +1552,7 @@ def process_one_message(
                 if not attachment.get("contentBytes") and attachment.get("id"):
                     attachment = read_one_attachment(token, message["id"], attachment["id"])
 
-                result, path = save_attachment_file(message, config, attachment, args)
+                result, path, content = save_attachment_file(message, config, attachment, args)
                 suffix = path.suffix.lower() or ".no_extension"
                 count_file_type(stats, suffix)
 
@@ -818,6 +1560,16 @@ def process_one_message(
                     stats["saved_attachments"] += 1
                 elif result == "SKIPPED_EXISTS":
                     stats["skipped_existing"] += 1
+
+                validate_xlsx_attachment(
+                    message,
+                    config,
+                    attachment.get("name", ""),
+                    content,
+                    path,
+                    validation_rows,
+                    stats,
+                )
 
                 rows.append(
                     report_row(
@@ -851,7 +1603,7 @@ def process_one_message(
 
 
 # =============================================================================
-# STEP 10 - MAIN SCRIPT FLOW
+# STEP 12 - MAIN SCRIPT FLOW
 # =============================================================================
 
 def run(args: argparse.Namespace) -> int:
@@ -877,6 +1629,7 @@ def run(args: argparse.Namespace) -> int:
     started_at = dt.datetime.now(dt.timezone.utc)
     stats = new_stats()
     rows: list[dict[str, str]] = []
+    validation_rows: list[dict[str, str]] = []
 
     print("STEP 1 - Checking Graph configuration")
     check_graph_configuration()
@@ -890,16 +1643,21 @@ def run(args: argparse.Namespace) -> int:
 
     print("STEP 4 - Processing messages by tenant rules")
     for message in messages:
-        process_one_message(token, message, stats, rows, args)
+        process_one_message(token, message, stats, rows, validation_rows, args)
 
     print("STEP 5 - Finalising support summary")
     run_log_path = write_run_log(rows, stats, started_at, args)
+    validation_report_path = write_validation_report(validation_rows, started_at, args)
 
-    print_summary(stats, run_log_path)
+    print_summary(stats, run_log_path, validation_report_path)
     return 1 if stats["failed"] else 0
 
 
-def print_summary(stats: dict[str, Any], run_log_path: Path) -> None:
+def print_summary(
+    stats: dict[str, Any],
+    run_log_path: Path,
+    validation_report_path: Path | None,
+) -> None:
     """Print the final result in the terminal."""
     print("")
     print("Graph download finished")
@@ -913,7 +1671,13 @@ def print_summary(stats: dict[str, Any], run_log_path: Path) -> None:
         f"{stats['no_file_attachments']}"
     )
     print(f"  Failed messages: {stats['failed']}")
+    print(f"  Validated Excel files: {stats['validated_excels']}")
+    print(f"  Validation errors: {stats['validation_errors']}")
+    print(f"  Validation warnings: {stats['validation_warnings']}")
+    print(f"  Validation pending items: {stats['validation_pending']}")
     print(f"  Technical run log: {run_log_path}")
+    if validation_report_path:
+        print(f"  Validation report: {validation_report_path}")
 
     if stats["file_types"]:
         print("  File types:")
@@ -922,7 +1686,7 @@ def print_summary(stats: dict[str, Any], run_log_path: Path) -> None:
 
 
 # =============================================================================
-# STEP 11 - COMMAND LINE OPTIONS
+# STEP 13 - COMMAND LINE OPTIONS
 # =============================================================================
 
 def build_parser() -> argparse.ArgumentParser:
@@ -988,5 +1752,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

@@ -24,3 +24,49 @@ file_types:
 
 destination_folder: 'Integration_Layer\BKD\Inbound\Sales_Order_files'
 
+# Excel/API mapping for the current BKD sales order file.
+# Values not present in the Excel must be resolved before TSS API submission.
+map_transport_document_number:
+  - Document No.
+
+map_item_invoice_amount:
+  - Line Amount Excl. VAT
+
+map_goods_item_number:
+  - Line No.
+
+source_goods_description: product_master_data
+source_controlled_goods: product_master_data_or_tenant_default
+source_consignor_eori: tenant_master_data
+source_consignee_eori: customer_master_data
+source_importer_eori: customer_master_data
+source_exporter_eori: tenant_master_data
+source_type_of_packages: product_master_data_or_package_rules
+source_number_of_packages: package_rules
+source_package_marks: order_reference_or_package_rules
+source_gross_mass_kg: product_master_data
+
+source_item_invoice_currency: tenant_default_currency
+
+audit_columns:
+  - Sales Header - Sell-to Customer No.
+  - Sales Header - Ship-to Code
+  - Sales Header - Ship-to Name
+  - Sales Header - Ship-to Name 2
+  - Sales Header - Ship-to Address
+  - Sales Header - Ship-to Address 2
+  - Sales Header - Ship-to City
+  - Sales Header - Ship-to County
+  - Sales Header - Ship-to Phone No.
+  - Sales Header - Account No. (Ship-to)
+  - Sales Header - Email
+  - No.
+  - Quantity
+  - Quantity (Base)
+  - Amount
+  - Unit Price Excl. VAT
+  - Qty. per Unit of Measure
+  - Unit of Measure Code
+  - Sales Amount 1
+  - Line Amount Excl. VAT 1
+  - Unit Price Excl. VAT1
