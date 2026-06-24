@@ -14,4 +14,22 @@ Sender_Rules,QAS,Fusion_Flow_V3_QAS,BKD,GRAPH_SENDER_RULE,DOMAIN,birkdalesales.c
 Sender_Rules,QAS,Fusion_Flow_V3_QAS,CWH,GRAPH_SENDER_RULE,TBD,TBD,FALSE,Add after source and file format are confirmed.
 Sender_Rules,QAS,Fusion_Flow_V3_QAS,PLE,GRAPH_SENDER_RULE,TBD,TBD,FALSE,Add after source and file format are confirmed.
 Sender_Rules,QAS,Fusion_Flow_V3_QAS,AVN,GRAPH_SENDER_RULE,TBD,TBD,FALSE,Add after source and file format are confirmed.
-
+Process_Folders,QAS,Fusion_Flow_V3_QAS,BKD,INGESTION_ROUTE,PROCESS_FOLDER,Integration_Layer\BKD\Process,FALSE,Folder used after email assets are saved and before DB load into ING.
+Process_Folders,QAS,Fusion_Flow_V3_QAS,BKD,INGESTION_ROUTE,FAIL_FOLDER,Integration_Layer\BKD\Fails,FALSE,Folder for files that fail parsing/loading.
+Process_Folders,QAS,Fusion_Flow_V3_QAS,CWH,INGESTION_ROUTE,PROCESS_FOLDER,Integration_Layer\CWH\Process,FALSE,Folder prepared; sender/source pending.
+Process_Folders,QAS,Fusion_Flow_V3_QAS,CWH,INGESTION_ROUTE,FAIL_FOLDER,Integration_Layer\CWH\Fails,FALSE,Folder prepared; sender/source pending.
+Process_Folders,QAS,Fusion_Flow_V3_QAS,PLE,INGESTION_ROUTE,PROCESS_FOLDER,Integration_Layer\PLE\Process,FALSE,Folder prepared; sender/source pending.
+Process_Folders,QAS,Fusion_Flow_V3_QAS,PLE,INGESTION_ROUTE,FAIL_FOLDER,Integration_Layer\PLE\Fails,FALSE,Folder prepared; sender/source pending.
+Pack_Rules,QAS,Fusion_Flow_V3_QAS,BKD,PACK_RULE,ENS_PACK,EMAIL_BODY_TO_XLSX_SHEET_ENS_PACK,FALSE,Email body becomes Sales Orders Synovia_{dd.MM.yyyy}.xlsx sheet ENS PACK.
+Pack_Rules,QAS,Fusion_Flow_V3_QAS,BKD,PACK_RULE,DEC_PACK,ATTACHMENT_TO_XLSX_SHEET_DEC_PACK,FALSE,Consignment attachment from today's email becomes DEC PACK.
+Pack_Rules,QAS,Fusion_Flow_V3_QAS,CWH,PACK_RULE,DEC_PACK,ATTACHMENT_TO_DEC_PACK_PENDING,FALSE,Expected existing ENS reference plus consignment/goods upload; sender/source pending.
+Pack_Rules,QAS,Fusion_Flow_V3_QAS,PLE,PACK_RULE,DEC_PACK,ATTACHMENT_TO_DEC_PACK_PENDING,FALSE,Expected existing ENS reference plus consignment/goods upload; sender/source pending.
+TSS_Gates,QAS,Fusion_Flow_V3_QAS,BKD,TENANT_SETTING,TSS_ENVIRONMENT,QAS,FALSE,QAS target environment label.
+TSS_Gates,QAS,Fusion_Flow_V3_QAS,BKD,TENANT_SETTING,TSS_DRY_RUN,true,FALSE,QAS default dry run gate.
+TSS_Gates,QAS,Fusion_Flow_V3_QAS,BKD,TENANT_SETTING,TSS_SUBMIT_ENABLED,false,FALSE,Live TSS submit disabled until signoff.
+TSS_Gates,QAS,Fusion_Flow_V3_QAS,CWH,TENANT_SETTING,TSS_ENVIRONMENT,QAS,FALSE,QAS target environment label.
+TSS_Gates,QAS,Fusion_Flow_V3_QAS,CWH,TENANT_SETTING,TSS_DRY_RUN,true,FALSE,QAS default dry run gate.
+TSS_Gates,QAS,Fusion_Flow_V3_QAS,CWH,TENANT_SETTING,TSS_SUBMIT_ENABLED,false,FALSE,Live TSS submit disabled until signoff.
+TSS_Gates,QAS,Fusion_Flow_V3_QAS,PLE,TENANT_SETTING,TSS_ENVIRONMENT,QAS,FALSE,QAS target environment label.
+TSS_Gates,QAS,Fusion_Flow_V3_QAS,PLE,TENANT_SETTING,TSS_DRY_RUN,true,FALSE,QAS default dry run gate.
+TSS_Gates,QAS,Fusion_Flow_V3_QAS,PLE,TENANT_SETTING,TSS_SUBMIT_ENABLED,false,FALSE,Live TSS submit disabled until signoff.
