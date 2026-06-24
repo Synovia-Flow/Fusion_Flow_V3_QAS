@@ -22,7 +22,7 @@ save files.
 | `Application_Paramters` | Graph mailbox, credentials keys, root paths and process flags. |
 | `Principals` | Tenant/client list, for example `BKD`, `CWH`, `PLE`, `AVN`. |
 | `Sender_Rules` | Rules that map sender domains or addresses to tenant folders. |
-| `Database_Model` | Minimal table model for `CFG.Graph`, `CFG.TenantSetting`, `EXC.Graph`, `ING.Graph`, `STG.SalesOrder`, `TSS.Submission`. |
+| `Database_Model` | Minimal ingestion table model for `CFG.Graph`, `CFG.Tenant`, `CFG.IngestionRoute`, `CFG.IngestionPackRule`, `EXC.Graph`, `EXC.ExecutionLog`, `ING.Graph`, `ING.ProcessFile`, and `ING.LoadRow`. |
 | `Load_Map` | Shows how workbook tabs map into the future database. |
 
 ## GitHub Rule
@@ -36,11 +36,9 @@ sanitised version for version control.
 - `CFG.Tenant` owns tenant identity and default folders for `BKD`, `CWH`, and `PLE`.
 - `CFG.IngestionRoute` owns mailbox/sender/folder routing.
 - `CFG.IngestionPackRule` owns `ENS_PACK` and `DEC_PACK` file/sheet rules.
-- `CFG.TenantSetting` owns runtime gates such as `TSS_SUBMIT_ENABLED`, `TSS_DRY_RUN`, and `TSS_ENVIRONMENT`.
+- `CFG.TenantSetting` is reserved for ingestion runtime settings only; submission gates belong to a later phase.
 - `EXC` is reserved for execution logs.
 - `ING` records source files, process folders, fail folders, generated CSV paths, and load rows before validation.
-- `STG` owns validation/business staging.
-- `TSS` owns official API references and status mirrors.
 
 `CWH` and `PLE` are configured but Graph-inactive until sender rules and template mappings are confirmed.
 

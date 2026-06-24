@@ -16,24 +16,20 @@ The files are intentionally split by job:
 | --- | --- |
 | `001_create_schemas_and_tables.sql` | Make the empty boxes: schemas, tables and extra columns. |
 | `002_add_constraints_and_indexes.sql` | Connect the boxes: foreign keys and indexes. |
-| `003_seed_qas_config.sql` | Put starting config in the boxes: BKD active, CWH/PLE inactive, pack rules and TSS gates. |
+| `003_seed_qas_config.sql` | Put starting config in the boxes: BKD active, CWH/PLE inactive and pack rules. |
 
 ## What Each Schema Means
 
 | Schema | Meaning |
 | --- | --- |
-| `CFG` | What should happen: tenants, routes, pack rules and gates. |
+| `CFG` | What should happen: tenants, routes and pack rules. |
 | `EXC` | What happened: execution runs and logs. |
 | `ING` | What came in: emails, files, process records and loaded rows. |
-| `STG` | What is being validated before API submission. |
-| `TSS` | What TSS returned or what we submitted to TSS. |
 
 ## Safety Notes
 
 - These scripts do not create the database itself; create/select `Fusion_Flow_V3_QAS` first.
 - They do not store credentials or secrets.
-- QAS submit is disabled by seed data: `TSS_SUBMIT_ENABLED=false`.
-- QAS dry-run is enabled by seed data: `TSS_DRY_RUN=true`.
 - CWH and PLE are present for design/testing but inactive until sender/source/templates are confirmed.
 
 ## Smoke Test After Running

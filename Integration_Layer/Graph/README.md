@@ -1,4 +1,4 @@
-﻿# Graph Mail Downloader
+# Graph Mail Downloader
 
 This folder contains the current Microsoft Graph downloader for Fusion Flow V3
 QAS.
@@ -7,13 +7,21 @@ The script reads a configured mailbox, matches each email to a tenant/customer
 using sender rules, and saves allowed file attachments into the correct
 Integration Layer destination folder.
 
+## Operational Storage
+
+Graph is the source for emails. The operational file store is:
+
+\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer
+
+The repo under Scratch remains code, SQL and documentation. Saved emails, generated process packs and fail evidence should land in Synovia_Flow_Quality.
+
 ## Current Tenants
 
 | Tenant | Code | Sender rule | File type | Destination | Status |
 | --- | --- | --- | --- | --- | --- |
-| Birkdale | BKD | `birkdalesales.com` | `.xlsx` | `Integration_Layer\BKD\Inbound\Sales_Order_files` | Active |
-| Country Wide Homes | CWH | `TBD` | `.xlsx`, `.csv` | `Integration_Layer\CWH\Inbound\Sales_Order_files` | Configured, Graph inactive |
-| Primeline Express | PLE | `TBD` | `.xlsx`, `.csv` | `Integration_Layer\PLE\Inbound\Sales_Order_files` | Configured, Graph inactive |
+| Birkdale | BKD | `birkdalesales.com` | `.xlsx` | `\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Inbound\Sales_Order_files` | Active |
+| Country Wide Homes | CWH | `TBD` | `.xlsx`, `.csv` | `\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\CWH\Inbound\Sales_Order_files` | Configured, Graph inactive |
+| Primeline Express | PLE | `TBD` | `.xlsx`, `.csv` | `\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\PLE\Inbound\Sales_Order_files` | Configured, Graph inactive |
 
 BKD is the only active Graph route until the CWH/PLE sender rules and templates
 are confirmed. CWH/PLE are expected to be existing-ENS consignment/goods uploads.
@@ -22,7 +30,7 @@ are confirmed. CWH/PLE are expected to be existing-ENS consignment/goods uploads
 ```text
 Integration_Layer/Graph/graph_mail_customer_downloader.py
 Integration_Layer/Graph/config/customers/BKD.yml
-Integration_Layer/FLOW_V3/Run_History/Graph/   # generated locally, not committed
+Integration_Layer/FLOW_V3/Run_History/Graph/   # repo-side support run evidence only
 ```
 
 ## Environment
@@ -46,10 +54,11 @@ Optional:
 GRAPH.HISTORIC_START_DATE
 GRAPH.ENV_CODE
 GRAPH.DB_ENABLED
+DB_CONN_STR
 GRAPH.DB_CONNECTION_STRING
 ```
 
-When `GRAPH.DB_CONNECTION_STRING` is set, the downloader reads active routing
+When either `DB_CONN_STR` or `GRAPH.DB_CONNECTION_STRING` is set, the downloader reads active routing
 rows from `CFG.Graph` for the configured mailbox and writes one `EXC.Graph`
 execution row plus `ING.Graph` source trace rows for matched, unmatched, skipped
 and saved file outcomes. New process/fail metadata lands in `ING.Graph` when those columns exist, while detailed execution messages belong in `EXC.ExecutionLog`. Database tracing requires the Python `pyodbc` package and a SQL Server ODBC driver. Use `--no-database` to force a file-only run.
@@ -124,7 +133,7 @@ python Integration_Layer\Graph\graph_mail_customer_downloader.py --dry-run --max
 9. Save files as original name plus received date `dd.mm.yyyy`.
 10. Insert `ING.Graph` trace rows when database tracing is active, including pack/source/process/fail metadata when the MVP schema extension has been applied.
 11. Skip files that already exist unless `--overwrite` is passed.
-12. Keep body-to-ENS/consignment logic out of the Graph downloader for now.
+12. BKD saves the ENS email body first, then pairs the later DEC Excel email to generate the operational API pack.
 13. Write run history and validation reports under Integration_Layer/FLOW_V3/Run_History/Graph.
 
 The business output is the customer file in the tenant Integration Layer folder.
@@ -135,18 +144,17 @@ The CSV history/report files are operational evidence for support and QA.
 - `CFG.Tenant` stores tenant names and default folder ownership.
 - `CFG.IngestionRoute` stores mailbox/sender/folder routing.
 - `CFG.IngestionPackRule` stores how email parts become packs.
-- BKD `ENS_PACK` is the email body target: `Sales Orders Synovia_{dd.MM.yyyy}.xlsx`, sheet `ENS PACK`.
-- BKD `DEC_PACK` is the consignment attachment target: `Sales Orders Synovia_{dd.MM.yyyy}.xlsx`, sheet `DEC PACK`.
+- BKD `ENS_PACK` is built from the saved ENS source email body and written to the generated API pack sheet `ENS PACK`.
+- BKD `DEC_PACK` is built from the later matched sales-order attachment and written to the generated API pack sheet `DEC PACK`.
 - `EXC` is for executions/logs only.
-- `ING` is for source file/folder/process/fail records before `STG` validation.
+- `ING` is for source file/folder/process/fail records and loaded pack rows in the ingestion slice.
 ## Notes
 
 - The script does not mark emails as read or move them.
 - Duplicate prevention is handled by the destination filename and existing-file
   checks.
-- Emails without file attachments are skipped and counted in the run summary.
-- Body data is treated as a future API/test environment concern because it can be
-  needed to create ENS records and consignments.
+- Emails without file attachments can be valid BKD ENS source emails. DEC/API pack generation waits until a later Excel email can be paired by tenant, UTC date and normalized subject.
+- BKD trims forwarded-chain noise from the saved ENS source using `body_text_cut_after_marker=customsadmin@primelineexpress.co.uk` with `body_text_cut_marker_occurrence=first`.
 - Future customers should be added as new YML files rather than hard-coded in
   the Python script.
 

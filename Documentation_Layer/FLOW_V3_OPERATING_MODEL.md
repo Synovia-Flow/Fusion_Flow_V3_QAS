@@ -50,9 +50,9 @@ BKD operational artefacts:
 
 | Artefact | Location | Purpose |
 | --- | --- | --- |
-| Original ENS body text | `Integration_Layer/BKD/Inbound/ENS_Email_Body/ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt` | Keeps the received email body as traceable ENS source evidence. |
+| Original ENS source text | `Integration_Layer/BKD/Inbound/ENS_Source/ENS_Source_{dd.MM.yyyy}.txt` | Keeps the received email body as traceable ENS source evidence, trimmed after the last `customsadmin@primelineexpress.co.uk` marker to remove forwarded-chain noise. |
 | Original sales order attachment | `Integration_Layer/BKD/Inbound/Sales_Order_files/` | Keeps the customer Excel exactly as received. |
-| Generated API pack | `Integration_Layer/BKD/Process/BKD_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx` | Combines `ENS PACK` from the body and `DEC PACK` from the Excel attachment for review/mapping before TSS API processing. |
+| Generated API pack | `Integration_Layer/BKD/Process/BKD_API_PACK_{dd.MM.yyyy}.xlsx` | Combines `ENS PACK` from the first ENS body email and `DEC PACK` from the later Excel attachment email for review/mapping before TSS API processing. |
 
 ## Source Material
 
@@ -67,7 +67,7 @@ BKD operational artefacts:
 
 | Step | Script | What it does | Output |
 | --- | --- | --- | --- |
-| 01 | `Integration_Layer/FLOW_V3/01_graph_email_ing.py` | Fetches Graph emails, classifies by customer/sender, stores source file/body trace and generates the BKD API pack. | ING trace / saved originals / generated process pack. |
+| 01 | `Integration_Layer/FLOW_V3/01_graph_email_ing.py` | Fetches Graph emails, classifies by customer/sender, stores source file/body trace and generates the BKD API pack when the ENS body email and DEC attachment email are paired. | ING trace / saved originals / generated process pack. |
 | 02 | `Integration_Layer/FLOW_V3/02_ens_details_auto_submit.py` | Converts `DETAILS FOR...` email data into ENS header and submits to TSS. | Official `ENS000...`. |
 | 03 | `Integration_Layer/FLOW_V3/03_sales_orders_cargo_submit.py` | Converts Sales Orders Excel into consignments/goods and submits cargo to TSS. | Official `DEC000...` and TSS goods IDs. |
 | 04 | `Integration_Layer/FLOW_V3/04_status_watcher_notify.py` | Reads TSS statuses, syncs DEC/SFD/MRN/goods and sends movement notification when ready. | Updated mirrors and `movement_notified_at`. |
