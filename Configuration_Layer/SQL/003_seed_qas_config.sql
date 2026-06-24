@@ -1,13 +1,25 @@
 /*
-    Fusion_Flow_V3_QAS SQL migration.
+    FLOW V3 QAS DATABASE SETUP - FILE 3 OF 3
 
     Purpose:
-        Seed QAS tenant, route, pack-rule and runtime gate configuration for BKD, CWH and PLE.
+        Load the initial QAS configuration for BKD, CWH and PLE.
 
-    Run order:
-        Execute files in numeric filename order. Scripts are idempotent
-        where practical so QAS can be refreshed safely.
+    Run this after:
+        001_create_schemas_and_tables.sql
+        002_add_constraints_and_indexes.sql
+
+    Safe to rerun:
+        Yes. MERGE updates existing rows and inserts missing rows.
+
+    Tenant state:
+        BKD is active for the MVP vertical slice.
+        CWH and PLE are configured but inactive until sender/source/templates are confirmed.
+
+    Safety gates:
+        TSS_DRY_RUN=true and TSS_SUBMIT_ENABLED=false for every seeded tenant.
 */
+
+/* SECTION 1 - Tenants and default folders. */
 MERGE CFG.Tenant AS target
 USING (VALUES
     ('QAS', 'BKD', 'Birkdale', 'Integration_Layer\BKD', 'Integration_Layer\BKD\Inbound\Sales_Order_files', 'Integration_Layer\BKD\Process', 'Integration_Layer\BKD\Fails', 1, 'Active first tenant. Email body is saved as ENS source text; generated API pack contains ENS PACK and DEC PACK sheets.'),
@@ -27,6 +39,8 @@ WHEN MATCHED THEN UPDATE SET
 WHEN NOT MATCHED THEN INSERT (EnvCode, TenantCode, TenantName, IntegrationRoot, DefaultInboundFolder, ProcessFolder, FailFolder, IsActive, Notes)
     VALUES (source.EnvCode, source.TenantCode, source.TenantName, source.IntegrationRoot, source.DefaultInboundFolder, source.ProcessFolder, source.FailFolder, source.IsActive, source.Notes);
 GO
+
+/* SECTION 2 - Tenant runtime gates. */
 MERGE CFG.TenantSetting AS target
 USING (
     SELECT t.TenantID, v.*
@@ -57,6 +71,8 @@ WHEN MATCHED THEN UPDATE SET
 WHEN NOT MATCHED THEN INSERT (TenantID, EnvCode, TenantCode, SettingKey, SettingValue, ValueType, IsActive, Notes)
     VALUES (source.TenantID, source.EnvCode, source.TenantCode, source.SettingKey, source.SettingValue, source.ValueType, source.IsActive, source.Notes);
 GO
+
+/* SECTION 3 - Graph email routes. */
 MERGE CFG.IngestionRoute AS target
 USING (
     SELECT t.TenantID, v.*
@@ -88,6 +104,7 @@ WHEN NOT MATCHED THEN INSERT (TenantID, EnvCode, TenantCode, RouteName, SourceTy
     VALUES (source.TenantID, source.EnvCode, source.TenantCode, source.RouteName, source.SourceType, source.Mailbox, source.SenderRuleType, source.SenderRule, source.DestinationFolder, source.ProcessFolder, source.FailFolder, source.AllowedFileTypes, source.RouteStatus, source.IsActive, source.Notes);
 GO
 
+/* SECTION 4 - Pack rules: ENS_PACK and DEC_PACK. */
 MERGE CFG.IngestionPackRule AS target
 USING (
     SELECT r.RouteID, v.*
@@ -96,7 +113,7 @@ USING (
         ('QAS', 'BKD', 'GRAPH_SALES_ORDERS', 'DEC_PACK', 'ATTACHMENT', 'XLSX', 'BKD_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx', 'DEC PACK', 'Integration_Layer\BKD\Process', 1, 'Sales order attachment rows are copied into the DEC PACK sheet of the generated API pack.'),
         ('QAS', 'CWH', 'GRAPH_SALES_ORDERS', 'DEC_PACK', 'ATTACHMENT', 'XLSX', 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx', 'DEC PACK', 'Integration_Layer\CWH\Process\DEC_PACK', 0, 'Pending source confirmation; expected existing ENS reference plus consignment/goods upload.'),
         ('QAS', 'PLE', 'GRAPH_SALES_ORDERS', 'DEC_PACK', 'ATTACHMENT', 'XLSX', 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx', 'DEC PACK', 'Integration_Layer\PLE\Process\DEC_PACK', 0, 'Pending source confirmation; expected existing ENS reference plus consignment/goods upload.')
-    ) AS v (EnvCode, TenantCode, RouteName, PackCode, SourcePart, OutputFormat, OutputFilePattern, SheetName, CsvFolder, IsActive, Notes)
+    ) AS v (EnvCode, TenantCode, RouteName, PackCode, SourcePart, OutputFormat, OutputFilePattern, SheetName, OutputFolder, IsActive, Notes)
     INNER JOIN CFG.IngestionRoute r
       ON r.EnvCode = v.EnvCode
      AND r.TenantCode = v.TenantCode
@@ -107,14 +124,15 @@ WHEN MATCHED THEN UPDATE SET
     OutputFormat = source.OutputFormat,
     OutputFilePattern = source.OutputFilePattern,
     SheetName = source.SheetName,
-    CsvFolder = source.CsvFolder,
+    OutputFolder = source.OutputFolder,
     IsActive = source.IsActive,
     Notes = source.Notes,
     UpdatedAt = SYSUTCDATETIME()
-WHEN NOT MATCHED THEN INSERT (RouteID, PackCode, SourcePart, OutputFormat, OutputFilePattern, SheetName, CsvFolder, IsActive, Notes)
-    VALUES (source.RouteID, source.PackCode, source.SourcePart, source.OutputFormat, source.OutputFilePattern, source.SheetName, source.CsvFolder, source.IsActive, source.Notes);
+WHEN NOT MATCHED THEN INSERT (RouteID, PackCode, SourcePart, OutputFormat, OutputFilePattern, SheetName, OutputFolder, IsActive, Notes)
+    VALUES (source.RouteID, source.PackCode, source.SourcePart, source.OutputFormat, source.OutputFilePattern, source.SheetName, source.OutputFolder, source.IsActive, source.Notes);
 GO
 
+/* SECTION 5 - Compatibility rows for the current Graph worker. */
 MERGE CFG.Graph AS target
 USING (
     SELECT t.TenantID, r.RouteID, v.*
@@ -154,6 +172,7 @@ WHEN NOT MATCHED THEN INSERT (TenantID, RouteID, EnvCode, TenantCode, TenantName
     VALUES (source.TenantID, source.RouteID, source.EnvCode, source.TenantCode, source.TenantName, source.Mailbox, source.SenderRule, source.AllowedFileTypes, source.DestinationFolder, source.ProcessFolder, source.FailFolder, source.BodySourceForEns, source.ProcessingEnvironment, source.IsActive, source.OutputFilePattern, source.EnsSheetName, source.DecSheetName, source.Notes);
 GO
 
+/* SECTION 6 - Backfill compatibility links after MERGE. */
 UPDATE g
 SET TenantID = t.TenantID,
     RouteID = r.RouteID

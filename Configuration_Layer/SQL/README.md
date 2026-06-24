@@ -1,39 +1,49 @@
 # SQL Layer
 
-This folder holds the Fusion Flow V3 QAS database setup.
+This folder is the easiest way to build the Fusion Flow V3 QAS database model.
 
-## Run Order
+## Run These 3 Files
 
-1. Run every file in `migrations/` in numeric filename order.
-2. Run every file in `seeds/` in numeric filename order after the tables and constraints exist.
+Run them against the selected `Fusion_Flow_V3_QAS` database in this order:
 
-The migration files define database shape. The seed files preload QAS configuration such as tenants, Graph routes, pack rules, and QAS submit gates.
+1. `001_create_schemas_and_tables.sql`
+2. `002_add_constraints_and_indexes.sql`
+3. `003_seed_qas_config.sql`
 
-## Schema Ownership
+The files are intentionally split by job:
 
-| Schema | Owns |
+| File | Plain-English job |
 | --- | --- |
-| `CFG` | Tenant, route, pack-rule and runtime configuration. |
-| `EXC` | Execution rows and process logs. |
-| `ING` | Inbound email/file/process records and raw loaded rows. |
-| `STG` | Validation and business staging objects. |
-| `TSS` | TSS API submit/status mirrors and references. |
+| `001_create_schemas_and_tables.sql` | Make the empty boxes: schemas, tables and extra columns. |
+| `002_add_constraints_and_indexes.sql` | Connect the boxes: foreign keys and indexes. |
+| `003_seed_qas_config.sql` | Put starting config in the boxes: BKD active, CWH/PLE inactive, pack rules and TSS gates. |
 
-## Current MVP Files
+## What Each Schema Means
 
-| File | Purpose |
+| Schema | Meaning |
 | --- | --- |
-| `migrations/001_create_core_schemas.sql` | Creates `CFG`, `EXC`, `ING`, `STG`, and `TSS`. |
-| `migrations/002_create_mvp_graph_pipeline_tables.sql` | Creates the first Graph intake, staging, and TSS mirror tables. |
-| `migrations/003_add_mvp_graph_pipeline_constraints.sql` | Adds the original MVP foreign keys and indexes. |
-| `migrations/004_create_tenant_ingestion_tables.sql` | Adds tenant, tenant-setting, route, pack-rule, process-file, load-row, and log tables. |
-| `migrations/005_extend_graph_tables_for_tenant_ingestion.sql` | Adds tenant/folder/pack metadata columns to `CFG.Graph` and `ING.Graph`. |
-| `migrations/006_add_tenant_ingestion_constraints.sql` | Adds tenant ingestion foreign keys and indexes, including `CFG.TenantSetting`. |
-| `seeds/001_seed_qas_tenants_routes_pack_rules.sql` | Seeds BKD, Country Wide Homes, Primeline Express, and default QAS TSS gates. |
+| `CFG` | What should happen: tenants, routes, pack rules and gates. |
+| `EXC` | What happened: execution runs and logs. |
+| `ING` | What came in: emails, files, process records and loaded rows. |
+| `STG` | What is being validated before API submission. |
+| `TSS` | What TSS returned or what we submitted to TSS. |
 
-The old single bootstrap file was split so future DB changes can be reviewed and applied one step at a time.
-## Runtime Gates
+## Safety Notes
 
-TSS execution gates live in `CFG.TenantSetting`, not only in `.env`. The seed keeps QAS safe by default with `TSS_SUBMIT_ENABLED=false` and `TSS_DRY_RUN=true` for each tenant.
+- These scripts do not create the database itself; create/select `Fusion_Flow_V3_QAS` first.
+- They do not store credentials or secrets.
+- QAS submit is disabled by seed data: `TSS_SUBMIT_ENABLED=false`.
+- QAS dry-run is enabled by seed data: `TSS_DRY_RUN=true`.
+- CWH and PLE are present for design/testing but inactive until sender/source/templates are confirmed.
 
-Real credentials still belong in `.env` or secure deployment configuration, never in seed data.
+## Smoke Test After Running
+
+After the 3 files run, validate the chain exists with one dummy path:
+
+```text
+CFG.Tenant
+-> CFG.Graph
+-> ING.Graph
+-> ING.ProcessFile
+-> ING.LoadRow
+```
