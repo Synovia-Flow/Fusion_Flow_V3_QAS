@@ -211,8 +211,10 @@ FALLBACK_BIRKDALE_CONFIG = {
     "body_text_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Inbound" / "ENS_Source",
     "process_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Process",
     "fail_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Fails",
-    "body_text_file_pattern": "ENS_Source_{dd.MM.yyyy}_{message_id_short}.txt",
-    "process_pack_pattern": "BKD_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx",
+    "body_text_file_pattern": "ENS_Source_{dd.MM.yyyy}.txt",
+    "body_text_cut_after_marker": "customsadmin@primelineexpress.co.uk",
+    "body_text_cut_marker_occurrence": "first",
+    "process_pack_pattern": "BKD_API_PACK_{dd.MM.yyyy}.xlsx",
     "ens_pack_sheet_name": "ENS PACK",
     "dec_pack_sheet_name": "DEC PACK",
 }
@@ -378,8 +380,11 @@ def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, A
             "process_folder": process_path,
             "fail_folder": fail_path,
             "body_text_folder": body_text_path,
-            "body_text_file_pattern": raw_config.get("body_text_file_pattern") or "ENS_Source_{dd.MM.yyyy}_{message_id_short}.txt",
-            "process_pack_pattern": raw_config.get("process_pack_pattern") or f"{tenant_code}_API_PACK_{{dd.MM.yyyy}}_{{message_id_short}}.xlsx",
+            "body_text_file_pattern": raw_config.get("body_text_file_pattern") or "ENS_Source_{dd.MM.yyyy}.txt",
+            "body_text_cut_after_marker": raw_config.get("body_text_cut_after_marker")
+            or raw_config.get("body_text_cut_after_last_marker"),
+            "body_text_cut_marker_occurrence": raw_config.get("body_text_cut_marker_occurrence") or "first",
+            "process_pack_pattern": raw_config.get("process_pack_pattern") or f"{tenant_code}_API_PACK_{{dd.MM.yyyy}}.xlsx",
             "config_file": str(path),
         }
     )
@@ -507,8 +512,11 @@ def build_database_customer_config(
             "process_folder": process_path,
             "fail_folder": fail_path,
             "body_text_folder": body_text_path,
-            "body_text_file_pattern": base.get("body_text_file_pattern") or "ENS_Source_{dd.MM.yyyy}_{message_id_short}.txt",
-            "process_pack_pattern": base.get("process_pack_pattern") or f"{tenant_code}_API_PACK_{{dd.MM.yyyy}}_{{message_id_short}}.xlsx",
+            "body_text_file_pattern": base.get("body_text_file_pattern") or "ENS_Source_{dd.MM.yyyy}.txt",
+            "body_text_cut_after_marker": base.get("body_text_cut_after_marker")
+            or base.get("body_text_cut_after_last_marker"),
+            "body_text_cut_marker_occurrence": base.get("body_text_cut_marker_occurrence") or "first",
+            "process_pack_pattern": base.get("process_pack_pattern") or f"{tenant_code}_API_PACK_{{dd.MM.yyyy}}.xlsx",
             "output_file_pattern": row.get("OutputFilePattern") or base.get("output_file_pattern"),
             "ens_pack_sheet_name": row.get("EnsSheetName") or base.get("ens_pack_sheet_name"),
             "dec_pack_sheet_name": row.get("DecSheetName") or base.get("dec_pack_sheet_name"),
@@ -677,10 +685,10 @@ class DatabaseIngestionTrace:
         generated_csv_path: Path | str = "",
         load_status: str = "",
         fail_reason: str = "",
-    ) -> bool:
-        """Insert one ING.Graph source trace row."""
+    ) -> int | None:
+        """Insert one ING.Graph source trace row and return its GraphID."""
         if not self.execution_id:
-            return False
+            return None
 
         sender_email = get_sender_email(message)
         sender_domain = sender_email.split("@")[-1] if "@" in sender_email else ""
@@ -764,11 +772,133 @@ class DatabaseIngestionTrace:
 
         cursor = self.connection.cursor()
         cursor.execute(
-            f"INSERT INTO ING.Graph ({column_sql}) VALUES ({placeholders})",
+            f"INSERT INTO ING.Graph ({column_sql}) OUTPUT INSERTED.GraphID VALUES ({placeholders})",
             *[row_values[column] for column in columns],
         )
+        graph_id = int(cursor.fetchone()[0])
         self.connection.commit()
-        return True
+        return graph_id
+
+    def insert_execution_log(
+        self,
+        step_name: str,
+        message: str,
+        level: str = "INFO",
+        tenant_code: str = "",
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        """Insert one detailed EXC.ExecutionLog row for operator visibility."""
+        if not self.execution_id:
+            return
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO EXC.ExecutionLog
+                (ExecutionID, EnvCode, TenantCode, ProcessName, StepName, LogLevel, Message, DetailJson)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            self.execution_id,
+            GRAPH_ENV_CODE,
+            db_text(tenant_code, 10),
+            "FLOW_V3_01_GRAPH_EMAIL_ING",
+            db_text(step_name, 100),
+            db_text(level, 20) or "INFO",
+            db_text(message, 2000) or "",
+            json.dumps(detail or {}, ensure_ascii=False) if detail else None,
+        )
+        self.connection.commit()
+
+    def insert_process_pack_load(
+        self,
+        graph_id: int | None,
+        config: dict[str, Any],
+        pack_path: Path | str,
+        file_hash: str | None = None,
+    ) -> dict[str, int]:
+        """Load generated API pack rows into ING.ProcessFile and ING.LoadRow."""
+        if not self.execution_id or not graph_id:
+            return {"process_files": 0, "load_rows": 0}
+
+        path = Path(pack_path)
+        if not path.exists():
+            return {"process_files": 0, "load_rows": 0}
+
+        from openpyxl import load_workbook
+
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        sheet_name = str(config.get("dec_pack_sheet_name") or "DEC PACK")
+        if sheet_name not in workbook.sheetnames:
+            sheet_name = workbook.sheetnames[-1]
+        sheet = workbook[sheet_name]
+        raw_headers = [str(cell.value or "").strip() for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
+        headers = [header or f"Column {index + 1}" for index, header in enumerate(raw_headers)]
+
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO ING.ProcessFile
+                (GraphID, ExecutionID, TenantID, RouteID, EnvCode, TenantCode, PackCode, SourcePart,
+                 SourceFolder, ProcessFolder, FailFolder, OriginalFileName, SavedFileName, SavedPath,
+                 GeneratedCsvPath, SheetName, FileHash, Status)
+            OUTPUT INSERTED.ProcessFileID
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            graph_id,
+            self.execution_id,
+            config.get("tenant_id"),
+            config.get("route_id"),
+            config.get("env_code", GRAPH_ENV_CODE),
+            config.get("tenant_code"),
+            "API_PACK",
+            "GENERATED_PACK",
+            db_text(str(path.parent), 1000),
+            db_text(config.get("process_folder"), 1000),
+            db_text(config.get("fail_folder"), 1000),
+            db_text(path.name, 500),
+            db_text(path.name, 500),
+            db_text(str(path), 1000),
+            db_text(str(path), 1000),
+            db_text(sheet.title, 128),
+            file_hash,
+            "LOADED",
+        )
+        process_file_id = int(cursor.fetchone()[0])
+
+        load_rows = 0
+        for row_number, cells in enumerate(sheet.iter_rows(min_row=2, values_only=True), 1):
+            payload = {
+                headers[index]: value
+                for index, value in enumerate(cells)
+                if index < len(headers) and value not in (None, "")
+            }
+            if not payload:
+                continue
+            cursor.execute(
+                """
+                INSERT INTO ING.LoadRow (ProcessFileID, RowNumber, PayloadJson, Status)
+                VALUES (?, ?, ?, ?)
+                """,
+                process_file_id,
+                row_number,
+                json.dumps(payload, ensure_ascii=False, default=str),
+                "LOADED",
+            )
+            load_rows += 1
+
+        self.connection.commit()
+        self.insert_execution_log(
+            "LOAD_PROCESS_PACK",
+            f"Loaded generated API pack into ING rows: {path.name}",
+            tenant_code=str(config.get("tenant_code") or ""),
+            detail={
+                "graph_id": graph_id,
+                "process_file_id": process_file_id,
+                "load_rows": load_rows,
+                "sheet_name": sheet.title,
+            },
+        )
+        return {"process_files": 1, "load_rows": load_rows}
+
 
 # =============================================================================
 # STEP 5 - EXCEL MAPPING AND API VALIDATION CONFIGURATION
@@ -1187,34 +1317,34 @@ def save_attachment_file(
 # =============================================================================
 
 ENS_BODY_LABELS: dict[str, tuple[str, str]] = {
-    "type of movement": ("movement_type", "TSS movement_type code required."),
+    "type of movement": ("movement_type", "Accepted movement_type code required."),
     "type of passive transport": ("passive_transport_type", "Operational context; confirm if needed in the final API payload."),
     "identity number of transport": ("identity_no_of_transport", "Direct ENS header field."),
-    "nationality of means of transport": ("nationality_of_transport", "TSS country/nationality code required."),
+    "nationality of means of transport": ("nationality_of_transport", "Accepted country/nationality code required."),
     "carrier eori": ("carrier_eori", "Direct ENS header field."),
     "transport document number icr number": ("transport_document_number", "Used for grouping/reference, not an ENS header field."),
     "arrival date time": ("arrival_date_time", "Convert to dd/mm/yyyy hh:mm:ss UTC before API submit."),
-    "port of arrival": ("arrival_port", "TSS port code required."),
+    "port of arrival": ("arrival_port", "Accepted port code required."),
     "place s of loading": ("place_of_loading", "Direct ENS header field."),
     "is are the place s of acceptance same as place s of loading": ("place_of_acceptance_same_as_loading", "Confirm accepted yes/no value for API submit."),
     "place s of unloading": ("place_of_unloading", "Direct ENS header field."),
     "is are the place s of delivery same as place s of unloading": ("place_of_delivery_same_as_unloading", "Confirm accepted yes/no value for API submit."),
-    "transport charges": ("transport_charges", "TSS transport_charges code required."),
+    "transport charges": ("transport_charges", "Accepted transport_charges code required."),
 }
 
 ENS_PACK_FIELDS: list[dict[str, str]] = [
-    {"api_field": "movement_type", "source_label": "Type of Movement", "required": "yes", "note": "Map text such as RoRo Accompanied ICS2 to the TSS choice value."},
+    {"api_field": "movement_type", "source_label": "Type of Movement", "required": "yes", "note": "Map text such as RoRo Accompanied ICS2 to the accepted choice value."},
     {"api_field": "identity_no_of_transport", "source_label": "Identity number of transport", "required": "yes", "note": "Expected format includes ferry IMO plus vehicle registration."},
-    {"api_field": "nationality_of_transport", "source_label": "Nationality Of Means of Transport", "required": "yes", "note": "Map country text to the TSS accepted code."},
+    {"api_field": "nationality_of_transport", "source_label": "Nationality Of Means of Transport", "required": "yes", "note": "Map country text to the accepted code."},
     {"api_field": "arrival_date_time", "source_label": "Arrival Date/Time", "required": "yes", "note": "Convert relative wording such as Tomorrow's Date to an absolute UTC date/time."},
-    {"api_field": "arrival_port", "source_label": "Port of Arrival", "required": "yes", "note": "Map port text to the TSS port code."},
+    {"api_field": "arrival_port", "source_label": "Port of Arrival", "required": "yes", "note": "Map port text to the accepted port code."},
     {"api_field": "place_of_loading", "source_label": "Place(s) of Loading", "required": "yes", "note": "Direct text from the email body."},
     {"api_field": "place_of_acceptance_same_as_loading", "source_label": "Is/are the Place(s) of Acceptance same as Place(s) of Loading?", "required": "conditional", "note": "If yes, place_of_acceptance can normally stay blank."},
     {"api_field": "place_of_acceptance", "source_label": "", "required": "conditional", "note": "Needed only when acceptance differs from loading."},
     {"api_field": "place_of_unloading", "source_label": "Place(s) of Unloading", "required": "yes", "note": "Direct text from the email body."},
     {"api_field": "place_of_delivery_same_as_unloading", "source_label": "Is/are the Place(s) of Delivery same as Place(s) of Unloading?", "required": "conditional", "note": "If yes, place_of_delivery can normally stay blank."},
     {"api_field": "place_of_delivery", "source_label": "", "required": "conditional", "note": "Needed only when delivery differs from unloading."},
-    {"api_field": "transport_charges", "source_label": "Transport Charges", "required": "yes", "note": "Map body text to the TSS accepted transport charge value."},
+    {"api_field": "transport_charges", "source_label": "Transport Charges", "required": "yes", "note": "Map body text to the accepted transport charge value."},
     {"api_field": "carrier_eori", "source_label": "Carrier EORI", "required": "yes", "note": "Direct ENS header field."},
     {"api_field": "carrier_name", "source_label": "", "required": "yes", "note": "Resolve from tenant/carrier master data."},
     {"api_field": "carrier_street_number", "source_label": "", "required": "yes", "note": "Resolve from tenant/carrier master data."},
@@ -1242,7 +1372,7 @@ def message_short_id(message: dict[str, Any]) -> str:
 
 def render_message_filename(pattern: str, message: dict[str, Any], config: dict[str, Any]) -> str:
     """Render the small filename tokens used by tenant config."""
-    value = pattern or "{tenant_code}_{dd.MM.yyyy}_{message_id_short}"
+    value = pattern or "{tenant_code}_{dd.MM.yyyy}"
     replacements = {
         "{tenant_code}": str(config.get("tenant_code", "TENANT")),
         "{dd.MM.yyyy}": received_date_for_filename(message),
@@ -1276,6 +1406,23 @@ def email_body_as_text(message: dict[str, Any]) -> str:
     return "\n".join(line for line in lines if line)
 
 
+def trim_ens_source_body_text(body_text: str, config: dict[str, Any]) -> str:
+    """Trim forwarded-chain noise after the configured body marker."""
+    marker = str(
+        config.get("body_text_cut_after_marker") or config.get("body_text_cut_after_last_marker") or ""
+    ).strip()
+    if not marker:
+        return body_text
+
+    body_lower = body_text.lower()
+    marker_lower = marker.lower()
+    occurrence = str(config.get("body_text_cut_marker_occurrence") or "first").strip().lower()
+    index = body_lower.rfind(marker_lower) if occurrence == "last" else body_lower.find(marker_lower)
+    if index < 0:
+        return body_text
+
+    return body_text[: index + len(marker)].rstrip()
+
 def save_ens_body_text(
     message: dict[str, Any],
     config: dict[str, Any],
@@ -1284,7 +1431,7 @@ def save_ens_body_text(
 ) -> tuple[str, Path, bytes]:
     """Save the email body as the original ENS text evidence."""
     filename = render_message_filename(
-        str(config.get("body_text_file_pattern") or "ENS_Source_{dd.MM.yyyy}_{message_id_short}.txt"),
+        str(config.get("body_text_file_pattern") or "ENS_Source_{dd.MM.yyyy}.txt"),
         message,
         config,
     )
@@ -1317,7 +1464,7 @@ def message_utc_date(message: dict[str, Any]) -> str:
 
 
 def normalise_pairing_subject(value: str) -> str:
-    """Normalise subjects enough to pair TSS details with later replies."""
+    """Normalise subjects enough to pair ENS body details with later replies."""
     text = html.unescape(str(value or "")).strip().lower()
     while True:
         updated = re.sub(r"^(re|fw|fwd)\s*:\s*", "", text).strip()
@@ -1533,6 +1680,21 @@ def style_pack_sheet(sheet: Any) -> None:
         sheet.column_dimensions[letter].width = min(max(max_length + 2, 12), 60)
 
 
+def include_process_pack_source_header(header: str) -> bool:
+    """Hide generated blank/technical source columns from the operational DEC PACK."""
+    normalized = normalize_column_name(header)
+    return not normalized.startswith("column ")
+
+
+def append_pack_row(sheet: Any, values: list[Any]) -> None:
+    """Append one row while keeping formula-looking source text as text."""
+    sheet.append(values)
+    row_number = sheet.max_row
+    for column_number, value in enumerate(values, 1):
+        if isinstance(value, str) and value.startswith("="):
+            sheet.cell(row=row_number, column=column_number).data_type = "s"
+
+
 def write_process_pack(
     message: dict[str, Any],
     config: dict[str, Any],
@@ -1548,7 +1710,7 @@ def write_process_pack(
     ens_message = ens_message or message
 
     filename = render_message_filename(
-        str(config.get("process_pack_pattern") or "{tenant_code}_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx"),
+        str(config.get("process_pack_pattern") or "{tenant_code}_API_PACK_{dd.MM.yyyy}.xlsx"),
         message,
         config,
     )
@@ -1563,9 +1725,9 @@ def write_process_pack(
     ens_sheet = workbook.active
     ens_sheet.title = safe_sheet_name(str(config.get("ens_pack_sheet_name") or "ENS PACK"), "ENS PACK")
     ens_columns = ["section", "source_label", "api_field", "source_value", "api_value", "status", "notes"]
-    ens_sheet.append(ens_columns)
+    append_pack_row(ens_sheet, ens_columns)
     for row in build_ens_pack_rows(ens_message, config, body_text_path, body_text):
-        ens_sheet.append([row.get(column, "") for column in ens_columns])
+        append_pack_row(ens_sheet, [row.get(column, "") for column in ens_columns])
     style_pack_sheet(ens_sheet)
 
     dec_sheet = workbook.create_sheet(safe_sheet_name(str(config.get("dec_pack_sheet_name") or "DEC PACK"), "DEC PACK"))
@@ -1593,7 +1755,8 @@ def write_process_pack(
             api_header = f"api_{details['field_name']}"
             if api_header not in api_headers:
                 api_headers.append(api_header)
-        for header in [*api_headers, *headers]:
+        visible_headers = [header for header in headers if include_process_pack_source_header(header)]
+        for header in [*api_headers, *visible_headers]:
             if header not in source_headers:
                 source_headers.append(header)
         for index, row in enumerate(rows, 1):
@@ -1609,12 +1772,12 @@ def write_process_pack(
             source_rows.append(item)
 
     dec_columns = ["source_file", "saved_path", "source_row_number", "pack_status", "pack_notes"] + source_headers
-    dec_sheet.append(dec_columns)
+    append_pack_row(dec_sheet, dec_columns)
     if source_rows:
         for row in source_rows:
-            dec_sheet.append([row.get(column, "") for column in dec_columns])
+            append_pack_row(dec_sheet, [row.get(column, "") for column in dec_columns])
     else:
-        dec_sheet.append(["", "", "", "NO_DEC_SOURCE", "No supported Excel attachment was available."] + [""] * len(source_headers))
+        append_pack_row(dec_sheet, ["", "", "", "NO_DEC_SOURCE", "No supported Excel attachment was available."] + [""] * len(source_headers))
     style_pack_sheet(dec_sheet)
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1951,6 +2114,31 @@ def raw_rows_from_sheet_xml(sheet_xml: bytes, shared_strings: list[str]) -> list
     return raw_rows
 
 
+def is_export_formula_text(value: str) -> bool:
+    """Return True when an exported cell contains formula mechanics, not business data."""
+    text = str(value or "").strip().lower()
+    return text.startswith("=") or text.startswith("formula(=")
+
+
+def replace_export_formula_values(row_data: dict[str, str]) -> dict[str, str]:
+    """Prefer calculated export values over formula text in business columns."""
+    fallback_columns = {
+        "Amount": ["Sales Amount 1", "Amount 1", "Amount1"],
+        "Line Amount Excl. VAT": ["Line Amount Excl. VAT 1", "Line Amount Excl. VAT1"],
+        "Unit Price Excl. VAT": ["Unit Price Excl. VAT1", "Unit Price Excl. VAT 1"],
+    }
+
+    for header, candidates in fallback_columns.items():
+        if not is_export_formula_text(row_data.get(header, "")):
+            continue
+        for candidate in candidates:
+            value = str(row_data.get(candidate, "")).strip()
+            if value:
+                row_data[header] = value
+                break
+    return row_data
+
+
 def rows_from_raw_rows(raw_rows: list[list[str]], header_index: int) -> tuple[list[str], list[dict[str, str]]]:
     """Build headers and dictionaries from a selected header row."""
     headers = unique_headers(raw_rows[header_index])
@@ -1960,6 +2148,7 @@ def rows_from_raw_rows(raw_rows: list[list[str]], header_index: int) -> tuple[li
         row_data = {}
         for index, header in enumerate(headers):
             row_data[header] = raw_row[index].strip() if index < len(raw_row) else ""
+        row_data = replace_export_formula_values(row_data)
         if any(value.strip() for value in row_data.values()) and not is_summary_excel_row(row_data, len(headers)):
             rows.append(row_data)
 
@@ -2149,10 +2338,14 @@ def format_decimal_for_api(value: Decimal) -> str:
 def normalise_decimal_for_api(field_name: str, text: str, rule: dict[str, Any]) -> tuple[str, list[tuple[str, str, str]]]:
     """Validate and round a decimal value for API-ready output."""
     issues: list[tuple[str, str, str]] = []
-    if "," in text:
-        return "", [("ERROR", "Decimal format", "Commas are not allowed in API numeric values.")]
+    compact = text.replace(" ", "")
+    if "," in compact:
+        if not re.fullmatch(r"-?\d{1,3}(,\d{3})+(\.\d+)?", compact):
+            return "", [("ERROR", "Decimal format", "Commas are only accepted as thousands separators.")]
+        cleaned = compact.replace(",", "")
+    else:
+        cleaned = compact
 
-    cleaned = text.replace(" ", "")
     if not re.fullmatch(r"-?\d+(\.\d+)?", cleaned):
         return "", [("ERROR", "Decimal value", "Expected a valid number.")]
 
@@ -2187,9 +2380,11 @@ def normalise_field_value_for_api(field_name: str, value: str) -> tuple[str, lis
     text = str(value or "").strip()
 
     if rule.get("required") and is_blank(text):
-        return "", [("ERROR", "Missing API mandatory value", "Value is required by the TSS/API contract.")]
+        return "", [("ERROR", "Missing API mandatory value", "Value is required by the future API contract.")]
     if is_blank(text):
         return "", []
+    if text.startswith("="):
+        return "", [("PENDING", "Formula value", "Excel formula must be resolved to a calculated value before API validation.")]
 
     normalized_value = text
     max_length = rule.get("max_length")
@@ -2216,7 +2411,7 @@ def normalise_field_value_for_api(field_name: str, value: str) -> tuple[str, lis
         if not re.fullmatch(r"[A-Za-z]{2}[A-Za-z0-9]{1,15}", text):
             issues.append(("ERROR", "EORI format", "Expected country prefix plus alphanumeric EORI, maximum 17 characters."))
         if field_name in {"consignor_eori", "consignee_eori"} and text.upper().startswith("GB"):
-            issues.append(("ERROR", "EORI role rule", "TSS guidance says GB EORI is not accepted for consignor_eori or consignee_eori."))
+            issues.append(("ERROR", "EORI role rule", "API guidance says GB EORI is not accepted for consignor_eori or consignee_eori."))
 
     if value_type == "commodity_code":
         if not re.fullmatch(r"\d+", text):
@@ -2381,8 +2576,6 @@ def validate_xlsx_attachment(
     for issue in validation_rows[issue_start:]:
         if issue["rule"] == "Missing API mandatory mapping":
             stats["validation_errors"] += 1
-        if issue["severity"] == "PENDING":
-            stats["validation_pending"] += 1
 
 # =============================================================================
 # STEP 10 - QUALITY REPORT HELPERS
@@ -2493,7 +2686,7 @@ def write_run_log(
         if stats["validation_errors"]:
             writer.writerow({
                 "action": "VALIDATION_BLOCKERS",
-                "note": "Local download completed; STG/API may reject validation blockers.",
+                "note": "Local download completed; later API validation may reject validation blockers.",
             })
 
         for suffix, count in sorted(stats["file_types"].items()):
@@ -2548,12 +2741,14 @@ def record_ing_trace(
     config: dict[str, Any] | None,
     status: str,
     **kwargs: Any,
-) -> None:
-    """Write one optional ING.Graph row and update the inserted-row counter."""
+) -> int | None:
+    """Write one optional ING.Graph row, update the counter, and return GraphID."""
     if not db_trace:
-        return
-    if db_trace.insert_ing_trace(message, config, status, **kwargs):
+        return None
+    graph_id = db_trace.insert_ing_trace(message, config, status, **kwargs)
+    if graph_id:
         stats["ing_rows"] += 1
+    return graph_id
 
 
 # =============================================================================
@@ -2591,6 +2786,8 @@ def process_one_message(
 
     try:
         body_text = email_body_as_text(message)
+        if body_text_enabled(config) and body_text:
+            body_text = trim_ens_source_body_text(body_text, config)
         attachments = []
         if message.get("hasAttachments"):
             attachments = read_attachments(token, message["id"])
@@ -2803,7 +3000,7 @@ def process_one_message(
                     pack_content = Path(pack_path).read_bytes()
                 except OSError:
                     pack_content = None
-            record_ing_trace(
+            pack_graph_id = record_ing_trace(
                 db_trace,
                 stats,
                 message,
@@ -2820,6 +3017,9 @@ def process_one_message(
                 generated_csv_path=pack_path,
                 load_status=pack_result,
             )
+            if pack_result == "SAVED" and db_trace and pack_graph_id:
+                file_hash = hashlib.sha256(pack_content).hexdigest() if pack_content is not None else None
+                db_trace.insert_process_pack_load(pack_graph_id, config, pack_path, file_hash=file_hash)
 
     except Exception as error:
         stats["failed"] += 1
@@ -2876,6 +3076,11 @@ def run(args: argparse.Namespace) -> int:
                 print("No active CFG.Graph rows matched this mailbox; using customer YML routing")
 
             db_trace.begin_execution(args, started_at)
+            db_trace.insert_execution_log("START", "Graph ingestion run started", detail={
+                "run_mode": args.run_mode,
+                "received_from": args.received_from,
+                "received_to": args.received_to,
+            })
             if args.dry_run:
                 print("Dry-run mode: database routing can be read, but EXC/ING writes are skipped")
         else:
@@ -2902,6 +3107,13 @@ def run(args: argparse.Namespace) -> int:
         final_status = "FAILED" if stats["failed"] else "COMPLETED"
         if db_trace:
             db_trace.finish_execution(final_status, stats)
+            db_trace.insert_execution_log("FINISH", "Graph ingestion run finished", detail={
+                "status": final_status,
+                "scanned": stats.get("scanned"),
+                "matched": stats.get("matched"),
+                "generated_process_packs": stats.get("generated_process_packs"),
+                "ing_rows": stats.get("ing_rows"),
+            })
 
         print_summary(stats, run_log_path, validation_report_path)
         return 1 if stats["failed"] else 0
@@ -2910,6 +3122,7 @@ def run(args: argparse.Namespace) -> int:
         if db_trace:
             try:
                 db_trace.finish_execution("FAILED", stats, str(error))
+                db_trace.insert_execution_log("FAILED", "Graph ingestion run failed", level="ERROR", detail={"error": str(error)})
             except Exception as trace_error:
                 print(f"ERROR finalising EXC.Graph failure state: {trace_error}")
         raise
@@ -2950,9 +3163,9 @@ def print_summary(
     if validation_report_path:
         print(f"  Validation report: {validation_report_path}")
     if stats["validation_errors"]:
-        print("  STG/API warning: local download completed; STG/API may reject validation blockers.")
+        print("  API readiness warning: local download completed; later API validation may reject validation blockers.")
     elif stats["validation_warnings"] or stats["validation_pending"]:
-        print("  STG/API review: local download completed with validation warnings or pending mapping items.")
+        print("  API readiness review: local download completed with validation warnings or pending mapping items.")
 
     if stats["file_types"]:
         print("  File types:")

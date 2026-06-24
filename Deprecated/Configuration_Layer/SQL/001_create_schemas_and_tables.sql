@@ -20,12 +20,10 @@
         - It does not store secrets or credentials.
 */
 
-/* SECTION 1 - Ownership schemas: CFG, EXC, ING, STG and TSS. */
+/* SECTION 1 - Ingestion ownership schemas: CFG, EXC and ING. */
 IF SCHEMA_ID('CFG') IS NULL EXEC('CREATE SCHEMA CFG');
 IF SCHEMA_ID('EXC') IS NULL EXEC('CREATE SCHEMA EXC');
 IF SCHEMA_ID('ING') IS NULL EXEC('CREATE SCHEMA ING');
-IF SCHEMA_ID('STG') IS NULL EXEC('CREATE SCHEMA STG');
-IF SCHEMA_ID('TSS') IS NULL EXEC('CREATE SCHEMA TSS');
 GO
 
 /*
@@ -34,8 +32,7 @@ GO
     CFG.Graph      = legacy/simple Graph route config used by the current worker.
     EXC.Graph      = one execution/run of the Graph intake worker.
     ING.Graph      = inbound email/message/file trace.
-    STG.SalesOrder = temporary MVP staging table; later this should expand to ENS -> Consignment -> Goods.
-    TSS.Submission = temporary MVP TSS reference mirror; later this needs explicit submit types.
+    Later validation/submission phases may add separate schemas; this setup is ingestion-only.
 */
 IF OBJECT_ID('CFG.Graph', 'U') IS NULL
 BEGIN
@@ -103,46 +100,13 @@ BEGIN
 END;
 GO
 
-IF OBJECT_ID('STG.SalesOrder', 'U') IS NULL
-BEGIN
-    CREATE TABLE STG.SalesOrder (
-        SalesOrderID    bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_STG_SalesOrder PRIMARY KEY,
-        GraphID         bigint NULL,
-        EnvCode         varchar(20) NOT NULL,
-        TenantCode      varchar(10) NOT NULL,
-        SourceRowNum    int NULL,
-        OrderReference  nvarchar(100) NULL,
-        OrderDate       date NULL,
-        CustomerCode    nvarchar(100) NULL,
-        PayloadJson     nvarchar(max) NULL,
-        Status          varchar(30) NOT NULL,
-        UpdatedAt       datetime2(3) NOT NULL CONSTRAINT DF_STG_SalesOrder_UpdatedAt DEFAULT (SYSUTCDATETIME())
-    );
-END;
-GO
 
-IF OBJECT_ID('TSS.Submission', 'U') IS NULL
-BEGIN
-    CREATE TABLE TSS.Submission (
-        SubmissionID    bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_TSS_Submission PRIMARY KEY,
-        SalesOrderID    bigint NULL,
-        EnvCode         varchar(20) NOT NULL,
-        TenantCode      varchar(10) NOT NULL,
-        TssEntity       varchar(50) NULL,
-        TssReference    nvarchar(100) NULL,
-        TssStatus       nvarchar(100) NULL,
-        SubmittedAt     datetime2(3) NULL,
-        LastCheckedAt   datetime2(3) NULL,
-        StatusMessage   nvarchar(2000) NULL
-    );
-END;
-GO
 
 /*
     SECTION 3 - Tenant-driven ingestion tables.
 
     CFG.Tenant            = tenant identity and default folders.
-    CFG.TenantSetting     = runtime gates such as TSS_DRY_RUN and TSS_SUBMIT_ENABLED.
+    CFG.TenantSetting     = ingestion runtime settings; submit gates belong to a later phase.
     CFG.IngestionRoute    = mailbox/sender/folder route per tenant.
     CFG.IngestionPackRule = ENS_PACK / DEC_PACK output rules.
     EXC.ExecutionLog      = detailed technical process log rows.
@@ -233,6 +197,14 @@ BEGIN
 END;
 GO
 
+/* Compatibility for databases created before CsvFolder was renamed to OutputFolder. */
+IF OBJECT_ID('CFG.IngestionPackRule', 'U') IS NOT NULL
+   AND COL_LENGTH('CFG.IngestionPackRule', 'OutputFolder') IS NULL
+   AND COL_LENGTH('CFG.IngestionPackRule', 'CsvFolder') IS NOT NULL
+BEGIN
+    EXEC sp_rename 'CFG.IngestionPackRule.CsvFolder', 'OutputFolder', 'COLUMN';
+END;
+GO
 IF OBJECT_ID('EXC.ExecutionLog', 'U') IS NULL
 BEGIN
     CREATE TABLE EXC.ExecutionLog (

@@ -21,19 +21,21 @@ historic_start_date: 2026-05-07
 file_types:
   - .xlsx
 
-destination_folder: 'Integration_Layer\BKD\Inbound\Sales_Order_files'
-body_text_folder: 'Integration_Layer\BKD\Inbound\ENS_Email_Body'
-process_folder: 'Integration_Layer\BKD\Process'
-fail_folder: 'Integration_Layer\BKD\Fails'
+destination_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Inbound\Sales_Order_files'
+body_text_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Inbound\ENS_Source'
+process_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Process'
+fail_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Fails'
 
 output_file_pattern: 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx'
-body_text_file_pattern: 'ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt'
-process_pack_pattern: 'BKD_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx'
+body_text_file_pattern: 'ENS_Source_{dd.MM.yyyy}.txt'
+body_text_cut_after_marker: 'customsadmin@primelineexpress.co.uk'
+body_text_cut_marker_occurrence: first
+process_pack_pattern: 'BKD_API_PACK_{dd.MM.yyyy}.xlsx'
 ens_pack_sheet_name: 'ENS PACK'
 dec_pack_sheet_name: 'DEC PACK'
 
 # Excel/API mapping for the current BKD sales order file.
-# Values not present in the Excel must be resolved before TSS API submission.
+# Values not present in the Excel must be resolved before future API submission.
 map_transport_document_number:
   - Document No.
 

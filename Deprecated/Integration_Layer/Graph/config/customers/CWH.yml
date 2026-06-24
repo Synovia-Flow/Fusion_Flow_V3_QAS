@@ -16,9 +16,9 @@ file_types:
   - .xlsx
   - .csv
 
-destination_folder: 'Integration_Layer\CWH\Inbound\Sales_Order_files'
-process_folder: 'Integration_Layer\CWH\Process'
-fail_folder: 'Integration_Layer\CWH\Fails'
+destination_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\CWH\Inbound\Sales_Order_files'
+process_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\CWH\Process'
+fail_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\CWH\Fails'
 
 output_file_pattern: 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx'
 dec_pack_sheet_name: 'DEC PACK'
