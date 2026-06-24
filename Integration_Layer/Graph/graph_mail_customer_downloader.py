@@ -15,7 +15,7 @@ Current confirmed behavior:
     - A validation CSV is written with errors, warnings, and pending mapping items.
 
 Body-to-ENS note:
-    The email body remains original evidence in Inbound/ENS_Email_Body.
+    The email body remains original evidence in Inbound/ENS_Source.
     The generated Process workbook is the review/mapping pack, not the source.
 
 Important security note:
@@ -31,6 +31,7 @@ import base64
 import csv
 import datetime as dt
 import hashlib
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import html
 import io
 import json
@@ -142,6 +143,7 @@ GRAPH_FOLDER = os.getenv("GRAPH_FOLDER", "inbox").strip() or "inbox"
 GRAPH_HISTORIC_START_DATE = os.getenv("GRAPH_HISTORIC_START_DATE", "2026-05-07").strip()
 GRAPH_ENV_CODE = os.getenv("GRAPH_ENV_CODE", "QAS").strip() or "QAS"
 GRAPH_DB_CONNECTION_STRING = first_env(
+    "DB_CONN_STR",
     "GRAPH_DB_CONNECTION_STRING",
     "FUSION_QAS_DB_CONNECTION_STRING",
     "FUSION_QAS_DB_CONNECTION",
@@ -176,6 +178,10 @@ RUN_LOG_FOLDER = INTEGRATION_LAYER_ROOT / "FLOW_V3" / "Run_History" / "Graph"
 # reruns idempotent when the files already exist.
 USED_DESTINATION_PATHS: set[Path] = set()
 
+# Tracks ENS source emails seen in the current run so the later DEC/Excel email
+# can generate one combined ENS PACK + DEC PACK workbook.
+RUN_ENS_SOURCE_BY_KEY: dict[tuple[str, str, str], dict[str, Any]] = {}
+
 
 # =============================================================================
 # STEP 3 - CUSTOMER YML CONFIGURATION
@@ -202,10 +208,10 @@ FALLBACK_BIRKDALE_CONFIG = {
         INTEGRATION_LAYER_ROOT / "BKD" / "Inbound" / "Sales_Order_files"
     ),
     "body_source_for_ens": "email_body",
-    "body_text_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Inbound" / "ENS_Email_Body",
+    "body_text_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Inbound" / "ENS_Source",
     "process_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Process",
     "fail_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Fails",
-    "body_text_file_pattern": "ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt",
+    "body_text_file_pattern": "ENS_Source_{dd.MM.yyyy}_{message_id_short}.txt",
     "process_pack_pattern": "BKD_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx",
     "ens_pack_sheet_name": "ENS PACK",
     "dec_pack_sheet_name": "DEC PACK",
@@ -331,8 +337,8 @@ def default_tenant_folder(tenant_code: str, folder_name: str) -> Path:
 
 
 def default_body_text_folder(destination_folder: Path) -> Path:
-    """Keep original ENS body text beside inbound files, not in Process."""
-    return destination_folder.parent / "ENS_Email_Body"
+    """Keep original ENS source text beside inbound files, not in Process."""
+    return destination_folder.parent / "ENS_Source"
 
 
 def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, Any] | None:
@@ -372,7 +378,7 @@ def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, A
             "process_folder": process_path,
             "fail_folder": fail_path,
             "body_text_folder": body_text_path,
-            "body_text_file_pattern": raw_config.get("body_text_file_pattern") or "ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt",
+            "body_text_file_pattern": raw_config.get("body_text_file_pattern") or "ENS_Source_{dd.MM.yyyy}_{message_id_short}.txt",
             "process_pack_pattern": raw_config.get("process_pack_pattern") or f"{tenant_code}_API_PACK_{{dd.MM.yyyy}}_{{message_id_short}}.xlsx",
             "config_file": str(path),
         }
@@ -501,7 +507,7 @@ def build_database_customer_config(
             "process_folder": process_path,
             "fail_folder": fail_path,
             "body_text_folder": body_text_path,
-            "body_text_file_pattern": base.get("body_text_file_pattern") or "ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt",
+            "body_text_file_pattern": base.get("body_text_file_pattern") or "ENS_Source_{dd.MM.yyyy}_{message_id_short}.txt",
             "process_pack_pattern": base.get("process_pack_pattern") or f"{tenant_code}_API_PACK_{{dd.MM.yyyy}}_{{message_id_short}}.xlsx",
             "output_file_pattern": row.get("OutputFilePattern") or base.get("output_file_pattern"),
             "ens_pack_sheet_name": row.get("EnsSheetName") or base.get("ens_pack_sheet_name"),
@@ -680,14 +686,16 @@ class DatabaseIngestionTrace:
         sender_domain = sender_email.split("@")[-1] if "@" in sender_email else ""
         saved_path_text = str(saved_path) if saved_path else ""
         saved_name = Path(saved_path_text).name if saved_path_text else ""
-        file_hash = hashlib.sha256(content).hexdigest() if content is not None else None
-        if size_bytes is not None:
-            try:
-                size_bytes = int(size_bytes)
-            except (TypeError, ValueError):
-                size_bytes = None
-        if size_bytes is None and content is not None:
+        if content is not None:
+            file_hash = hashlib.sha256(content).hexdigest()
             size_bytes = len(content)
+        else:
+            file_hash = None
+            if size_bytes is not None:
+                try:
+                    size_bytes = int(size_bytes)
+                except (TypeError, ValueError):
+                    size_bytes = None
         if has_attachments is None:
             has_attachments = bool(message.get("hasAttachments"))
 
@@ -803,28 +811,28 @@ FIELD_RULES: dict[str, dict[str, Any]] = {
     "consignor_eori": {
         "label": "Consignor EORI",
         "required": True,
-        "max_length": 200,
+        "max_length": 17,
         "value_type": "eori",
         "aliases": ["consignor_eori", "consignor eori", "shipper eori", "sender eori"],
     },
     "consignee_eori": {
         "label": "Consignee EORI",
         "required": True,
-        "max_length": 200,
+        "max_length": 17,
         "value_type": "eori",
         "aliases": ["consignee_eori", "consignee eori", "receiver eori"],
     },
     "importer_eori": {
         "label": "Importer EORI",
         "required": True,
-        "max_length": 200,
+        "max_length": 17,
         "value_type": "eori",
         "aliases": ["importer_eori", "importer eori", "importer eori number"],
     },
     "exporter_eori": {
         "label": "Exporter EORI",
         "required": True,
-        "max_length": 200,
+        "max_length": 17,
         "value_type": "eori",
         "aliases": ["exporter_eori", "exporter eori"],
     },
@@ -854,7 +862,16 @@ FIELD_RULES: dict[str, dict[str, Any]] = {
         "value_type": "decimal",
         "max_digits": 13,
         "max_decimals": 2,
+        "must_be_positive": True,
         "aliases": ["gross_mass_kg", "gross mass kg", "gross mass", "gross weight", "gross weight kg", "gross kg"],
+    },
+    "net_mass_kg": {
+        "label": "Net mass kg",
+        "required": False,
+        "value_type": "decimal",
+        "max_digits": 13,
+        "max_decimals": 2,
+        "aliases": ["net_mass_kg", "net mass kg", "net mass", "net weight", "net weight kg", "net kg"],
     },
     "commodity_code": {
         "label": "Commodity code",
@@ -1267,7 +1284,7 @@ def save_ens_body_text(
 ) -> tuple[str, Path, bytes]:
     """Save the email body as the original ENS text evidence."""
     filename = render_message_filename(
-        str(config.get("body_text_file_pattern") or "ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt"),
+        str(config.get("body_text_file_pattern") or "ENS_Source_{dd.MM.yyyy}_{message_id_short}.txt"),
         message,
         config,
     )
@@ -1287,6 +1304,98 @@ def save_ens_body_text(
     return save_bytes(path, content, args), path, content
 
 
+def message_utc_date(message: dict[str, Any]) -> str:
+    """Return the UTC received date used for ENS/DEC email pairing."""
+    value = str(message.get("receivedDateTime") or "").strip()
+    if not value:
+        return ""
+    try:
+        received = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    return received.astimezone(dt.timezone.utc).date().isoformat()
+
+
+def normalise_pairing_subject(value: str) -> str:
+    """Normalise subjects enough to pair TSS details with later replies."""
+    text = html.unescape(str(value or "")).strip().lower()
+    while True:
+        updated = re.sub(r"^(re|fw|fwd)\s*:\s*", "", text).strip()
+        if updated == text:
+            break
+        text = updated
+    return re.sub(r"\s+", " ", text)
+
+
+def ens_source_keys(message: dict[str, Any], config: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Return specific and date-level keys for matching ENS and DEC emails."""
+    tenant_code = str(config.get("tenant_code") or "").strip().upper()
+    received_date = message_utc_date(message)
+    subject_key = normalise_pairing_subject(str(message.get("subject") or ""))
+    keys: list[tuple[str, str, str]] = []
+    if tenant_code and received_date and subject_key:
+        keys.append((tenant_code, received_date, subject_key))
+    if tenant_code and received_date:
+        keys.append((tenant_code, received_date, ""))
+    return keys
+
+
+def remember_run_ens_source(
+    message: dict[str, Any],
+    config: dict[str, Any],
+    body_text_path: Path | str,
+    body_text: str,
+) -> None:
+    """Remember the ENS source email for a later Excel/DEC email in this run."""
+    source = {
+        "message": message,
+        "path": body_text_path,
+        "body_text": body_text,
+    }
+    for key in ens_source_keys(message, config):
+        RUN_ENS_SOURCE_BY_KEY[key] = source
+
+
+def saved_ens_source_body_text(content: str) -> str:
+    """Strip the small saved-file header and return the original body text."""
+    lines = content.splitlines()
+    for index, line in enumerate(lines[:8]):
+        if not line.strip():
+            return "\n".join(lines[index + 1 :]).strip()
+    return content.strip()
+
+
+def find_existing_ens_source(message: dict[str, Any], config: dict[str, Any]) -> dict[str, Any] | None:
+    """Find an already saved ENS source file for this tenant/date."""
+    folder = Path(config.get("body_text_folder") or "")
+    if not folder.exists():
+        return None
+    date_tag = received_date_for_filename(message)
+    candidates = sorted(
+        folder.glob(f"ENS_Source_{date_tag}_*.txt"),
+        key=lambda item: item.stat().st_mtime,
+        reverse=True,
+    )
+    for candidate in candidates:
+        try:
+            content = candidate.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            continue
+        return {
+            "message": message,
+            "path": candidate,
+            "body_text": saved_ens_source_body_text(content),
+        }
+    return None
+
+
+def find_ens_source_for_dec_email(message: dict[str, Any], config: dict[str, Any]) -> dict[str, Any] | None:
+    """Find the ENS source captured earlier in this run, or already on disk."""
+    for key in ens_source_keys(message, config):
+        source = RUN_ENS_SOURCE_BY_KEY.get(key)
+        if source:
+            return source
+    return find_existing_ens_source(message, config)
 def normalise_body_label(value: str) -> str:
     """Normalise body labels enough to match the known BKD email format."""
     text = html.unescape(value or "").lower()
@@ -1431,9 +1540,12 @@ def write_process_pack(
     body_text: str,
     excel_sources: list[dict[str, Any]],
     args: argparse.Namespace,
+    ens_message: dict[str, Any] | None = None,
 ) -> tuple[str, Path]:
     """Create the operational ENS/DEC Excel pack in the tenant Process folder."""
     from openpyxl import Workbook
+
+    ens_message = ens_message or message
 
     filename = render_message_filename(
         str(config.get("process_pack_pattern") or "{tenant_code}_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx"),
@@ -1452,7 +1564,7 @@ def write_process_pack(
     ens_sheet.title = safe_sheet_name(str(config.get("ens_pack_sheet_name") or "ENS PACK"), "ENS PACK")
     ens_columns = ["section", "source_label", "api_field", "source_value", "api_value", "status", "notes"]
     ens_sheet.append(ens_columns)
-    for row in build_ens_pack_rows(message, config, body_text_path, body_text):
+    for row in build_ens_pack_rows(ens_message, config, body_text_path, body_text):
         ens_sheet.append([row.get(column, "") for column in ens_columns])
     style_pack_sheet(ens_sheet)
 
@@ -1461,7 +1573,7 @@ def write_process_pack(
     source_headers: list[str] = []
     for source in excel_sources:
         try:
-            headers, rows = read_xlsx_rows(source["content"])
+            headers, rows = read_xlsx_rows(source["content"], config)
         except Exception as error:
             source_rows.append(
                 {
@@ -1473,7 +1585,15 @@ def write_process_pack(
                 }
             )
             continue
-        for header in headers:
+        mapping = mapped_columns(headers, config)
+        api_headers: list[str] = []
+        for details in mapping.values():
+            if details["kind"] != "api":
+                continue
+            api_header = f"api_{details['field_name']}"
+            if api_header not in api_headers:
+                api_headers.append(api_header)
+        for header in [*api_headers, *headers]:
             if header not in source_headers:
                 source_headers.append(header)
         for index, row in enumerate(rows, 1):
@@ -1484,6 +1604,7 @@ def write_process_pack(
                 "pack_status": "SOURCE_ROW",
                 "pack_notes": "Original Excel row prepared for DEC/consignment mapping.",
             }
+            item.update(api_ready_values_for_row(row, mapping))
             item.update(row)
             source_rows.append(item)
 
@@ -1636,25 +1757,41 @@ def column_index_from_reference(cell_reference: str) -> int:
     return max(index - 1, 0)
 
 
-def worksheet_path(workbook: zipfile.ZipFile) -> str:
-    """Return the first worksheet path from an XLSX file."""
+def workbook_target_path(target: str) -> str:
+    """Return a zip path for a workbook relationship target."""
+    text = str(target or "").strip()
+    if text.startswith("/"):
+        return text.lstrip("/")
+    if text.startswith("xl/"):
+        return text
+    return "xl/" + text.lstrip("/")
+
+
+def worksheet_paths(workbook: zipfile.ZipFile) -> list[str]:
+    """Return worksheet paths in workbook order."""
     ns = {
         "s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
         "r": "http://schemas.openxmlformats.org/package/2006/relationships",
     }
     book_root = ET.fromstring(workbook.read("xl/workbook.xml"))
     rels_root = ET.fromstring(workbook.read("xl/_rels/workbook.xml.rels"))
-    first_sheet = book_root.find("s:sheets/s:sheet", ns)
-    if first_sheet is None:
+    relationships = {relationship.get("Id"): relationship.get("Target", "") for relationship in rels_root}
+    paths: list[str] = []
+
+    for sheet in book_root.findall("s:sheets/s:sheet", ns):
+        relationship_id = sheet.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+        target = relationships.get(relationship_id)
+        if target:
+            paths.append(workbook_target_path(target))
+
+    if not paths:
         raise ValueError("Workbook has no worksheets")
+    return paths
 
-    relationship_id = first_sheet.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
-    for relationship in rels_root:
-        if relationship.get("Id") == relationship_id:
-            target = relationship.get("Target", "")
-            return "xl/" + target.lstrip("/")
 
-    raise ValueError("Workbook first worksheet relationship was not found")
+def worksheet_path(workbook: zipfile.ZipFile) -> str:
+    """Return the first worksheet path from an XLSX file."""
+    return worksheet_paths(workbook)[0]
 
 
 def cell_text(cell: ET.Element, shared_strings: list[str]) -> str:
@@ -1746,9 +1883,9 @@ def header_candidate_score(row: list[str], alias_lookup: dict[str, tuple[str, st
     return score
 
 
-def select_header_index(raw_rows: list[list[str]]) -> int:
-    """Choose the most likely business header row from an Excel worksheet."""
-    alias_lookup = build_alias_lookup({})
+def select_header_candidate(raw_rows: list[list[str]], config: dict[str, Any] | None = None) -> tuple[int, int]:
+    """Choose the most likely business header row and return its score."""
+    alias_lookup = build_alias_lookup(config or {})
     best_index = 0
     best_score = -999
 
@@ -1759,12 +1896,17 @@ def select_header_index(raw_rows: list[list[str]]) -> int:
             best_score = score
 
     if best_score > 2:
-        return best_index
+        return best_index, best_score
 
     for index, row in enumerate(raw_rows[:10]):
         if sum(1 for value in row if value.strip()) >= 2:
-            return index
-    return 0
+            return index, header_candidate_score(row, alias_lookup)
+    return 0, best_score
+
+
+def select_header_index(raw_rows: list[list[str]], config: dict[str, Any] | None = None) -> int:
+    """Choose the most likely business header row from an Excel worksheet."""
+    return select_header_candidate(raw_rows, config)[0]
 
 
 def unique_headers(raw_header_row: list[str]) -> list[str]:
@@ -1791,12 +1933,8 @@ def is_summary_excel_row(row_data: dict[str, str], header_count: int) -> bool:
     has_total_marker = any(value in {"total", "grand total"} for value in values)
     return has_total_marker and len(values) < max(6, header_count // 2)
 
-def read_xlsx_rows(content: bytes) -> tuple[list[str], list[dict[str, str]]]:
-    """Read first worksheet into headers and row dictionaries."""
-    with zipfile.ZipFile(io.BytesIO(content)) as workbook:
-        shared_strings = read_shared_strings(workbook)
-        sheet_xml = workbook.read(worksheet_path(workbook))
-
+def raw_rows_from_sheet_xml(sheet_xml: bytes, shared_strings: list[str]) -> list[list[str]]:
+    """Read one worksheet XML into sparse row values."""
     ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
     root = ET.fromstring(sheet_xml)
     raw_rows: list[list[str]] = []
@@ -1810,11 +1948,11 @@ def read_xlsx_rows(content: bytes) -> tuple[list[str], list[dict[str, str]]]:
             values[column_index] = cell_text(cell, shared_strings)
         if any(value.strip() for value in values):
             raw_rows.append(values)
+    return raw_rows
 
-    if not raw_rows:
-        return [], []
 
-    header_index = select_header_index(raw_rows)
+def rows_from_raw_rows(raw_rows: list[list[str]], header_index: int) -> tuple[list[str], list[dict[str, str]]]:
+    """Build headers and dictionaries from a selected header row."""
     headers = unique_headers(raw_rows[header_index])
     rows: list[dict[str, str]] = []
 
@@ -1826,6 +1964,26 @@ def read_xlsx_rows(content: bytes) -> tuple[list[str], list[dict[str, str]]]:
             rows.append(row_data)
 
     return headers, rows
+
+
+def read_xlsx_rows(content: bytes, config: dict[str, Any] | None = None) -> tuple[list[str], list[dict[str, str]]]:
+    """Read the best business worksheet into headers and row dictionaries."""
+    best: tuple[int, int, list[str], list[dict[str, str]]] | None = None
+    with zipfile.ZipFile(io.BytesIO(content)) as workbook:
+        shared_strings = read_shared_strings(workbook)
+        for sheet_index, sheet_path in enumerate(worksheet_paths(workbook)):
+            raw_rows = raw_rows_from_sheet_xml(workbook.read(sheet_path), shared_strings)
+            if not raw_rows:
+                continue
+            header_index, score = select_header_candidate(raw_rows, config)
+            headers, rows = rows_from_raw_rows(raw_rows, header_index)
+            candidate = (score, len(rows), headers, rows)
+            if best is None or candidate[:2] > best[:2]:
+                best = candidate
+
+    if best is None:
+        return [], []
+    return best[2], best[3]
 
 def add_validation_issue(
     validation_rows: list[dict[str, str]],
@@ -1839,6 +1997,7 @@ def add_validation_issue(
     severity: str,
     rule: str,
     details: str,
+    normalized_value: str = "",
 ) -> None:
     """Append one validation issue to the run validation report."""
     validation_rows.append(
@@ -1856,6 +2015,7 @@ def add_validation_issue(
             "severity": severity,
             "rule": rule,
             "details": details,
+            "normalizedValue": normalized_value,
         }
     )
 
@@ -1973,31 +2133,65 @@ def decimal_parts(value: str) -> tuple[str, str]:
     return text, ""
 
 
-def normalize_excel_decimal_noise(value: str, max_decimals: int) -> str:
-    """Collapse harmless Excel floating-point noise before decimal validation."""
-    if "." not in value:
-        return value
+def decimal_quant(max_decimals: int) -> Decimal:
+    """Return a Decimal quantizer for the configured scale."""
+    return Decimal(1).scaleb(-max_decimals)
+
+
+def format_decimal_for_api(value: Decimal) -> str:
+    """Format a Decimal without forcing trailing zeros."""
+    text = format(value, "f").rstrip("0").rstrip(".")
+    if text in {"", "-0"}:
+        return "0"
+    return text
+
+
+def normalise_decimal_for_api(field_name: str, text: str, rule: dict[str, Any]) -> tuple[str, list[tuple[str, str, str]]]:
+    """Validate and round a decimal value for API-ready output."""
+    issues: list[tuple[str, str, str]] = []
+    if "," in text:
+        return "", [("ERROR", "Decimal format", "Commas are not allowed in API numeric values.")]
+
+    cleaned = text.replace(" ", "")
+    if not re.fullmatch(r"-?\d+(\.\d+)?", cleaned):
+        return "", [("ERROR", "Decimal value", "Expected a valid number.")]
+
     try:
-        number = float(value)
-    except ValueError:
-        return value
+        number = Decimal(cleaned)
+    except InvalidOperation:
+        return "", [("ERROR", "Decimal value", "Expected a valid number.")]
 
-    rounded = f"{number:.{max_decimals}f}"
-    if abs(number - float(rounded)) < 0.000000001:
-        return rounded.rstrip("0").rstrip(".") or "0"
-    return value
+    max_decimals = int(rule.get("max_decimals", 2))
+    rounded = number.quantize(decimal_quant(max_decimals), rounding=ROUND_HALF_UP)
+    normalized = format_decimal_for_api(rounded)
+    _, right = decimal_parts(cleaned)
 
-def validate_field_value(field_name: str, value: str) -> list[tuple[str, str, str]]:
-    """Return validation issues as severity/rule/details tuples."""
+    if len(right) > max_decimals:
+        issues.append(("WARNING", "Decimal rounded", f"Value has {len(right)} decimals; rounded to {normalized}."))
+
+    left, rounded_right = decimal_parts(normalized)
+    total_digits = len(left.lstrip("0")) + len(rounded_right)
+    if total_digits > int(rule.get("max_digits", total_digits)):
+        issues.append(("ERROR", "Decimal max digits", f"Maximum total digits is {rule.get('max_digits')}."))
+
+    if rule.get("must_be_positive") and number <= 0:
+        issues.append(("ERROR", "Decimal range", f"{field_name} must be greater than zero."))
+
+    return normalized, issues
+
+
+def normalise_field_value_for_api(field_name: str, value: str) -> tuple[str, list[tuple[str, str, str]]]:
+    """Return API-ready value plus validation issues."""
     rule = FIELD_RULES[field_name]
     issues: list[tuple[str, str, str]] = []
     text = str(value or "").strip()
 
     if rule.get("required") and is_blank(text):
-        return [("ERROR", "Missing API mandatory value", "Value is required by the TSS/API contract.")]
+        return "", [("ERROR", "Missing API mandatory value", "Value is required by the TSS/API contract.")]
     if is_blank(text):
-        return []
+        return "", []
 
+    normalized_value = text
     max_length = rule.get("max_length")
     if max_length and len(text) > int(max_length):
         issues.append(("ERROR", "API maximum length", f"Value has {len(text)} characters; maximum is {max_length}."))
@@ -2015,23 +2209,14 @@ def validate_field_value(field_name: str, value: str) -> list[tuple[str, str, st
                 issues.append(("ERROR", "Integer range", f"Expected value between {rule.get('min')} and {rule.get('max')}."))
 
     if value_type == "decimal":
-        if "," in text:
-            issues.append(("ERROR", "Decimal format", "Commas are not allowed in API numeric values."))
-        normalized = text.replace(" ", "")
-        max_decimals = int(rule.get("max_decimals", 2))
-        normalized = normalize_excel_decimal_noise(normalized, max_decimals)
-        if not re.fullmatch(r"-?\d+(\.\d+)?", normalized):
-            issues.append(("ERROR", "Decimal value", "Expected a valid number."))
-        else:
-            left, right = decimal_parts(normalized)
-            total_digits = len(left.lstrip("0")) + len(right)
-            if total_digits > int(rule.get("max_digits", total_digits)):
-                issues.append(("ERROR", "Decimal max digits", f"Maximum total digits is {rule.get('max_digits')}."))
-            if len(right) > max_decimals:
-                issues.append(("ERROR", "Decimal precision", f"Maximum decimals is {rule.get('max_decimals')}."))
+        normalized_value, decimal_issues = normalise_decimal_for_api(field_name, text, rule)
+        issues.extend(decimal_issues)
 
-    if value_type == "eori" and field_name == "consignor_eori" and text.upper().startswith("GB"):
-        issues.append(("ERROR", "Consignor EORI", "TSS guidance says GB EORI is not accepted for consignor_eori."))
+    if value_type == "eori":
+        if not re.fullmatch(r"[A-Za-z]{2}[A-Za-z0-9]{1,15}", text):
+            issues.append(("ERROR", "EORI format", "Expected country prefix plus alphanumeric EORI, maximum 17 characters."))
+        if field_name in {"consignor_eori", "consignee_eori"} and text.upper().startswith("GB"):
+            issues.append(("ERROR", "EORI role rule", "TSS guidance says GB EORI is not accepted for consignor_eori or consignee_eori."))
 
     if value_type == "commodity_code":
         if not re.fullmatch(r"\d+", text):
@@ -2047,6 +2232,58 @@ def validate_field_value(field_name: str, value: str) -> list[tuple[str, str, st
     if value_type == "currency_code" and not re.fullmatch(r"[A-Za-z]{3}", text):
         issues.append(("WARNING", "Currency code", "Expected a 3-letter currency code when supplied."))
 
+    return normalized_value, issues
+
+
+def validate_field_value(field_name: str, value: str) -> list[tuple[str, str, str]]:
+    """Return validation issues as severity/rule/details tuples."""
+    return normalise_field_value_for_api(field_name, value)[1]
+
+
+def api_ready_values_for_row(row: dict[str, str], mapping: dict[str, dict[str, str]]) -> dict[str, str]:
+    """Return api_<field> values from mapped source columns without altering source data."""
+    values: dict[str, str] = {}
+    for source_column, details in mapping.items():
+        if details["kind"] != "api":
+            continue
+        field_name = details["field_name"]
+        api_column = f"api_{field_name}"
+        if api_column in values and values[api_column]:
+            continue
+        normalized_value, _ = normalise_field_value_for_api(field_name, row.get(source_column, ""))
+        values[api_column] = normalized_value
+    return values
+
+
+def decimal_for_compare(field_name: str, row: dict[str, str], mapping: dict[str, dict[str, str]]) -> Decimal | None:
+    """Return a normalized Decimal for cross-field checks when valid and present."""
+    source_column = first_source_column_for_field(mapping, field_name)
+    if not source_column:
+        return None
+    normalized_value, issues = normalise_field_value_for_api(field_name, row.get(source_column, ""))
+    if not normalized_value or any(severity == "ERROR" for severity, _, _ in issues):
+        return None
+    try:
+        return Decimal(normalized_value)
+    except InvalidOperation:
+        return None
+
+
+def validate_row_relationships(
+    row: dict[str, str],
+    mapping: dict[str, dict[str, str]],
+) -> list[tuple[str, str, str, str]]:
+    """Return cross-field API blockers as severity/rule/details/normalized tuples."""
+    issues: list[tuple[str, str, str, str]] = []
+    gross = decimal_for_compare("gross_mass_kg", row, mapping)
+    net = decimal_for_compare("net_mass_kg", row, mapping)
+    if gross is not None and net is not None and net > gross:
+        issues.append((
+            "ERROR",
+            "Net/gross mass",
+            "net_mass_kg cannot be greater than gross_mass_kg.",
+            f"net_mass_kg={format_decimal_for_api(net)}; gross_mass_kg={format_decimal_for_api(gross)}",
+        ))
     return issues
 
 
@@ -2067,7 +2304,7 @@ def validate_xlsx_attachment(
     stats["validated_excels"] += 1
 
     try:
-        headers, data_rows = read_xlsx_rows(content)
+        headers, data_rows = read_xlsx_rows(content, config)
     except Exception as error:
         stats["validation_errors"] += 1
         add_validation_issue(
@@ -2094,7 +2331,8 @@ def validate_xlsx_attachment(
             if details["kind"] != "api":
                 continue
             field_name = details["field_name"]
-            for severity, rule, details_text in validate_field_value(field_name, row.get(source_column, "")):
+            normalized_value, field_issues = normalise_field_value_for_api(field_name, row.get(source_column, ""))
+            for severity, rule, details_text in field_issues:
                 if severity == "ERROR":
                     stats["validation_errors"] += 1
                 elif severity == "WARNING":
@@ -2113,7 +2351,30 @@ def validate_xlsx_attachment(
                     severity,
                     rule,
                     details_text,
+                    normalized_value,
                 )
+
+        for severity, rule, details_text, normalized_value in validate_row_relationships(row, mapping):
+            if severity == "ERROR":
+                stats["validation_errors"] += 1
+            elif severity == "WARNING":
+                stats["validation_warnings"] += 1
+            else:
+                stats["validation_pending"] += 1
+            add_validation_issue(
+                validation_rows,
+                message,
+                config,
+                attachment_name,
+                saved_path,
+                row_index,
+                "",
+                "net_mass_kg",
+                severity,
+                rule,
+                details_text,
+                normalized_value,
+            )
 
     # Missing mandatory mappings are added after row counters so the summary also
     # reflects file-level errors.
@@ -2136,6 +2397,7 @@ def new_stats() -> dict[str, Any]:
         "saved_attachments": 0,
         "saved_body_texts": 0,
         "generated_process_packs": 0,
+        "missing_ens_sources": 0,
         "skipped_existing": 0,
         "no_file_attachments": 0,
         "failed": 0,
@@ -2213,8 +2475,9 @@ def write_run_log(
         writer.writerow({"action": "SUMMARY", "note": f"Matched: {stats['matched']}"})
         writer.writerow({"action": "SUMMARY", "note": f"Unmatched: {stats['unmatched']}"})
         writer.writerow({"action": "SUMMARY", "note": f"Saved attachments: {stats['saved_attachments']}"})
-        writer.writerow({"action": "SUMMARY", "note": f"Saved ENS body texts: {stats['saved_body_texts']}"})
+        writer.writerow({"action": "SUMMARY", "note": f"Saved ENS source texts: {stats['saved_body_texts']}"})
         writer.writerow({"action": "SUMMARY", "note": f"Generated process packs: {stats['generated_process_packs']}"})
+        writer.writerow({"action": "SUMMARY", "note": f"Missing ENS sources: {stats['missing_ens_sources']}"})
         writer.writerow({"action": "SUMMARY", "note": f"Skipped existing: {stats['skipped_existing']}"})
         writer.writerow({
             "action": "SUMMARY",
@@ -2224,6 +2487,14 @@ def write_run_log(
             ),
         })
         writer.writerow({"action": "SUMMARY", "note": f"Failed: {stats['failed']}"})
+        writer.writerow({"action": "SUMMARY", "note": f"Validation errors: {stats['validation_errors']}"})
+        writer.writerow({"action": "SUMMARY", "note": f"Validation warnings: {stats['validation_warnings']}"})
+        writer.writerow({"action": "SUMMARY", "note": f"Validation pending: {stats['validation_pending']}"})
+        if stats["validation_errors"]:
+            writer.writerow({
+                "action": "VALIDATION_BLOCKERS",
+                "note": "Local download completed; STG/API may reject validation blockers.",
+            })
 
         for suffix, count in sorted(stats["file_types"].items()):
             writer.writerow({"action": "FILE_TYPE", "fileType": suffix, "note": str(count)})
@@ -2259,6 +2530,7 @@ def write_validation_report(
         "severity",
         "rule",
         "details",
+        "normalizedValue",
     ]
 
     with path.open("w", newline="", encoding="utf-8-sig") as handle:
@@ -2297,7 +2569,7 @@ def process_one_message(
     args: argparse.Namespace,
     db_trace: DatabaseIngestionTrace | None = None,
 ) -> None:
-    """Process one email in the simplest possible order."""
+    """Process one email, supporting BKD's separate ENS body and DEC Excel emails."""
     stats["scanned"] += 1
     config = find_tenant_config(message)
 
@@ -2319,41 +2591,6 @@ def process_one_message(
 
     try:
         body_text = email_body_as_text(message)
-        body_result = ""
-        body_path: Path | str = ""
-        body_content: bytes | None = None
-
-        if body_text_enabled(config) and body_text:
-            body_result, body_path, body_content = save_ens_body_text(message, config, body_text, args)
-            if body_result in {"SAVED", "DRY_RUN"}:
-                stats["saved_body_texts"] += 1
-            rows.append(
-                report_row(
-                    message,
-                    config,
-                    f"{body_result}_ENS_BODY_TEXT",
-                    saved_path=body_path,
-                    file_type=".txt",
-                    note="Original email body saved for ENS PACK.",
-                )
-            )
-            record_ing_trace(
-                db_trace,
-                stats,
-                message,
-                config,
-                f"{body_result}_ENS_BODY_TEXT",
-                original_file_name=Path(str(body_path)).name if body_path else "ENS_Email_Body.txt",
-                saved_path=body_path,
-                content_type="text/plain",
-                size_bytes=len(body_content or b""),
-                content=body_content,
-                has_attachments=bool(message.get("hasAttachments")),
-                pack_code="ENS_PACK",
-                source_part="EMAIL_BODY",
-                load_status=body_result,
-            )
-
         attachments = []
         if message.get("hasAttachments"):
             attachments = read_attachments(token, message["id"])
@@ -2387,6 +2624,43 @@ def process_one_message(
                 fail_reason=f"No attachment matched allowed file types: {allowed}",
             )
             return
+
+        has_supported_files = bool(file_attachments)
+        body_path: Path | str = ""
+        body_content: bytes | None = None
+
+        if body_text_enabled(config) and body_text and not has_supported_files:
+            body_result, body_path, body_content = save_ens_body_text(message, config, body_text, args)
+            if body_result in {"SAVED", "DRY_RUN"}:
+                stats["saved_body_texts"] += 1
+            if body_result in {"SAVED", "DRY_RUN", "SKIPPED_EXISTS"}:
+                remember_run_ens_source(message, config, body_path, body_text)
+            rows.append(
+                report_row(
+                    message,
+                    config,
+                    f"{body_result}_ENS_SOURCE_TEXT",
+                    saved_path=body_path,
+                    file_type=".txt",
+                    note="Original email body saved as ENS source evidence.",
+                )
+            )
+            record_ing_trace(
+                db_trace,
+                stats,
+                message,
+                config,
+                f"{body_result}_ENS_SOURCE_TEXT",
+                original_file_name=Path(str(body_path)).name if body_path else "ENS_Source.txt",
+                saved_path=body_path,
+                content_type="text/plain",
+                size_bytes=len(body_content or b""),
+                content=body_content,
+                has_attachments=bool(message.get("hasAttachments")),
+                pack_code="ENS_PACK",
+                source_part="EMAIL_BODY",
+                load_status=body_result,
+            )
 
         excel_sources: list[dict[str, Any]] = []
 
@@ -2458,7 +2732,7 @@ def process_one_message(
                     message,
                     config,
                     status,
-                    note="No file attachments found; ENS body text handled if configured.",
+                    note="No file attachments found; stored as ENS source when configured.",
                 )
             )
             record_ing_trace(
@@ -2472,15 +2746,44 @@ def process_one_message(
                 source_part="EMAIL_BODY" if body_text_enabled(config) else "",
                 load_status=status,
             )
+            return
 
-        if body_text_enabled(config) and (body_text or excel_sources):
+        if body_text_enabled(config) and excel_sources:
+            ens_source = find_ens_source_for_dec_email(message, config)
+            if not ens_source:
+                stats["missing_ens_sources"] += 1
+                status = "MISSING_ENS_SOURCE"
+                rows.append(
+                    report_row(
+                        message,
+                        config,
+                        status,
+                        file_type=".xlsx",
+                        note="Excel saved, but no ENS source text was found for the same tenant/date/subject.",
+                    )
+                )
+                record_ing_trace(
+                    db_trace,
+                    stats,
+                    message,
+                    config,
+                    status,
+                    has_attachments=True,
+                    pack_code="API_PACK",
+                    source_part="GENERATED_PACK",
+                    load_status=status,
+                    fail_reason="Missing ENS source text for DEC Excel email.",
+                )
+                return
+
             pack_result, pack_path = write_process_pack(
                 message,
                 config,
-                body_path,
-                body_text,
+                ens_source.get("path", ""),
+                str(ens_source.get("body_text") or ""),
                 excel_sources,
                 args,
+                ens_message=ens_source.get("message") or message,
             )
             if pack_result in {"SAVED", "DRY_RUN"}:
                 stats["generated_process_packs"] += 1
@@ -2491,9 +2794,15 @@ def process_one_message(
                     f"{pack_result}_PROCESS_PACK",
                     saved_path=pack_path,
                     file_type=".xlsx",
-                    note="Generated operational ENS PACK + DEC PACK workbook.",
+                    note="Generated operational ENS PACK + DEC PACK workbook from paired ENS and DEC emails.",
                 )
             )
+            pack_content: bytes | None = None
+            if not args.dry_run and Path(pack_path).exists():
+                try:
+                    pack_content = Path(pack_path).read_bytes()
+                except OSError:
+                    pack_content = None
             record_ing_trace(
                 db_trace,
                 stats,
@@ -2503,7 +2812,9 @@ def process_one_message(
                 original_file_name=pack_path.name,
                 saved_path=pack_path,
                 content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                has_attachments=bool(file_attachments),
+                size_bytes=len(pack_content) if pack_content is not None else None,
+                content=pack_content,
+                has_attachments=True,
                 pack_code="API_PACK",
                 source_part="GENERATED_PACK",
                 generated_csv_path=pack_path,
@@ -2528,11 +2839,11 @@ def run(args: argparse.Namespace) -> int:
 
     Main objective:
         Save inbound files into the correct tenant folder under:
-        \\PL-AZ-SDF-PLINT\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Integration_Layer
+        \\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer
 
     Current confirmed example:
         BKD files are saved into:
-        \\PL-AZ-SDF-PLINT\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Integration_Layer\BKD\Inbound\Sales_Order_files
+        \\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Inbound\Sales_Order_files
 
     This is the order the operator should understand:
         1. Load optional database routing/trace support.
@@ -2619,8 +2930,9 @@ def print_summary(
     print(f"  Matched messages: {stats['matched']}")
     print(f"  Unmatched messages: {stats['unmatched']}")
     print(f"  Saved attachments: {stats['saved_attachments']}")
-    print(f"  Saved ENS body texts: {stats['saved_body_texts']}")
+    print(f"  Saved ENS source texts: {stats['saved_body_texts']}")
     print(f"  Generated process packs: {stats['generated_process_packs']}")
+    print(f"  Missing ENS sources: {stats['missing_ens_sources']}")
     print(f"  Skipped existing files: {stats['skipped_existing']}")
     print(
         "  No file attachments: "
@@ -2637,6 +2949,10 @@ def print_summary(
     print(f"  Technical run log: {run_log_path}")
     if validation_report_path:
         print(f"  Validation report: {validation_report_path}")
+    if stats["validation_errors"]:
+        print("  STG/API warning: local download completed; STG/API may reject validation blockers.")
+    elif stats["validation_warnings"] or stats["validation_pending"]:
+        print("  STG/API review: local download completed with validation warnings or pending mapping items.")
 
     if stats["file_types"]:
         print("  File types:")
