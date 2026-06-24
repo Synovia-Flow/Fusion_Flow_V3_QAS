@@ -25,8 +25,8 @@ API / Data Processing
 | Fusion_Flow_V2_BKD docs/api/API_CODE_CROSS_REFERENCE.md | Reference context for endpoint coverage and v2.9.5 endpoint parity. |
 | TSS API v2.9.5 DataModel | Source of required, optional and conditional API fields. |
 | TSS API v2.9.5 Postman collection | Source of practical payload examples. |
-| `Graph/config/customers/*.yml` | Current customer routing and destination rules. |
-| `Configuration_Layer/SQL/001_create_minimal_graph_tables.sql` | Current QAS database starting point. |
+| `Integration_Layer/Graph/config/customers/*.yml` | Current customer routing and destination rules. |
+| `Configuration_Layer/SQL/001_create_schemas_and_tables.sql` -> `002_add_constraints_and_indexes.sql` -> `003_seed_qas_config.sql` | Current QAS database starting point and tenant seed config. |
 
 ## Validation Requirements
 
@@ -202,6 +202,62 @@ This section shows how the Phase 2 validation and consolidation requirements sup
 | RF-006 | Operational Dashboard | Not in Phase 2 build scope yet; depends on reporting/audit data. |
 | RF-007 | Automated Retry Logic | Not in Phase 2 build scope yet; depends on partial failure and retry rules. |
 | RF-008 | Enhanced Audit and Traceability | Supported by VAL-009 and CONS-012. |
+
+## TSS Transition API Test Evidence
+
+This test confirms the new TSS transition API can be reached with OAuth2 client credentials. Credentials were provided at runtime only and must not be stored in source control or documentation.
+
+| Item | Value |
+| --- | --- |
+| Test date | 2026-06-23 |
+| Environment | TSS transition test API |
+| Token flow | OAuth2 `client_credentials` |
+| Token URL | `https://auth.tt.nc-tss.uk/realms/TSS_Portal/protocol/openid-connect/token` |
+| Base URL | `https://tt.nc-tss.uk/api/v1/trader_api/transition` |
+| Safety rule | Controlled GET and transition-test create only; no production write, submit, update or cancel action was executed. |
+| actAs | Not sent. It must only be used when `can_act_as` is confirmed. |
+
+### Connectivity Check
+
+A non-destructive GET against `choice_values/declaration_category` returned HTTP `200` and confirmed the API token and base URL are valid. The response returned declaration categories `IMY` and `IMZ`.
+
+### ENS Draft Create Check
+
+A controlled `POST /headers` was executed in the transition test API to confirm ENS header creation works with OAuth2. The payload used sanitized test values and did not copy production ENS references, status values, MRNs or audit fields.
+
+| Check | Endpoint | Result |
+| --- | --- | --- |
+| Create ENS header | `POST /headers` | HTTP `200`; response `status=created`, `process_message=success`, reference `ENS1782234071313`. |
+| Read created ENS header | `GET /headers?reference=ENS1782234071313&fields=...` | HTTP `200`; status `Draft`; movement type `1a`; arrival `25/06/2026 11:00:00`; port `GBAUBELBELBEL`. |
+
+Conclusion: the new transition API can create and read an ENS draft through the API. For the MVP, this confirms the ENS creation path is technically viable once business rules and field mapping are agreed.
+
+### Consignment Read Check
+
+Requested consignment reference: `DEC000000017182156`.
+
+| Attempt | Endpoint | Result |
+| --- | --- | --- |
+| Legacy-style path | `/tss_api/consignments?reference=DEC000000017182156` | HTTP `404 Not Found`. |
+| Transition-style path | `/consignments?reference=DEC000000017182156` | HTTP `400` with `ERROR 100002: The consignment was not found.` |
+
+Conclusion: the transition API is reachable, and the transition-style consignment endpoint is active without the legacy `/tss_api` prefix. The supplied `DEC000000017182156` reference was not found in the transition test environment. This likely means the reference belongs to the current/legacy environment or has not been migrated into transition test data.
+
+### Current Production Read Evidence
+
+The same consignment reference was checked against the current production TSS API using Basic Auth credentials loaded from the local `.env` file at runtime. No credentials were written into source control or documentation.
+
+| Check | Endpoint | Result |
+| --- | --- | --- |
+| Consignment read without explicit fields | `/tss_api/consignments?reference=DEC000000017182156` | HTTP `200`, but TSS returned `Cannot map object`. |
+| Consignment read with explicit fields | `/tss_api/consignments?reference=DEC000000017182156&fields=...` | Successful response. Status: `Authorised for Movement`. Parent ENS: `ENS000000002680586`. MRN: `26XI05000T9636LAT0`. |
+| ENS read without explicit fields | `/tss_api/headers?reference=ENS000000002680586` | HTTP `200`, but TSS returned `Cannot map object`. |
+| ENS read with explicit fields | `/tss_api/headers?reference=ENS000000002680586&fields=...` | Successful response. Status: `Authorised for Movement`. Arrival: `24/06/2026 06:30:00`. Port: `GBAUBELBELBEL`. |
+
+Conclusion: the current production API can read the DEC and parent ENS when the request asks for a controlled field list. For the MVP, read/sync jobs should request explicit fields instead of relying on the default response, because the default response can fail inside TSS mapping even when the HTTP status is `200`.
+
+No transition-test POST was executed with production data. If production data is reused for transition testing later, the payload must be reviewed first and production-only values such as original references, statuses, MRNs and audit fields must be removed or replaced.
+
 ## Ready For Build When
 
 - Aidan confirms the database/data mapping.
