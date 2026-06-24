@@ -18,6 +18,42 @@ Graph email/file intake
 -> SDI/SupDec sync and autosubmit
 ```
 
+
+## Confirmed Architecture Decisions
+
+| Decision | Contract |
+| --- | --- |
+| Layer separation | `Documentation_Layer` explains the why/what, `Configuration_Layer` owns SQL/config contracts, and `Integration_Layer` owns executable code and runtime files. |
+| FLOW_V3 role | `Integration_Layer/FLOW_V3` is the thin operational console for scripts 01-05. Shared logic belongs under `Integration_Layer/App`. |
+| DB-first configuration | Jobs should read `CFG.*` first. YAML files are fallback/dev overrides during transition, not the long-term source of truth. |
+| Graph vs filesystem | Microsoft Graph is the source of inbound email truth. The filesystem is operational staging, and every saved path must be recorded in `ING.ProcessFile`. |
+| BKD slice first | The locked DB contract should be proven with one vertical BKD happy path before broad CWH/PLE buildout. |
+| Pack rules in CFG | `ENS_PACK` and `DEC_PACK` behavior belongs in `CFG.IngestionPackRule`, not tenant-specific Python branches. |
+| Runtime gates in CFG | TSS submit/dry-run switches belong in `CFG.TenantSetting`; secrets remain in environment or secure config. |
+
+## Immediate Build Priority
+
+The next build target is not general ingestion for every tenant. It is a BKD vertical slice:
+
+```text
+01 fetch BKD DETAILS email
+-> generate ENS_PACK from the email body
+-> save source/process artifacts
+-> write EXC/ING trace
+-> load process rows for later STG validation
+-> keep TSS submit disabled unless CFG explicitly enables it
+```
+
+CWH and PLE stay configured but inactive until sender rules and templates are confirmed.
+
+BKD operational artefacts:
+
+| Artefact | Location | Purpose |
+| --- | --- | --- |
+| Original ENS body text | `Integration_Layer/BKD/Inbound/ENS_Email_Body/ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt` | Keeps the received email body as traceable ENS source evidence. |
+| Original sales order attachment | `Integration_Layer/BKD/Inbound/Sales_Order_files/` | Keeps the customer Excel exactly as received. |
+| Generated API pack | `Integration_Layer/BKD/Process/BKD_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx` | Combines `ENS PACK` from the body and `DEC PACK` from the Excel attachment for review/mapping before TSS API processing. |
+
 ## Source Material
 
 | Source | Why it matters |
@@ -31,7 +67,7 @@ Graph email/file intake
 
 | Step | Script | What it does | Output |
 | --- | --- | --- | --- |
-| 01 | `Integration_Layer/FLOW_V3/01_graph_email_ing.py` | Fetches Graph emails, classifies by customer/sender, stores source file/body trace. | ING trace / saved original file. |
+| 01 | `Integration_Layer/FLOW_V3/01_graph_email_ing.py` | Fetches Graph emails, classifies by customer/sender, stores source file/body trace and generates the BKD API pack. | ING trace / saved originals / generated process pack. |
 | 02 | `Integration_Layer/FLOW_V3/02_ens_details_auto_submit.py` | Converts `DETAILS FOR...` email data into ENS header and submits to TSS. | Official `ENS000...`. |
 | 03 | `Integration_Layer/FLOW_V3/03_sales_orders_cargo_submit.py` | Converts Sales Orders Excel into consignments/goods and submits cargo to TSS. | Official `DEC000...` and TSS goods IDs. |
 | 04 | `Integration_Layer/FLOW_V3/04_status_watcher_notify.py` | Reads TSS statuses, syncs DEC/SFD/MRN/goods and sends movement notification when ready. | Updated mirrors and `movement_notified_at`. |
@@ -44,7 +80,7 @@ the module that owns the business object.
 
 | Step | Validation location | What is validated |
 | --- | --- | --- |
-| 01 | `Graph/graph_mail_customer_downloader.py` | Mailbox access, sender/domain rules, allowed file types, duplicate file handling. |
+| 01 | `Integration_Layer/Graph/graph_mail_customer_downloader.py` | Mailbox access, sender/domain rules, allowed file types, duplicate file handling. |
 | 02 | `app.blueprints.ingest.routes._auto_validate_and_submit_stg_ens_header` | DETAILS body parse, ENS payload, mandatory fields, TSS choice values, official TSS response. |
 | 03 | `app.blueprints.declarations.routes._submit_prd_cargo_for_header` | TDN grouping, consignment payload, goods payload, goods completion and TSS submit response. |
 | 04 | `app.ingestion.ens_status_watcher.sync_ens_status_once` and `app.ingestion.automation_notify` | TSS status readback, mirror updates, notification gate and SMTP result. |
@@ -121,12 +157,12 @@ fails.
    exists.
 6. Duplicate SUP/SDI cancellation requires TDN plus goods fingerprint, not TDN
    alone.
-7. Live submit paths must be gated by environment/config.
+7. Live submit paths must be gated by `CFG.TenantSetting` and environment/config.
 8. Technical logs must include enough TSS response detail to explain failures.
 
 ## Running The Flow
 
-All five steps are intended to run from this QAS repository. Step 01 uses the QAS Graph layer today. Steps 02-05 must be rebuilt as small local QAS services under `app/services/`; V2 is a reference only, not a runtime dependency.
+All five steps are intended to run from this QAS repository. Step 01 uses the QAS Graph layer today. Steps 02-05 must be rebuilt as small local QAS services under `Integration_Layer/App/app/services/`; V2 is a reference only, not a runtime dependency.
 
 Commands:
 
@@ -142,6 +178,9 @@ python Integration_Layer\FLOW_V3\05_sdi_autosubmit.py --tenant-code BKD
 
 | Item | Why it matters |
 | --- | --- |
+| STG object shape | Avoid a permanently flat `STG.SalesOrder` model; validate the ENS header -> consignment -> goods item chain before buildout. |
+| TSS submission typing | `TSS.Submission` must identify submit type, such as `ENS`, `DEC`, `SDI_GOODS`, or `SDI_HEADER`, before multi-flow automation. |
+| Migration proof | Run migrations in QAS and insert a dummy chain through `CFG.Tenant -> CFG.Graph -> ING.Graph -> ING.ProcessFile -> ING.LoadRow`. |
 | Customer-specific grouping exceptions | Same TDN can be legitimate in more than one context, so duplicate logic must check goods/context too. |
 | Missing item values | TSS can reject SDIs where item values are blank; values must come from customer files or confirmed masterdata. |
 | Missing document references | Historical closed declarations can help, but only where the mapping is reliable. |

@@ -8,15 +8,15 @@ Current confirmed tenant:
 
 Current confirmed behavior:
     - Emails from @birkdalesales.com go to BKD.
+    - If the tenant uses body-to-ENS, save the email body as TXT evidence.
     - If the email has file attachments, save the attachments.
+    - Generate an operational API pack with ENS PACK and DEC PACK sheets.
     - Excel attachments are validated from the Graph attachment content.
     - A validation CSV is written with errors, warnings, and pending mapping items.
-    - If the email has no file attachments, keep it visible for the future API/body stage.
 
-No-attachment note:
-    Emails without file attachments are skipped by this script today. The email
-    body may be required later by the API/test stage to create ENS records and
-    consignments, so that logic must stay outside this Graph-only downloader for now.
+Body-to-ENS note:
+    The email body remains original evidence in Inbound/ENS_Email_Body.
+    The generated Process workbook is the review/mapping pack, not the source.
 
 Important security note:
     This shared script does not store the real client secret in source code.
@@ -30,6 +30,8 @@ import argparse
 import base64
 import csv
 import datetime as dt
+import hashlib
+import html
 import io
 import json
 import os
@@ -44,7 +46,7 @@ from xml.etree import ElementTree as ET
 
 
 SCRIPT_FOLDER = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_FOLDER.parent
+REPO_ROOT = SCRIPT_FOLDER.parents[1]
 
 
 def load_dotenv_file() -> None:
@@ -62,9 +64,13 @@ def load_dotenv_file() -> None:
         "GRAPH.MAILBOX": "GRAPH_MAILBOX",
         "GRAPH.FOLDER": "GRAPH_FOLDER",
         "GRAPH.HISTORIC_START_DATE": "GRAPH_HISTORIC_START_DATE",
+        "GRAPH.DB_ENABLED": "GRAPH_DB_ENABLED",
+        "GRAPH.DB_CONNECTION_STRING": "GRAPH_DB_CONNECTION_STRING",
+        "GRAPH.ENV_CODE": "GRAPH_ENV_CODE",
     }
     candidates = [
         Path.cwd() / ".env",
+        REPO_ROOT / ".env",
         SCRIPT_FOLDER / ".env",
         SCRIPT_FOLDER.parent / ".env",
     ]
@@ -90,6 +96,27 @@ def load_dotenv_file() -> None:
 load_dotenv_file()
 
 
+def first_env(*names: str, default: str = "") -> str:
+    """Return the first non-empty environment value from the supplied names."""
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return default
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    """Read a simple true/false environment switch."""
+    value = os.getenv(name, "").strip().lower()
+    if not value:
+        return default
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 # =============================================================================
 # STEP 1 - GRAPH CONFIGURATION
 # =============================================================================
@@ -113,6 +140,13 @@ GRAPH_CLIENT_SECRET = os.getenv("GRAPH_CLIENT_SECRET", "").strip()
 GRAPH_MAILBOX = os.getenv("GRAPH_MAILBOX", "nexus@synoviaflow.cloud").strip()
 GRAPH_FOLDER = os.getenv("GRAPH_FOLDER", "inbox").strip() or "inbox"
 GRAPH_HISTORIC_START_DATE = os.getenv("GRAPH_HISTORIC_START_DATE", "2026-05-07").strip()
+GRAPH_ENV_CODE = os.getenv("GRAPH_ENV_CODE", "QAS").strip() or "QAS"
+GRAPH_DB_CONNECTION_STRING = first_env(
+    "GRAPH_DB_CONNECTION_STRING",
+    "FUSION_QAS_DB_CONNECTION_STRING",
+    "FUSION_QAS_DB_CONNECTION",
+)
+GRAPH_DB_ENABLED = env_flag("GRAPH_DB_ENABLED", default=bool(GRAPH_DB_CONNECTION_STRING))
 
 GRAPH_API_ROOT = "https://graph.microsoft.com/v1.0"
 GRAPH_TOKEN_URL = (
@@ -133,9 +167,9 @@ INTEGRATION_LAYER_ROOT = Path(
     os.getenv("FUSION_INTEGRATION_LAYER_ROOT", str(DEFAULT_INTEGRATION_LAYER_ROOT))
 )
 
-# Secondary technical log folder. The business objective is the tenant file
-# destination under Integration_Layer; this log only helps during support checks.
-RUN_LOG_FOLDER = GRAPH_SCRIPT_FOLDER / "run_logs"
+# Operational history for Graph step 01. Original customer files stay in the
+# tenant inbound folder; CSV history/reports live with the FLOW_V3 run evidence.
+RUN_LOG_FOLDER = INTEGRATION_LAYER_ROOT / "FLOW_V3" / "Run_History" / "Graph"
 
 # Tracks destination names selected during the current run. This lets the script
 # save two same-name files received on the same date as "_2", while keeping
@@ -149,8 +183,8 @@ USED_DESTINATION_PATHS: set[Path] = set()
 #
 # Customer routing is stored as one .yml file per customer:
 #
-#   Graph/config/customers/BKD.yml
-#   Graph/config/customers/CWH.yml
+#   Integration_Layer/Graph/config/customers/BKD.yml
+#   Integration_Layer/Graph/config/customers/CWH.yml
 #
 # The parser below is intentionally small. It supports key/value pairs and
 # list values using "- item". This keeps the script dependency-free while the
@@ -163,16 +197,23 @@ FALLBACK_BIRKDALE_CONFIG = {
     "sender_domains": ["birkdalesales.com"],
     "sender_addresses": [],
     "file_types": [".xlsx"],
-    "save_mode": "attachments_only",
+    "save_mode": "email_body_and_attachment_to_api_pack",
     "destination_folder": (
         INTEGRATION_LAYER_ROOT / "BKD" / "Inbound" / "Sales_Order_files"
     ),
+    "body_source_for_ens": "email_body",
+    "body_text_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Inbound" / "ENS_Email_Body",
+    "process_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Process",
+    "fail_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Fails",
+    "body_text_file_pattern": "ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt",
+    "process_pack_pattern": "BKD_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx",
+    "ens_pack_sheet_name": "ENS PACK",
+    "dec_pack_sheet_name": "DEC PACK",
 }
 
-# NO-ATTACHMENT BEHAVIOUR:
-# Current BKD Graph processing is attachment-only. Emails without file attachments
-# are skipped and counted for visibility. Body extraction belongs to the future
-# API/test stage because the body can contain the ENS/consignment source data.
+# BODY-TO-ENS BEHAVIOUR:
+# BKD uses the email body as the ENS source. The script saves that body as
+# text evidence and generates a Process workbook with ENS PACK and DEC PACK sheets.
 
 
 # =============================================================================
@@ -185,7 +226,7 @@ FALLBACK_BIRKDALE_CONFIG = {
 #   2. Sender address(es), if one exact mailbox is required.
 #   3. Whether the ENS/consignment source data arrives in the email body, in attachments, or both.
 #   4. Attachment file types and whether any file should be ignored.
-#   5. Whether no-attachment emails should be routed to the API/test body-processing stage.
+#   5. Whether body-only emails should generate an ENS PACK even when no attachment exists.
 #   6. Exact Integration Layer destination folder.
 #   7. Whether the message can be marked as read after successful processing.
 #
@@ -276,6 +317,24 @@ def normalise_file_types(values: list[str]) -> list[str]:
     return file_types
 
 
+def repo_path(value: Any) -> Path:
+    """Return a config path as an absolute repo path."""
+    path = Path(str(value or "").strip())
+    if path.is_absolute():
+        return path
+    return REPO_ROOT / path
+
+
+def default_tenant_folder(tenant_code: str, folder_name: str) -> Path:
+    """Return the default Integration_Layer tenant folder."""
+    return INTEGRATION_LAYER_ROOT / tenant_code / folder_name
+
+
+def default_body_text_folder(destination_folder: Path) -> Path:
+    """Keep original ENS body text beside inbound files, not in Process."""
+    return destination_folder.parent / "ENS_Email_Body"
+
+
 def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, Any] | None:
     """Validate one customer YML file and convert it to the script config shape."""
     active = bool(raw_config.get("active", True))
@@ -289,9 +348,10 @@ def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, A
     if not destination_folder:
         raise ValueError(f"{path}: destination_folder is required")
 
-    destination_path = Path(destination_folder)
-    if not destination_path.is_absolute():
-        destination_path = REPO_ROOT / destination_path
+    destination_path = repo_path(destination_folder)
+    process_path = repo_path(raw_config.get("process_folder") or default_tenant_folder(tenant_code, "Process"))
+    fail_path = repo_path(raw_config.get("fail_folder") or default_tenant_folder(tenant_code, "Fails"))
+    body_text_path = repo_path(raw_config.get("body_text_folder") or default_body_text_folder(destination_path))
 
     config = dict(raw_config)
     config.update(
@@ -309,13 +369,18 @@ def build_customer_config(path: Path, raw_config: dict[str, Any]) -> dict[str, A
             "save_mode": str(raw_config.get("save_mode") or "attachments_only").strip().lower(),
             "historic_start_date": str(raw_config.get("historic_start_date") or "").strip(),
             "destination_folder": destination_path,
+            "process_folder": process_path,
+            "fail_folder": fail_path,
+            "body_text_folder": body_text_path,
+            "body_text_file_pattern": raw_config.get("body_text_file_pattern") or "ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt",
+            "process_pack_pattern": raw_config.get("process_pack_pattern") or f"{tenant_code}_API_PACK_{{dd.MM.yyyy}}_{{message_id_short}}.xlsx",
             "config_file": str(path),
         }
     )
     return config
 
 def load_tenant_configs() -> list[dict[str, Any]]:
-    """Load active customer configs from Graph/config/customers/*.yml."""
+    """Load active customer configs from Integration_Layer/Graph/config/customers/*.yml."""
     paths = sorted(CUSTOMER_CONFIG_FOLDER.glob("*.yml"))
     configs = []
 
@@ -334,6 +399,368 @@ def load_tenant_configs() -> list[dict[str, Any]]:
 
 TENANT_CONFIGS = load_tenant_configs()
 
+
+# =============================================================================
+# STEP 4A - OPTIONAL DATABASE INGESTION TRACE
+# =============================================================================
+#
+# If GRAPH.DB_CONNECTION_STRING is supplied, Step 01 can use the prepared MVP
+# database as the first ingestion trace. Without it, the script remains file-only
+# and keeps using customer YML files.
+
+def split_delimited_values(value: Any) -> list[str]:
+    """Split comma/semicolon/pipe/newline config values into a clean list."""
+    if value in (None, ""):
+        return []
+    if isinstance(value, list):
+        return as_list(value)
+    return [part.strip() for part in re.split(r"[\n,;|]+", str(value)) if part.strip()]
+
+
+def parse_sender_rule(value: Any) -> tuple[list[str], list[str]]:
+    """Convert CFG.Graph.SenderRule text into domain and address lists."""
+    domains: list[str] = []
+    addresses: list[str] = []
+
+    for raw_item in split_delimited_values(value):
+        item = raw_item.strip().lower()
+        item = re.sub(r"^(sender_)?(domain|address)\s*[:=]\s*", "", item)
+        if "@" in item and not item.startswith("@"):
+            addresses.append(item)
+        elif item:
+            domains.append(item.lstrip("@"))
+
+    return domains, addresses
+
+
+def db_text(value: Any, max_length: int) -> str | None:
+    """Trim optional text values to the database column size."""
+    if value in (None, ""):
+        return None
+    return str(value)[:max_length]
+
+
+def parse_graph_datetime(value: Any) -> dt.datetime | None:
+    """Return a naive UTC datetime suitable for SQL Server datetime2."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
+
+
+def database_destination_path(value: Any) -> Path:
+    """Return a database destination as an absolute path."""
+    path = Path(str(value or "").strip())
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path
+
+
+def build_database_customer_config(
+    row: dict[str, Any],
+    yml_configs_by_tenant: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Convert one CFG.Graph row into the same config shape as the YML loader."""
+    tenant_code = str(row.get("TenantCode") or "").strip().upper()
+    base = dict(yml_configs_by_tenant.get(tenant_code, {}))
+    sender_domains, sender_addresses = parse_sender_rule(row.get("SenderRule"))
+    file_types = normalise_file_types(split_delimited_values(row.get("AllowedFileTypes")))
+    destination_folder = row.get("DestinationFolder") or base.get("destination_folder")
+
+    if not tenant_code:
+        raise ValueError("CFG.Graph row is missing TenantCode")
+    if not destination_folder:
+        raise ValueError(f"CFG.Graph row for {tenant_code} is missing DestinationFolder")
+
+    destination_path = database_destination_path(destination_folder)
+    process_path = database_destination_path(row.get("ProcessFolder") or base.get("process_folder") or default_tenant_folder(tenant_code, "Process"))
+    fail_path = database_destination_path(row.get("FailFolder") or base.get("fail_folder") or default_tenant_folder(tenant_code, "Fails"))
+    body_text_path = base.get("body_text_folder") or default_body_text_folder(destination_path)
+
+    config = dict(base)
+    config.update(
+        {
+            "config_id": int(row["ConfigID"]) if row.get("ConfigID") is not None else None,
+            "route_id": int(row["RouteID"]) if row.get("RouteID") is not None else None,
+            "env_code": str(row.get("EnvCode") or GRAPH_ENV_CODE).strip() or GRAPH_ENV_CODE,
+            "tenant_code": tenant_code,
+            "tenant_name": str(row.get("TenantName") or base.get("tenant_name") or tenant_code),
+            "active": True,
+            "mailbox": str(row.get("Mailbox") or GRAPH_MAILBOX).strip() or GRAPH_MAILBOX,
+            "sender_domains": sender_domains or base.get("sender_domains", []),
+            "sender_addresses": sender_addresses or base.get("sender_addresses", []),
+            "file_types": file_types or base.get("file_types", []),
+            "save_mode": str(base.get("save_mode") or "attachments_only").strip().lower(),
+            "destination_folder": destination_path,
+            "process_folder": process_path,
+            "fail_folder": fail_path,
+            "body_text_folder": body_text_path,
+            "body_text_file_pattern": base.get("body_text_file_pattern") or "ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt",
+            "process_pack_pattern": base.get("process_pack_pattern") or f"{tenant_code}_API_PACK_{{dd.MM.yyyy}}_{{message_id_short}}.xlsx",
+            "output_file_pattern": row.get("OutputFilePattern") or base.get("output_file_pattern"),
+            "ens_pack_sheet_name": row.get("EnsSheetName") or base.get("ens_pack_sheet_name"),
+            "dec_pack_sheet_name": row.get("DecSheetName") or base.get("dec_pack_sheet_name"),
+            "body_source_for_ens": row.get("BodySourceForEns") or base.get("body_source_for_ens"),
+            "processing_environment": row.get("ProcessingEnvironment") or base.get("processing_environment"),
+            "config_source": "CFG.Graph",
+        }
+    )
+    return config
+
+
+class DatabaseIngestionTrace:
+    """Small SQL Server adapter for CFG.Graph, EXC.Graph and ING.Graph."""
+
+    def __init__(self, connection: Any):
+        self.connection = connection
+        self.execution_id: int | None = None
+        self._ing_graph_columns: set[str] | None = None
+
+    @classmethod
+    def open(cls, args: argparse.Namespace) -> "DatabaseIngestionTrace | None":
+        """Open the optional ingestion database connection."""
+        if getattr(args, "no_database", False):
+            return None
+        if not GRAPH_DB_ENABLED:
+            return None
+        if not GRAPH_DB_CONNECTION_STRING:
+            raise RuntimeError(
+                "GRAPH.DB_ENABLED is true but GRAPH.DB_CONNECTION_STRING is not set."
+            )
+
+        try:
+            import pyodbc  # type: ignore[import-not-found]
+        except ImportError as error:
+            raise RuntimeError(
+                "Database ingestion tracing requires pyodbc when GRAPH.DB_ENABLED is true."
+            ) from error
+
+        connection = pyodbc.connect(GRAPH_DB_CONNECTION_STRING, autocommit=False)
+        return cls(connection)
+
+    def close(self) -> None:
+        """Close the SQL connection."""
+        self.connection.close()
+
+    def fetch_dicts(self, query: str, *params: Any) -> list[dict[str, Any]]:
+        """Run a SELECT query and return rows as dictionaries."""
+        cursor = self.connection.cursor()
+        cursor.execute(query, *params)
+        columns = [column[0] for column in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def table_columns(self, schema: str, table: str) -> set[str]:
+        """Return SQL Server column names for optional backward-compatible inserts."""
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "SELECT name FROM sys.columns WHERE object_id = OBJECT_ID(?)",
+            f"{schema}.{table}",
+        )
+        return {str(row[0]) for row in cursor.fetchall()}
+
+    def ing_graph_columns(self) -> set[str]:
+        """Cache ING.Graph columns for optional process/fail metadata."""
+        if self._ing_graph_columns is None:
+            self._ing_graph_columns = self.table_columns("ING", "Graph")
+        return self._ing_graph_columns
+
+    def load_tenant_configs(self) -> list[dict[str, Any]]:
+        """Read active routing rows from CFG.Graph for this environment/mailbox."""
+        rows = self.fetch_dicts(
+            """
+            SELECT
+                ConfigID,
+                RouteID,
+                EnvCode,
+                TenantCode,
+                TenantName,
+                Mailbox,
+                SenderRule,
+                AllowedFileTypes,
+                DestinationFolder,
+                ProcessFolder,
+                FailFolder,
+                OutputFilePattern,
+                EnsSheetName,
+                DecSheetName,
+                BodySourceForEns,
+                ProcessingEnvironment
+            FROM CFG.Graph
+            WHERE EnvCode = ?
+              AND IsActive = 1
+              AND LOWER(Mailbox) = LOWER(?)
+            ORDER BY TenantCode
+            """,
+            GRAPH_ENV_CODE,
+            GRAPH_MAILBOX,
+        )
+        yml_configs = {config["tenant_code"]: config for config in load_tenant_configs()}
+        return [build_database_customer_config(row, yml_configs) for row in rows]
+
+    def begin_execution(self, args: argparse.Namespace, started_at: dt.datetime) -> None:
+        """Insert one EXC.Graph row for this script run."""
+        if args.dry_run:
+            return
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO EXC.Graph (EnvCode, ProcessName, RunMode, StartedAt, Status)
+            OUTPUT INSERTED.ExecutionID
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            GRAPH_ENV_CODE,
+            "FLOW_V3_01_GRAPH_EMAIL_ING",
+            args.run_mode,
+            started_at.astimezone(dt.timezone.utc).replace(tzinfo=None),
+            "RUNNING",
+        )
+        self.execution_id = int(cursor.fetchone()[0])
+        self.connection.commit()
+
+    def finish_execution(
+        self,
+        status: str,
+        stats: dict[str, Any],
+        error_message: str = "",
+    ) -> None:
+        """Update the EXC.Graph row with the final run outcome."""
+        if not self.execution_id:
+            return
+        items_processed = max(
+            0,
+            int(stats.get("matched", 0)) + int(stats.get("unmatched", 0)) - int(stats.get("failed", 0)),
+        )
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            UPDATE EXC.Graph
+            SET EndedAt = SYSUTCDATETIME(),
+                Status = ?,
+                ItemsFound = ?,
+                ItemsProcessed = ?,
+                ErrorMessage = ?
+            WHERE ExecutionID = ?
+            """,
+            status[:30],
+            int(stats.get("scanned", 0)),
+            items_processed,
+            db_text(error_message, 2000),
+            self.execution_id,
+        )
+        self.connection.commit()
+
+    def insert_ing_trace(
+        self,
+        message: dict[str, Any],
+        config: dict[str, Any] | None,
+        status: str,
+        original_file_name: str = "",
+        saved_path: Path | str = "",
+        content_type: str = "",
+        size_bytes: int | None = None,
+        content: bytes | None = None,
+        has_attachments: bool | None = None,
+        pack_code: str = "",
+        source_part: str = "",
+        generated_csv_path: Path | str = "",
+        load_status: str = "",
+        fail_reason: str = "",
+    ) -> bool:
+        """Insert one ING.Graph source trace row."""
+        if not self.execution_id:
+            return False
+
+        sender_email = get_sender_email(message)
+        sender_domain = sender_email.split("@")[-1] if "@" in sender_email else ""
+        saved_path_text = str(saved_path) if saved_path else ""
+        saved_name = Path(saved_path_text).name if saved_path_text else ""
+        file_hash = hashlib.sha256(content).hexdigest() if content is not None else None
+        if size_bytes is not None:
+            try:
+                size_bytes = int(size_bytes)
+            except (TypeError, ValueError):
+                size_bytes = None
+        if size_bytes is None and content is not None:
+            size_bytes = len(content)
+        if has_attachments is None:
+            has_attachments = bool(message.get("hasAttachments"))
+
+        row_values: dict[str, Any] = {
+            "ExecutionID": self.execution_id,
+            "ConfigID": config.get("config_id") if config else None,
+            "RouteID": config.get("route_id") if config else None,
+            "EnvCode": config.get("env_code", GRAPH_ENV_CODE) if config else GRAPH_ENV_CODE,
+            "TenantCode": config.get("tenant_code") if config else None,
+            "Mailbox": config.get("mailbox", GRAPH_MAILBOX) if config else GRAPH_MAILBOX,
+            "GraphMessageID": db_text(message.get("id"), 450),
+            "InternetMessageID": db_text(message.get("internetMessageId"), 1000),
+            "SenderEmail": db_text(sender_email, 320),
+            "SenderDomain": db_text(sender_domain, 320),
+            "Subject": db_text(message.get("subject"), 998),
+            "ReceivedAt": parse_graph_datetime(message.get("receivedDateTime")),
+            "HasAttachments": 1 if has_attachments else 0,
+            "OriginalFileName": db_text(original_file_name, 500),
+            "SavedFileName": db_text(saved_name, 500),
+            "SavedPath": db_text(saved_path_text, 1000),
+            "ContentType": db_text(content_type, 255),
+            "SizeBytes": size_bytes,
+            "FileHash": file_hash,
+            "PackCode": db_text(pack_code, 30),
+            "SourcePart": db_text(source_part, 30),
+            "ProcessFolder": db_text(config.get("process_folder") if config else "", 1000),
+            "FailFolder": db_text(config.get("fail_folder") if config else "", 1000),
+            "GeneratedCsvPath": db_text(str(generated_csv_path) if generated_csv_path else "", 1000),
+            "LoadStatus": db_text(load_status, 40),
+            "FailReason": db_text(fail_reason, 2000),
+            "Status": status[:30],
+        }
+        preferred_columns = [
+            "ExecutionID",
+            "ConfigID",
+            "RouteID",
+            "EnvCode",
+            "TenantCode",
+            "Mailbox",
+            "GraphMessageID",
+            "InternetMessageID",
+            "SenderEmail",
+            "SenderDomain",
+            "Subject",
+            "ReceivedAt",
+            "HasAttachments",
+            "OriginalFileName",
+            "SavedFileName",
+            "SavedPath",
+            "ContentType",
+            "SizeBytes",
+            "FileHash",
+            "PackCode",
+            "SourcePart",
+            "ProcessFolder",
+            "FailFolder",
+            "GeneratedCsvPath",
+            "LoadStatus",
+            "FailReason",
+            "Status",
+        ]
+        existing_columns = self.ing_graph_columns()
+        columns = [column for column in preferred_columns if column in existing_columns]
+        placeholders = ", ".join("?" for _ in columns)
+        column_sql = ", ".join(columns)
+
+        cursor = self.connection.cursor()
+        cursor.execute(
+            f"INSERT INTO ING.Graph ({column_sql}) VALUES ({placeholders})",
+            *[row_values[column] for column in columns],
+        )
+        self.connection.commit()
+        return True
 
 # =============================================================================
 # STEP 5 - EXCEL MAPPING AND API VALIDATION CONFIGURATION
@@ -544,6 +971,7 @@ def build_messages_url(args: argparse.Namespace) -> str:
                 "receivedDateTime",
                 "hasAttachments",
                 "internetMessageId",
+                "body",
             ]
         ),
         "$orderby": "receivedDateTime asc",
@@ -736,6 +1164,341 @@ def save_attachment_file(
     result = save_bytes(path, content, args)
     return result, path, content
 
+
+# =============================================================================
+# STEP 8A - ENS BODY TEXT AND API PACK HELPERS
+# =============================================================================
+
+ENS_BODY_LABELS: dict[str, tuple[str, str]] = {
+    "type of movement": ("movement_type", "TSS movement_type code required."),
+    "type of passive transport": ("passive_transport_type", "Operational context; confirm if needed in the final API payload."),
+    "identity number of transport": ("identity_no_of_transport", "Direct ENS header field."),
+    "nationality of means of transport": ("nationality_of_transport", "TSS country/nationality code required."),
+    "carrier eori": ("carrier_eori", "Direct ENS header field."),
+    "transport document number icr number": ("transport_document_number", "Used for grouping/reference, not an ENS header field."),
+    "arrival date time": ("arrival_date_time", "Convert to dd/mm/yyyy hh:mm:ss UTC before API submit."),
+    "port of arrival": ("arrival_port", "TSS port code required."),
+    "place s of loading": ("place_of_loading", "Direct ENS header field."),
+    "is are the place s of acceptance same as place s of loading": ("place_of_acceptance_same_as_loading", "Confirm accepted yes/no value for API submit."),
+    "place s of unloading": ("place_of_unloading", "Direct ENS header field."),
+    "is are the place s of delivery same as place s of unloading": ("place_of_delivery_same_as_unloading", "Confirm accepted yes/no value for API submit."),
+    "transport charges": ("transport_charges", "TSS transport_charges code required."),
+}
+
+ENS_PACK_FIELDS: list[dict[str, str]] = [
+    {"api_field": "movement_type", "source_label": "Type of Movement", "required": "yes", "note": "Map text such as RoRo Accompanied ICS2 to the TSS choice value."},
+    {"api_field": "identity_no_of_transport", "source_label": "Identity number of transport", "required": "yes", "note": "Expected format includes ferry IMO plus vehicle registration."},
+    {"api_field": "nationality_of_transport", "source_label": "Nationality Of Means of Transport", "required": "yes", "note": "Map country text to the TSS accepted code."},
+    {"api_field": "arrival_date_time", "source_label": "Arrival Date/Time", "required": "yes", "note": "Convert relative wording such as Tomorrow's Date to an absolute UTC date/time."},
+    {"api_field": "arrival_port", "source_label": "Port of Arrival", "required": "yes", "note": "Map port text to the TSS port code."},
+    {"api_field": "place_of_loading", "source_label": "Place(s) of Loading", "required": "yes", "note": "Direct text from the email body."},
+    {"api_field": "place_of_acceptance_same_as_loading", "source_label": "Is/are the Place(s) of Acceptance same as Place(s) of Loading?", "required": "conditional", "note": "If yes, place_of_acceptance can normally stay blank."},
+    {"api_field": "place_of_acceptance", "source_label": "", "required": "conditional", "note": "Needed only when acceptance differs from loading."},
+    {"api_field": "place_of_unloading", "source_label": "Place(s) of Unloading", "required": "yes", "note": "Direct text from the email body."},
+    {"api_field": "place_of_delivery_same_as_unloading", "source_label": "Is/are the Place(s) of Delivery same as Place(s) of Unloading?", "required": "conditional", "note": "If yes, place_of_delivery can normally stay blank."},
+    {"api_field": "place_of_delivery", "source_label": "", "required": "conditional", "note": "Needed only when delivery differs from unloading."},
+    {"api_field": "transport_charges", "source_label": "Transport Charges", "required": "yes", "note": "Map body text to the TSS accepted transport charge value."},
+    {"api_field": "carrier_eori", "source_label": "Carrier EORI", "required": "yes", "note": "Direct ENS header field."},
+    {"api_field": "carrier_name", "source_label": "", "required": "yes", "note": "Resolve from tenant/carrier master data."},
+    {"api_field": "carrier_street_number", "source_label": "", "required": "yes", "note": "Resolve from tenant/carrier master data."},
+    {"api_field": "carrier_city", "source_label": "", "required": "yes", "note": "Resolve from tenant/carrier master data."},
+    {"api_field": "carrier_postcode", "source_label": "", "required": "yes", "note": "Resolve from tenant/carrier master data."},
+    {"api_field": "carrier_country", "source_label": "", "required": "yes", "note": "Resolve from tenant/carrier master data."},
+    {"api_field": "transport_document_number", "source_label": "Transport document number (ICR Number)", "required": "business", "note": "Keep for consignment grouping/reference even if not part of ENS header create."},
+    {"api_field": "passive_transport_type", "source_label": "Type of passive transport", "required": "business", "note": "Keep as audit/operational context."},
+]
+
+CODE_OR_DATE_FIELDS = {
+    "movement_type",
+    "nationality_of_transport",
+    "arrival_date_time",
+    "arrival_port",
+    "transport_charges",
+}
+
+
+def message_short_id(message: dict[str, Any]) -> str:
+    """Return a stable short id for filenames without exposing the full Graph id."""
+    seed = str(message.get("internetMessageId") or message.get("id") or message.get("subject") or "message")
+    return hashlib.sha1(seed.encode("utf-8", errors="replace")).hexdigest()[:8].upper()
+
+
+def render_message_filename(pattern: str, message: dict[str, Any], config: dict[str, Any]) -> str:
+    """Render the small filename tokens used by tenant config."""
+    value = pattern or "{tenant_code}_{dd.MM.yyyy}_{message_id_short}"
+    replacements = {
+        "{tenant_code}": str(config.get("tenant_code", "TENANT")),
+        "{dd.MM.yyyy}": received_date_for_filename(message),
+        "{message_id_short}": message_short_id(message),
+    }
+    for token, replacement in replacements.items():
+        value = value.replace(token, replacement)
+    return safe_filename(value, "generated_file")
+
+
+def body_text_enabled(config: dict[str, Any]) -> bool:
+    """Return True when the tenant uses email body data for ENS pack creation."""
+    return str(config.get("body_source_for_ens") or "").strip().lower() == "email_body"
+
+
+def email_body_as_text(message: dict[str, Any]) -> str:
+    """Convert the Graph email body to readable text for evidence and parsing."""
+    body = message.get("body") if isinstance(message.get("body"), dict) else {}
+    content = str(body.get("content") or message.get("bodyPreview") or "")
+    content_type = str(body.get("contentType") or "").lower()
+
+    if content_type == "html" or "<" in content and ">" in content:
+        content = re.sub(r"(?i)<br\s*/?>", "\n", content)
+        content = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", content)
+        content = re.sub(r"<[^>]+>", " ", content)
+
+    content = html.unescape(content)
+    content = content.replace("\ufeff", "")
+    content = re.sub(r"[\u200b\u200c\u200d]", "", content)
+    lines = [re.sub(r"\s+", " ", line).strip() for line in content.splitlines()]
+    return "\n".join(line for line in lines if line)
+
+
+def save_ens_body_text(
+    message: dict[str, Any],
+    config: dict[str, Any],
+    body_text: str,
+    args: argparse.Namespace,
+) -> tuple[str, Path, bytes]:
+    """Save the email body as the original ENS text evidence."""
+    filename = render_message_filename(
+        str(config.get("body_text_file_pattern") or "ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt"),
+        message,
+        config,
+    )
+    path = choose_run_unique_path(Path(config["body_text_folder"]) / filename, args)
+    content_text = "\n".join(
+        [
+            f"Tenant: {config.get('tenant_code', '')}",
+            f"Received: {message.get('receivedDateTime', '')}",
+            f"From: {get_sender_email(message)}",
+            f"Subject: {message.get('subject', '')}",
+            "",
+            body_text,
+            "",
+        ]
+    )
+    content = content_text.encode("utf-8")
+    return save_bytes(path, content, args), path, content
+
+
+def normalise_body_label(value: str) -> str:
+    """Normalise body labels enough to match the known BKD email format."""
+    text = html.unescape(value or "").lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_ens_body_values(body_text: str) -> dict[str, dict[str, str]]:
+    """Extract known ENS values from the email body label/value pattern."""
+    lines = [line.strip() for line in body_text.splitlines() if line.strip()]
+    values: dict[str, dict[str, str]] = {}
+
+    for index, line in enumerate(lines):
+        key = normalise_body_label(line)
+        if key not in ENS_BODY_LABELS:
+            continue
+
+        api_field, note = ENS_BODY_LABELS[key]
+        value = ""
+        for candidate in lines[index + 1 : index + 6]:
+            if normalise_body_label(candidate) in ENS_BODY_LABELS:
+                break
+            if candidate:
+                value = candidate
+                break
+
+        values[api_field] = {
+            "source_label": line,
+            "source_value": value,
+            "note": note,
+        }
+
+    return values
+
+
+def ens_pack_status(api_field: str, source_value: str, required: str) -> tuple[str, str]:
+    """Return a practical readiness status for an ENS PACK row."""
+    if source_value and api_field not in CODE_OR_DATE_FIELDS:
+        return "READY", source_value
+    if source_value and api_field in CODE_OR_DATE_FIELDS:
+        return "NEEDS_MAPPING", ""
+    if required in {"yes", "conditional"}:
+        return "NEEDS_SOURCE", ""
+    return "INFO", ""
+
+
+def build_ens_pack_rows(
+    message: dict[str, Any],
+    config: dict[str, Any],
+    body_text_path: Path | str,
+    body_text: str,
+) -> list[dict[str, str]]:
+    """Build the ENS PACK rows from email metadata and parsed body fields."""
+    parsed = parse_ens_body_values(body_text)
+    rows = [
+        {
+            "section": "EMAIL",
+            "source_label": "receivedDateTime",
+            "api_field": "",
+            "source_value": str(message.get("receivedDateTime", "")),
+            "api_value": "",
+            "status": "INFO",
+            "notes": "Email received timestamp from Graph.",
+        },
+        {
+            "section": "EMAIL",
+            "source_label": "sender",
+            "api_field": "",
+            "source_value": get_sender_email(message),
+            "api_value": "",
+            "status": "INFO",
+            "notes": "Matched sender used for tenant routing.",
+        },
+        {
+            "section": "EMAIL",
+            "source_label": "subject",
+            "api_field": "",
+            "source_value": str(message.get("subject", "")),
+            "api_value": "",
+            "status": "INFO",
+            "notes": "Original email subject.",
+        },
+        {
+            "section": "EMAIL",
+            "source_label": "body_text_path",
+            "api_field": "",
+            "source_value": str(body_text_path),
+            "api_value": "",
+            "status": "INFO",
+            "notes": "Saved original email body evidence.",
+        },
+    ]
+
+    for field in ENS_PACK_FIELDS:
+        api_field = field["api_field"]
+        required = field.get("required", "")
+        source = parsed.get(api_field, {})
+        source_value = source.get("source_value", "")
+        status, api_value = ens_pack_status(api_field, source_value, required)
+        rows.append(
+            {
+                "section": "ENS_HEADER",
+                "source_label": source.get("source_label") or field.get("source_label", ""),
+                "api_field": api_field,
+                "source_value": source_value,
+                "api_value": api_value,
+                "status": status,
+                "notes": field.get("note", "") or source.get("note", ""),
+            }
+        )
+
+    return rows
+
+
+def safe_sheet_name(value: str, fallback: str) -> str:
+    """Return an Excel-safe sheet name."""
+    text = re.sub(r"[\\/*?:\[\]]", "_", value or fallback).strip() or fallback
+    return text[:31]
+
+
+def style_pack_sheet(sheet: Any) -> None:
+    """Apply small readable formatting to a generated pack sheet."""
+    from openpyxl.styles import Font, PatternFill
+
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    for column in sheet.columns:
+        letter = column[0].column_letter
+        max_length = max(len(str(cell.value or "")) for cell in column[:100])
+        sheet.column_dimensions[letter].width = min(max(max_length + 2, 12), 60)
+
+
+def write_process_pack(
+    message: dict[str, Any],
+    config: dict[str, Any],
+    body_text_path: Path | str,
+    body_text: str,
+    excel_sources: list[dict[str, Any]],
+    args: argparse.Namespace,
+) -> tuple[str, Path]:
+    """Create the operational ENS/DEC Excel pack in the tenant Process folder."""
+    from openpyxl import Workbook
+
+    filename = render_message_filename(
+        str(config.get("process_pack_pattern") or "{tenant_code}_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx"),
+        message,
+        config,
+    )
+    path = choose_run_unique_path(Path(config["process_folder"]) / filename, args)
+
+    if path.exists() and not args.overwrite:
+        return "SKIPPED_EXISTS", path
+    if args.dry_run:
+        return "DRY_RUN", path
+
+    workbook = Workbook()
+    ens_sheet = workbook.active
+    ens_sheet.title = safe_sheet_name(str(config.get("ens_pack_sheet_name") or "ENS PACK"), "ENS PACK")
+    ens_columns = ["section", "source_label", "api_field", "source_value", "api_value", "status", "notes"]
+    ens_sheet.append(ens_columns)
+    for row in build_ens_pack_rows(message, config, body_text_path, body_text):
+        ens_sheet.append([row.get(column, "") for column in ens_columns])
+    style_pack_sheet(ens_sheet)
+
+    dec_sheet = workbook.create_sheet(safe_sheet_name(str(config.get("dec_pack_sheet_name") or "DEC PACK"), "DEC PACK"))
+    source_rows: list[dict[str, str]] = []
+    source_headers: list[str] = []
+    for source in excel_sources:
+        try:
+            headers, rows = read_xlsx_rows(source["content"])
+        except Exception as error:
+            source_rows.append(
+                {
+                    "source_file": str(source.get("name", "")),
+                    "saved_path": str(source.get("path", "")),
+                    "source_row_number": "",
+                    "pack_status": "ERROR",
+                    "pack_notes": str(error),
+                }
+            )
+            continue
+        for header in headers:
+            if header not in source_headers:
+                source_headers.append(header)
+        for index, row in enumerate(rows, 1):
+            item = {
+                "source_file": str(source.get("name", "")),
+                "saved_path": str(source.get("path", "")),
+                "source_row_number": str(index),
+                "pack_status": "SOURCE_ROW",
+                "pack_notes": "Original Excel row prepared for DEC/consignment mapping.",
+            }
+            item.update(row)
+            source_rows.append(item)
+
+    dec_columns = ["source_file", "saved_path", "source_row_number", "pack_status", "pack_notes"] + source_headers
+    dec_sheet.append(dec_columns)
+    if source_rows:
+        for row in source_rows:
+            dec_sheet.append([row.get(column, "") for column in dec_columns])
+    else:
+        dec_sheet.append(["", "", "", "NO_DEC_SOURCE", "No supported Excel attachment was available."] + [""] * len(source_headers))
+    style_pack_sheet(dec_sheet)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    workbook.save(path)
+    return "SAVED", path
 
 def normalise_graph_date(value: str, end_of_day: bool = False) -> str:
     """Accept YYYY-MM-DD or full ISO date and return a Graph UTC datetime."""
@@ -1371,6 +2134,8 @@ def new_stats() -> dict[str, Any]:
         "matched": 0,
         "unmatched": 0,
         "saved_attachments": 0,
+        "saved_body_texts": 0,
+        "generated_process_packs": 0,
         "skipped_existing": 0,
         "no_file_attachments": 0,
         "failed": 0,
@@ -1378,6 +2143,9 @@ def new_stats() -> dict[str, Any]:
         "validation_errors": 0,
         "validation_warnings": 0,
         "validation_pending": 0,
+        "ing_rows": 0,
+        "database_enabled": False,
+        "tenant_config_source": "YML",
         "file_types": {},
     }
 
@@ -1445,6 +2213,8 @@ def write_run_log(
         writer.writerow({"action": "SUMMARY", "note": f"Matched: {stats['matched']}"})
         writer.writerow({"action": "SUMMARY", "note": f"Unmatched: {stats['unmatched']}"})
         writer.writerow({"action": "SUMMARY", "note": f"Saved attachments: {stats['saved_attachments']}"})
+        writer.writerow({"action": "SUMMARY", "note": f"Saved ENS body texts: {stats['saved_body_texts']}"})
+        writer.writerow({"action": "SUMMARY", "note": f"Generated process packs: {stats['generated_process_packs']}"})
         writer.writerow({"action": "SUMMARY", "note": f"Skipped existing: {stats['skipped_existing']}"})
         writer.writerow({
             "action": "SUMMARY",
@@ -1498,6 +2268,22 @@ def write_validation_report(
 
     return path
 
+
+def record_ing_trace(
+    db_trace: DatabaseIngestionTrace | None,
+    stats: dict[str, Any],
+    message: dict[str, Any],
+    config: dict[str, Any] | None,
+    status: str,
+    **kwargs: Any,
+) -> None:
+    """Write one optional ING.Graph row and update the inserted-row counter."""
+    if not db_trace:
+        return
+    if db_trace.insert_ing_trace(message, config, status, **kwargs):
+        stats["ing_rows"] += 1
+
+
 # =============================================================================
 # STEP 11 - PROCESS ONE EMAIL
 # =============================================================================
@@ -1509,6 +2295,7 @@ def process_one_message(
     rows: list[dict[str, str]],
     validation_rows: list[dict[str, str]],
     args: argparse.Namespace,
+    db_trace: DatabaseIngestionTrace | None = None,
 ) -> None:
     """Process one email in the simplest possible order."""
     stats["scanned"] += 1
@@ -1516,13 +2303,57 @@ def process_one_message(
 
     if not config:
         stats["unmatched"] += 1
-        rows.append(report_row(message, None, "SKIPPED_UNMATCHED_SENDER"))
+        status = "SKIPPED_UNMATCHED_SENDER"
+        rows.append(report_row(message, None, status))
+        record_ing_trace(
+            db_trace,
+            stats,
+            message,
+            None,
+            status,
+            has_attachments=bool(message.get("hasAttachments")),
+        )
         return
 
     stats["matched"] += 1
 
     try:
-        # Step A: If there are attachments, save attachments and do not save body.
+        body_text = email_body_as_text(message)
+        body_result = ""
+        body_path: Path | str = ""
+        body_content: bytes | None = None
+
+        if body_text_enabled(config) and body_text:
+            body_result, body_path, body_content = save_ens_body_text(message, config, body_text, args)
+            if body_result in {"SAVED", "DRY_RUN"}:
+                stats["saved_body_texts"] += 1
+            rows.append(
+                report_row(
+                    message,
+                    config,
+                    f"{body_result}_ENS_BODY_TEXT",
+                    saved_path=body_path,
+                    file_type=".txt",
+                    note="Original email body saved for ENS PACK.",
+                )
+            )
+            record_ing_trace(
+                db_trace,
+                stats,
+                message,
+                config,
+                f"{body_result}_ENS_BODY_TEXT",
+                original_file_name=Path(str(body_path)).name if body_path else "ENS_Email_Body.txt",
+                saved_path=body_path,
+                content_type="text/plain",
+                size_bytes=len(body_content or b""),
+                content=body_content,
+                has_attachments=bool(message.get("hasAttachments")),
+                pack_code="ENS_PACK",
+                source_part="EMAIL_BODY",
+                load_status=body_result,
+            )
+
         attachments = []
         if message.get("hasAttachments"):
             attachments = read_attachments(token, message["id"])
@@ -1535,20 +2366,32 @@ def process_one_message(
         ]
 
         if all_file_attachments and not file_attachments:
+            status = "SKIPPED_UNSUPPORTED_FILE_TYPE"
             allowed = ", ".join(config.get("file_types", [])) or "any"
             rows.append(
                 report_row(
                     message,
                     config,
-                    "SKIPPED_UNSUPPORTED_FILE_TYPE",
+                    status,
                     note=f"No attachment matched allowed file types: {allowed}",
                 )
             )
+            record_ing_trace(
+                db_trace,
+                stats,
+                message,
+                config,
+                status,
+                has_attachments=True,
+                source_part="ATTACHMENT",
+                fail_reason=f"No attachment matched allowed file types: {allowed}",
+            )
             return
+
+        excel_sources: list[dict[str, Any]] = []
 
         if file_attachments:
             for attachment in file_attachments:
-                # Some Graph list responses omit contentBytes. If so, read it directly.
                 if not attachment.get("contentBytes") and attachment.get("id"):
                     attachment = read_one_attachment(token, message["id"], attachment["id"])
 
@@ -1561,6 +2404,15 @@ def process_one_message(
                 elif result == "SKIPPED_EXISTS":
                     stats["skipped_existing"] += 1
 
+                if suffix in EXCEL_SUFFIXES:
+                    excel_sources.append(
+                        {
+                            "name": attachment.get("name", ""),
+                            "path": path,
+                            "content": content,
+                        }
+                    )
+
                 validate_xlsx_attachment(
                     message,
                     config,
@@ -1571,37 +2423,101 @@ def process_one_message(
                     stats,
                 )
 
+                status = f"{result}_ATTACHMENT"
                 rows.append(
                     report_row(
                         message,
                         config,
-                        f"{result}_ATTACHMENT",
+                        status,
                         saved_path=path,
                         file_type=suffix,
                         note=attachment.get("name", ""),
                     )
                 )
-            return
-
-        # Step B: No file attachments.
-        # Current Graph scope is attachment-only, so no body is saved here.
-        # Future ENS/consignment creation from the body must run through the test API stage.
-        stats["no_file_attachments"] += 1
-        rows.append(
-            report_row(
+                record_ing_trace(
+                    db_trace,
+                    stats,
+                    message,
+                    config,
+                    status,
+                    original_file_name=attachment.get("name", ""),
+                    saved_path=path,
+                    content_type=attachment.get("contentType", ""),
+                    size_bytes=attachment.get("size"),
+                    content=content,
+                    has_attachments=True,
+                    pack_code="DEC_PACK",
+                    source_part="ATTACHMENT",
+                    load_status=status,
+                )
+        else:
+            stats["no_file_attachments"] += 1
+            status = "NO_FILE_ATTACHMENTS"
+            rows.append(
+                report_row(
+                    message,
+                    config,
+                    status,
+                    note="No file attachments found; ENS body text handled if configured.",
+                )
+            )
+            record_ing_trace(
+                db_trace,
+                stats,
                 message,
                 config,
-                "SKIPPED_NO_FILE_ATTACHMENTS",
-                note="Attachment-only processing. No file attachments found.",
+                status,
+                has_attachments=False,
+                pack_code="ENS_PACK" if body_text_enabled(config) else "",
+                source_part="EMAIL_BODY" if body_text_enabled(config) else "",
+                load_status=status,
             )
-        )
+
+        if body_text_enabled(config) and (body_text or excel_sources):
+            pack_result, pack_path = write_process_pack(
+                message,
+                config,
+                body_path,
+                body_text,
+                excel_sources,
+                args,
+            )
+            if pack_result in {"SAVED", "DRY_RUN"}:
+                stats["generated_process_packs"] += 1
+            rows.append(
+                report_row(
+                    message,
+                    config,
+                    f"{pack_result}_PROCESS_PACK",
+                    saved_path=pack_path,
+                    file_type=".xlsx",
+                    note="Generated operational ENS PACK + DEC PACK workbook.",
+                )
+            )
+            record_ing_trace(
+                db_trace,
+                stats,
+                message,
+                config,
+                f"{pack_result}_PROCESS_PACK",
+                original_file_name=pack_path.name,
+                saved_path=pack_path,
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                has_attachments=bool(file_attachments),
+                pack_code="API_PACK",
+                source_part="GENERATED_PACK",
+                generated_csv_path=pack_path,
+                load_status=pack_result,
+            )
 
     except Exception as error:
         stats["failed"] += 1
         rows.append(report_row(message, config, "FAILED_MESSAGE", note=str(error)))
+        try:
+            record_ing_trace(db_trace, stats, message, config, "FAILED_MESSAGE", fail_reason=str(error))
+        except Exception as trace_error:
+            print(f"ERROR writing failed ING trace for message {message.get('id')}: {trace_error}")
         print(f"ERROR processing message {message.get('id')}: {error}")
-
-
 # =============================================================================
 # STEP 12 - MAIN SCRIPT FLOW
 # =============================================================================
@@ -1619,39 +2535,77 @@ def run(args: argparse.Namespace) -> int:
         \\PL-AZ-SDF-PLINT\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Integration_Layer\BKD\Inbound\Sales_Order_files
 
     This is the order the operator should understand:
-        1. Validate Graph configuration.
-        2. Get Graph token.
-        3. Read emails from the mailbox.
-        4. For each email, find the tenant by sender.
-        5. Save file attachments into that tenant's Integration Layer folder.
-        6. Print a summary and keep a small technical run log for support.
+        1. Load optional database routing/trace support.
+        2. Validate Graph configuration.
+        3. Get Graph token.
+        4. Read emails from the mailbox.
+        5. For each email, find the tenant by sender.
+        6. Save file attachments and optionally write ING.Graph trace rows.
+        7. Print a summary and keep support run evidence.
     """
+    global TENANT_CONFIGS
+
     started_at = dt.datetime.now(dt.timezone.utc)
     stats = new_stats()
     rows: list[dict[str, str]] = []
     validation_rows: list[dict[str, str]] = []
+    db_trace: DatabaseIngestionTrace | None = None
 
-    print("STEP 1 - Checking Graph configuration")
-    check_graph_configuration()
+    try:
+        print("STEP 1 - Preparing optional database ingestion trace")
+        db_trace = DatabaseIngestionTrace.open(args)
+        if db_trace:
+            stats["database_enabled"] = True
+            database_configs = db_trace.load_tenant_configs()
+            if database_configs:
+                TENANT_CONFIGS = database_configs
+                stats["tenant_config_source"] = "CFG.Graph"
+                print(f"Loaded {len(database_configs)} active CFG.Graph route(s) for {GRAPH_MAILBOX}")
+            else:
+                print("No active CFG.Graph rows matched this mailbox; using customer YML routing")
 
-    print("STEP 2 - Getting Microsoft Graph token")
-    token = get_graph_token()
+            db_trace.begin_execution(args, started_at)
+            if args.dry_run:
+                print("Dry-run mode: database routing can be read, but EXC/ING writes are skipped")
+        else:
+            print("Database trace disabled; using customer YML routing and CSV run evidence")
 
-    print(f"STEP 3 - Reading mailbox messages ({args.run_mode}: {args.received_from or 'no lower date'} to {args.received_to or 'no upper date'})")
-    messages = read_messages(token, args)
-    print(f"Found {len(messages)} message(s) to review")
+        print("STEP 2 - Checking Graph configuration")
+        check_graph_configuration()
 
-    print("STEP 4 - Processing messages by tenant rules")
-    for message in messages:
-        process_one_message(token, message, stats, rows, validation_rows, args)
+        print("STEP 3 - Getting Microsoft Graph token")
+        token = get_graph_token()
 
-    print("STEP 5 - Finalising support summary")
-    run_log_path = write_run_log(rows, stats, started_at, args)
-    validation_report_path = write_validation_report(validation_rows, started_at, args)
+        print(f"STEP 4 - Reading mailbox messages ({args.run_mode}: {args.received_from or 'no lower date'} to {args.received_to or 'no upper date'})")
+        messages = read_messages(token, args)
+        print(f"Found {len(messages)} message(s) to review")
 
-    print_summary(stats, run_log_path, validation_report_path)
-    return 1 if stats["failed"] else 0
+        print("STEP 5 - Processing messages by tenant rules")
+        for message in messages:
+            process_one_message(token, message, stats, rows, validation_rows, args, db_trace)
 
+        print("STEP 6 - Finalising support summary")
+        run_log_path = write_run_log(rows, stats, started_at, args)
+        validation_report_path = write_validation_report(validation_rows, started_at, args)
+
+        final_status = "FAILED" if stats["failed"] else "COMPLETED"
+        if db_trace:
+            db_trace.finish_execution(final_status, stats)
+
+        print_summary(stats, run_log_path, validation_report_path)
+        return 1 if stats["failed"] else 0
+
+    except Exception as error:
+        if db_trace:
+            try:
+                db_trace.finish_execution("FAILED", stats, str(error))
+            except Exception as trace_error:
+                print(f"ERROR finalising EXC.Graph failure state: {trace_error}")
+        raise
+
+    finally:
+        if db_trace:
+            db_trace.close()
 
 def print_summary(
     stats: dict[str, Any],
@@ -1665,6 +2619,8 @@ def print_summary(
     print(f"  Matched messages: {stats['matched']}")
     print(f"  Unmatched messages: {stats['unmatched']}")
     print(f"  Saved attachments: {stats['saved_attachments']}")
+    print(f"  Saved ENS body texts: {stats['saved_body_texts']}")
+    print(f"  Generated process packs: {stats['generated_process_packs']}")
     print(f"  Skipped existing files: {stats['skipped_existing']}")
     print(
         "  No file attachments: "
@@ -1675,6 +2631,9 @@ def print_summary(
     print(f"  Validation errors: {stats['validation_errors']}")
     print(f"  Validation warnings: {stats['validation_warnings']}")
     print(f"  Validation pending items: {stats['validation_pending']}")
+    print(f"  Tenant config source: {stats['tenant_config_source']}")
+    if stats["database_enabled"]:
+        print(f"  ING.Graph rows inserted: {stats['ing_rows']}")
     print(f"  Technical run log: {run_log_path}")
     if validation_report_path:
         print(f"  Validation report: {validation_report_path}")
@@ -1732,6 +2691,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--overwrite",
         action="store_true",
         help="Overwrite destination files if they already exist.",
+    )
+    parser.add_argument(
+        "--no-database",
+        action="store_true",
+        help="Disable optional CFG/EXC/ING database reads and writes for this run.",
     )
     return parser
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """01 - Graph email fetch, classification and inbound trace.
 
-QAS-native entrypoint. It runs the Graph downloader currently held in the QAS
-Graph layer. The downstream V3 design treats this as the first traceable event:
+QAS-native entrypoint. It runs the Graph downloader from the Integration Layer.
+The downstream V3 design treats this as the first traceable event:
 mailbox message -> tenant classification -> original attachment saved -> ING row
 when database persistence is enabled.
 """
@@ -26,9 +26,10 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-messages", type=int)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--no-database", action="store_true")
     args = parser.parse_args()
 
-    command = [sys.executable, str(ROOT / "Graph" / "graph_mail_customer_downloader.py")]
+    command = [sys.executable, str(ROOT / "Integration_Layer" / "Graph" / "graph_mail_customer_downloader.py")]
     if args.run_mode != "daily":
         command += ["--run-mode", args.run_mode]
     if args.received_from:
@@ -41,6 +42,8 @@ def main() -> int:
         command += ["--max-messages", str(args.max_messages)]
     if args.overwrite:
         command.append("--overwrite")
+    if args.no_database:
+        command.append("--no-database")
 
     print("FLOW V3 01 -> Graph email fetch + classification + ING trace")
     print(" ".join(command))

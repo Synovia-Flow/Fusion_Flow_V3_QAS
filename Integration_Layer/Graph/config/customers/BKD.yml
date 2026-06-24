@@ -9,11 +9,10 @@ sender_domains:
 
 sender_addresses: []
 
-save_mode: attachments_only
+save_mode: email_body_and_attachment_to_api_pack
 
-# Future API stage: the email body may contain the data required to create
-# ENS records and consignments. That processing must run in the test API
-# environment first; this Graph script only collects/routes the inbound email data.
+# BKD source model: email body becomes ENS source evidence; Excel attachment
+# becomes DEC/consignment source. The generated Process pack combines both.
 body_source_for_ens: email_body
 ens_consignment_processing_environment: test_api_only
 
@@ -23,6 +22,15 @@ file_types:
   - .xlsx
 
 destination_folder: 'Integration_Layer\BKD\Inbound\Sales_Order_files'
+body_text_folder: 'Integration_Layer\BKD\Inbound\ENS_Email_Body'
+process_folder: 'Integration_Layer\BKD\Process'
+fail_folder: 'Integration_Layer\BKD\Fails'
+
+output_file_pattern: 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx'
+body_text_file_pattern: 'ENS_Email_Body_{dd.MM.yyyy}_{message_id_short}.txt'
+process_pack_pattern: 'BKD_API_PACK_{dd.MM.yyyy}_{message_id_short}.xlsx'
+ens_pack_sheet_name: 'ENS PACK'
+dec_pack_sheet_name: 'DEC PACK'
 
 # Excel/API mapping for the current BKD sales order file.
 # Values not present in the Excel must be resolved before TSS API submission.

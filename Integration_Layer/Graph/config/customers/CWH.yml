@@ -1,0 +1,27 @@
+tenant_name: Country Wide Homes
+tenant_code: CWH
+active: false
+
+mailbox: nexus@synoviaflow.cloud
+
+# Pending confirmation. Do not activate until the real sender domain/address is known.
+sender_domains: []
+sender_addresses: []
+
+save_mode: attachment_to_dec_pack
+body_source_for_ens: existing_ens_reference
+ens_consignment_processing_environment: test_api_only
+
+file_types:
+  - .xlsx
+  - .csv
+
+destination_folder: 'Integration_Layer\CWH\Inbound\Sales_Order_files'
+process_folder: 'Integration_Layer\CWH\Process'
+fail_folder: 'Integration_Layer\CWH\Fails'
+
+output_file_pattern: 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx'
+dec_pack_sheet_name: 'DEC PACK'
+
+# MVP rule: CWH is expected to upload consignments/goods under an existing ENS.
+# Sender/source and template mapping are still pending confirmation.
