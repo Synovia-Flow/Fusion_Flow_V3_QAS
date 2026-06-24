@@ -19,7 +19,7 @@ def main() -> int:
 
     tenant_code = str(args.tenant_code or "BKD").strip().upper()
     print(f"FLOW V3 05 -> SDI status sync + autosubmit tenant={tenant_code}")
-    print("Pending local QAS implementation: app/services/sdi_autosubmit.py")
+    print("Pending local QAS implementation: Integration_Layer/App/app/services/sdi_autosubmit.py")
     print("No external FUSION_FLOW_APP_ROOT dependency is used.")
     return 2
 

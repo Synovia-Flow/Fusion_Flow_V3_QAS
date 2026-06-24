@@ -20,7 +20,7 @@ def main() -> int:
 
     tenant_code = str(args.tenant_code or "BKD").strip().upper()
     print(f"FLOW V3 04 -> Status watcher + notification tenant={tenant_code}")
-    print("Pending local QAS implementation: app/services/status_watcher.py")
+    print("Pending local QAS implementation: Integration_Layer/App/app/services/status_watcher.py")
     print("No external FUSION_FLOW_APP_ROOT dependency is used.")
     return 2
 

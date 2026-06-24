@@ -1,4 +1,4 @@
-# Blueprints
+﻿# Blueprints
 
 Add local QAS blueprints here when the matching service is implemented.
 
@@ -11,4 +11,4 @@ status/
 sdi/
 ```
 
-Keep each blueprint thin. Business logic should live in `app/services/`.
+Keep each blueprint thin. Business logic should live in `Integration_Layer/App/app/services/`.

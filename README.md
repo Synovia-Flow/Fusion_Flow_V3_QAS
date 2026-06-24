@@ -1,100 +1,53 @@
 # Fusion Flow V3 QAS
 
-Version-controlled starting point for the Fusion Flow V3 QAS ingestion work.
+Minimal QAS starting point for Fusion Flow V3.
 
-The current objective is deliberately small: use Microsoft Graph to read customer
-emails, identify the customer/tenant from the sender rule, and save inbound files
-into the correct Integration Layer folder. The project is being kept simple so it
-can pass Quality review, be maintained easily, and later move configuration into
-`Fusion_Flow_V3_QAS` database tables.
+The project is organised by layers so the first working process, Microsoft Graph email ingestion, is easy to understand, review and extend tenant by tenant.
 
 ## Current Scope
 
-- Microsoft Graph mailbox ingestion for `nexus@synoviaflow.cloud`.
-- One customer configuration file per tenant/customer under `Graph/config/customers`.
-- Initial confirmed tenant: `BKD` / Birkdale.
-- Birkdale sender rule: `birkdalesales.com`.
-- Current save behaviour: attachments only, `.xlsx` files.
-- Emails without file attachments are skipped by the current Graph script.
-- The email body may be needed later for ENS and consignment creation, but that
-  execution must run through the test API environment first.
-- Historic download has been run from `2026-05-07` to `2026-06-18`.
-- Daily mode is now the default and reads only today's Graph emails.
+- Read the shared mailbox with Microsoft Graph.
+- Match inbound emails to a tenant/customer using sender rules.
+- Save allowed attachments into the correct tenant folder under `Integration_Layer`.
+- Keep customer routing in one YML file per customer.
+- Keep database objects minimal while `Fusion_Flow_V3_QAS` is being defined.
+- Keep ENS, consignments and TSS submission work in test/QAS until confirmed.
 
-## Repository Structure
+## Project Structure
 
 ```text
-.env.example
-Graph/
-  graph_mail_customer_downloader.py
-  README.md
-  config/customers/BKD.yml
-Documentation_Layer/
-  Base_Ingestion_Configuration.md
-  Base_Ingestion_Configuration.minimum.csv
+.env.example                     # Local/runtime setting names only, no secrets
 Configuration_Layer/
-  SQL/
-    001_create_minimal_graph_tables.sql
+  SQL/                           # Minimal database SQL for CFG, EXC, ING, STG, TSS
+Documentation_Layer/             # Quality/design notes and operating model
+Integration_Layer/
+  Graph/                         # Current Microsoft Graph downloader and customer YML files
+  FLOW_V3/                       # Simple 01-05 execution entrypoints
+  App/                           # Small local Flask/app placeholder for future QAS services
+  BKD/                           # Tenant file destination folders
+  CWH/
+  PLE/
 ```
 
-## Operational Configuration
+No extra deployment folders are included yet. They should be added only when the Azure deployment shape is confirmed.
 
-The QAS configuration workbook location is:
+## Graph Configuration
+
+Customer routing lives here:
 
 ```text
-\\pl-az-sdf-plint\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Documentation_Layer\Base_Ingestion_Configuration.xlsx
+Integration_Layer/Graph/config/customers/*.yml
 ```
 
-The version-controlled CSV in this repo is sanitised and uses placeholders. Do
-not commit real Graph secrets to GitHub. Real values should live in the workbook,
-`CFG.Graph`, environment variables, or secure deployment configuration.
+Each customer file defines the tenant code, sender domains or addresses, allowed file types, historic start date and destination folder.
 
-The script accepts both configuration naming styles:
+Current tenant status:
 
-```text
-GRAPH.TENANT_ID
-GRAPH.CLIENT_ID
-GRAPH.CLIENT_SECRET
-GRAPH.MAILBOX
-GRAPH.FOLDER
-```
-
-or:
-
-```text
-GRAPH_TENANT_ID
-GRAPH_CLIENT_ID
-GRAPH_CLIENT_SECRET
-GRAPH_MAILBOX
-GRAPH_FOLDER
-```
-
-## Customer Configuration
-
-Each customer has one YML file. For BKD:
-
-```text
-Graph/config/customers/BKD.yml
-```
-
-That file defines:
-
-- tenant name and code;
-- whether the customer is active;
-- sender domains or sender addresses;
-- allowed file types;
-- historic start date;
-- destination folder;
-- future body/API processing status for ENS and consignments.
-
-This keeps customer routing readable and makes it easy to add future tenants
-without changing the main script logic.
-
-## Current BKD Destination
-
-```text
-\\PL-AZ-SDF-PLINT\Fusion_Production\Scratch\Fusion_Flow_V3_QAS\Integration_Layer\BKD\Inbound\Sales_Order_files
-```
+| Tenant | Code | Status |
+| --- | --- | --- |
+| Birkdale | BKD | Active Graph route |
+| Country Wide Homes | CWH | Configured, inactive until sender/source is confirmed |
+| Primeline Express | PLE | Configured, inactive until sender/source is confirmed |
 
 ## How To Run
 
@@ -104,107 +57,50 @@ From the repository root:
 cd "\\pl-az-sdf-plint\Fusion_Production\Scratch\Fusion_Flow_V3_QAS"
 ```
 
-Daily run, default behaviour:
+Run the Graph downloader directly:
 
 ```powershell
-python Graph\graph_mail_customer_downloader.py
+python Integration_Layer\Graph\graph_mail_customer_downloader.py
+```
+
+Or run it through the FLOW V3 step 01 wrapper:
+
+```powershell
+python Integration_Layer\FLOW_V3\01_graph_email_ing.py --run-mode daily
 ```
 
 Historic one-off run:
 
 ```powershell
-python Graph\graph_mail_customer_downloader.py --run-mode historic
-```
-
-Manual custom window:
-
-```powershell
-python Graph\graph_mail_customer_downloader.py --run-mode custom --received-from 2026-06-01 --received-to 2026-06-10
+python Integration_Layer\Graph\graph_mail_customer_downloader.py --run-mode historic
 ```
 
 Dry-run check:
 
 ```powershell
-python Graph\graph_mail_customer_downloader.py --dry-run --max-messages 5
+python Integration_Layer\Graph\graph_mail_customer_downloader.py --dry-run --max-messages 5
 ```
 
-## Daily Scheduling
+## Database Direction
 
-Use Windows Task Scheduler on a machine/server that has access to the shared
-Integration Layer path.
+The QAS database is `Fusion_Flow_V3_QAS`.
 
-Suggested action:
+The current model is intentionally small:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "cd '\\pl-az-sdf-plint\Fusion_Production\Scratch\Fusion_Flow_V3_QAS'; python Graph\graph_mail_customer_downloader.py"
-```
+| Layer | Purpose |
+| --- | --- |
+| `CFG` | Tenant/customer Graph configuration and routing. |
+| `EXC` | Execution run status. |
+| `ING` | First inbound Graph email/file trace. |
+| `STG` | Future validated business staging, for example `STG.SalesOrder`. |
+| `TSS` | Future official TSS references and submission state. |
 
-Because daily mode is the default, no date arguments are required for normal
-scheduled execution.
-
-## Database Strategy
-
-The database name for the QAS design is:
-
-```text
-Fusion_Flow_V3_QAS
-```
-
-The initial model is intentionally minimal:
-
-| Layer | Table | Purpose |
-| --- | --- | --- |
-| `CFG` | `Graph` | One active Graph route/configuration per tenant/customer. |
-| `EXC` | `Graph` | One row per Graph execution/run; a run can process multiple tenants. |
-| `ING` | `Graph` | First inbound Graph message/file trace, linked to `CFG.Graph` by `ConfigID`. |
-| `STG` | `SalesOrder` | Parsed sales order staging data from the future API/test processing stage. |
-| `TSS` | `Submission` | Future TSS submission/reference tracking. |
-
-The SQL script creates the schemas and tables and now includes foreign keys for
-the process flow. ING.Graph is the first data-arrival table, so it stores
-TenantCode and links each inbound email/file back to CFG.Graph.ConfigID:
-
-```text
-CFG.Graph -> ING.Graph -> STG.SalesOrder -> TSS.Submission
-EXC.Graph -> ING.Graph
-```
-
-No detailed log tables are included at this stage.
+Graph is only the information-arrival layer. ENS, consignments and submission logic should be added after the source data and test API behaviour are confirmed.
 
 ## Quality Notes
 
-- The script is intentionally written as a single clear Python script.
-- Comments explain each step for Quality review and future maintenance.
+- The Graph downloader is a single commented script for readability.
+- The script explains each step inline to support quality review and maintenance.
 - Customer-specific routing is outside the code in YML files.
-- Failed Graph/API actions do not mark or move mailbox messages.
-- The current script does not mark messages as read; it relies on date windows
-  and existing-file checks to avoid duplicate saved files.
-- No-attachment emails are not parsed by the current Graph flow.
-- Body extraction is documented as future downstream API/test processing because
-  the body can contain the data needed to create ENS records and consignments.
-- The focus of this repository section remains Graph configuration: mailbox,
-  sender rules, file types, destination folders, and tenant routing.
-
-
-
-
-## FLOW V3 Automation Scope
-
-The QAS repository now contains the compact FLOW V3 orchestration layer and one
-single operating-model document derived from the FRD and Discovery PDFs.
-
-Key files:
-
-```text
-Integration_Layer/FLOW_V3/README.md
-Integration_Layer/FLOW_V3/01_graph_email_ing.py
-Integration_Layer/FLOW_V3/02_ens_details_auto_submit.py
-Integration_Layer/FLOW_V3/03_sales_orders_cargo_submit.py
-Integration_Layer/FLOW_V3/04_status_watcher_notify.py
-Integration_Layer/FLOW_V3/05_sdi_autosubmit.py
-Documentation_Layer/FLOW_V3_OPERATING_MODEL.md
-```
-
-The five scripts are the intended V3 operating sequence. Step 01 is QAS-native.
-Steps 02-05 call the existing Fusion application logic through
-`FUSION_FLOW_APP_ROOT` until the full app layer is brought into QAS.
+- Real credentials must stay in `.env`, CFG tables or secure deployment settings, never in GitHub.
+- Future tenant differences should be handled by configuration first, not hard-coded branches.

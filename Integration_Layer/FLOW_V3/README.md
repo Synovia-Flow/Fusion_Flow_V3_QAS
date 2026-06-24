@@ -3,15 +3,15 @@
 This folder defines the compact five-step execution shape for Fusion Flow V3 QAS.
 The repo is being rebuilt from zero, so only Step 01 is operational today.
 Steps 02-05 are local placeholders until their small QAS services are implemented
-under `app/services/`.
+under `Integration_Layer/App/app/services/`.
 
 | Script | Current state | Future service |
 | --- | --- | --- |
-| `01_graph_email_ing.py` | Operational Graph email fetch, sender classification and file capture. | `app/services/graph_ingestion.py` if/when moved into app. |
-| `02_ens_details_auto_submit.py` | Placeholder. | `app/services/ens_details.py` |
-| `03_sales_orders_cargo_submit.py` | Placeholder. | `app/services/sales_orders_cargo.py` |
-| `04_status_watcher_notify.py` | Placeholder. | `app/services/status_watcher.py` |
-| `05_sdi_autosubmit.py` | Placeholder. | `app/services/sdi_autosubmit.py` |
+| `01_graph_email_ing.py` | Operational Graph email fetch, sender classification and file capture. | `Integration_Layer/App/app/services/graph_ingestion.py` if/when moved into app. |
+| `02_ens_details_auto_submit.py` | Placeholder. | `Integration_Layer/App/app/services/ens_details.py` |
+| `03_sales_orders_cargo_submit.py` | Placeholder. | `Integration_Layer/App/app/services/sales_orders_cargo.py` |
+| `04_status_watcher_notify.py` | Placeholder. | `Integration_Layer/App/app/services/status_watcher.py` |
+| `05_sdi_autosubmit.py` | Placeholder. | `Integration_Layer/App/app/services/sdi_autosubmit.py` |
 
 ## Design Rule
 
