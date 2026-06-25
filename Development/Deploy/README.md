@@ -20,6 +20,25 @@ python deploy.py                                             # prompts: "Describ
 python deploy.py --description "..." --promote-log           # also copy summary to logs\
 ```
 
+### Where the DDL comes from
+
+- **Default = the Queue.** Stage scripts into `Queue\`; succeeded scripts are
+  **moved** to `Archive\`. The Queue is a transient staging area (gitignored);
+  canonical DDL lives in `Configuration_Layer\SQL`.
+- **Deploy the canonical folder directly** with `--source` (succeeded scripts are
+  **copied** to Archive so the originals survive):
+
+  ```powershell
+  python deploy.py --source ..\..\Configuration_Layer\SQL --description "R1 foundation"
+  ```
+
+To stage the foundation into the Queue instead:
+
+```powershell
+copy ..\..\Configuration_Layer\SQL\00*.sql .\Queue\
+python deploy.py --description "R1 foundation"
+```
+
 Every run writes:
 - `CHG.Deployment` — one row (run stamp, **description**, server, db, who, counts, status).
 - `CHG.Change_Log` — one row per script (name, sha256 hash, batch count, SUCCESS/FAILED, archive path).
