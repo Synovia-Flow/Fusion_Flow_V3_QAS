@@ -28,7 +28,11 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 HERE = Path(__file__).resolve().parent
-CRED_FILE = HERE / "tss_credentials.json"
+REPO_ROOT = HERE.parents[1]
+# Hardcoded locations (per design): credentials live in Configuration\, results
+# are written to the Documentation_Layer share.
+CRED_FILE = REPO_ROOT / "Configuration" / "tss_credentials.json"
+OUTPUT_DIR = Path(r"\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer")
 
 # Environments - base URLs are public; safe to hardcode.
 ENVIRONMENTS = {
@@ -46,8 +50,9 @@ TIMEOUT = 30
 def load_credentials() -> list[dict]:
     if not CRED_FILE.exists():
         raise SystemExit(
-            f"Missing {CRED_FILE.name}. Copy tss_credentials.example.json to "
-            f"tss_credentials.json (beside this script) and fill in the credentials.")
+            f"Missing credentials file: {CRED_FILE}. Copy "
+            f"Development\\Connectivity\\tss_credentials.example.json to "
+            f"Configuration\\tss_credentials.json and fill in the credentials.")
     data = json.loads(CRED_FILE.read_text(encoding="utf-8"))
     return data.get("credentials", data if isinstance(data, list) else [])
 
@@ -87,7 +92,7 @@ def test_one(cred: dict) -> dict:
 def main() -> int:
     p = argparse.ArgumentParser(description="TSS endpoint & credential connectivity test.")
     p.add_argument("--active-only", action="store_true", help="Test only rows marked active")
-    p.add_argument("--csv", type=Path, help="Optional: write results to this CSV")
+    p.add_argument("--csv", type=Path, help="Override the results CSV path (default: Documentation_Layer share)")
     args = p.parse_args()
 
     creds = load_credentials()
@@ -105,12 +110,19 @@ def main() -> int:
         print(f"{str(r['client_code']):<8}{str(r['env_code']):<5}{str(r['active']):<8}"
               f"{str(r['http_status'] or '-'):<6}{r['result']}")
 
-    if args.csv:
-        import csv
-        with args.csv.open("w", newline="", encoding="utf-8-sig") as fh:
+    # Always write a timestamped results CSV to the Documentation_Layer share
+    # (override with --csv).
+    import csv
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    out_path = args.csv or (OUTPUT_DIR / f"TSS_Connectivity_{stamp}.csv")
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        with out_path.open("w", newline="", encoding="utf-8-sig") as fh:
             w = csv.DictWriter(fh, fieldnames=["client_code", "env_code", "active", "http_status", "result", "detail", "checked_at"])
             w.writeheader(); w.writerows(results)
-        print(f"\nResults written to {args.csv}")
+        print(f"\nResults written to {out_path}")
+    except OSError as error:
+        print(f"\n[WARN] Could not write results to {out_path}: {error}")
 
     failures = sum(1 for r in results if r["result"].startswith(("FAIL", "ERROR")))
     print(f"\n{len(results)} tested, {failures} failed/errored.")
