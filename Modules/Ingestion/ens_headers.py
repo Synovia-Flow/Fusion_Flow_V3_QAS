@@ -36,6 +36,11 @@ from email import policy
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_INI = REPO_ROOT / "Configuration" / "Fusion_Flow_QAS.ini"
+FALLBACK_ENS_DIR = r"\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Inbound\ENS_Source"
+PROCESS = "Process_ENS_Headers"
+
 # Normalised label -> ENS API field (order defines CSV column order).
 ENS_LABELS: list[tuple[str, str]] = [
     ("type of movement", "movement_type"),
@@ -183,24 +188,133 @@ def write_csv(rows: list[dict[str, Any]], out_path: Path) -> tuple[int, int]:
     return written, skipped
 
 
+# --------------------------------------------------------------------------- #
+# Graph mailbox mode - look for the TSS-Details emails directly in the mailbox
+# --------------------------------------------------------------------------- #
+def flatten_graph_body(body: Any) -> str:
+    if isinstance(body, dict):
+        content = body.get("content") or ""
+        ct = (body.get("contentType") or "").lower()
+    else:
+        content, ct = str(body or ""), ""
+    if ct == "html" or ("<" in content and ">" in content):
+        content = re.sub(r"(?i)<br\s*/?>", "\n", content)
+        content = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", content)
+        content = re.sub(r"<[^>]+>", " ", content)
+        content = html.unescape(content)
+    lines = [re.sub(r"\s+", " ", ln).strip() for ln in content.splitlines()]
+    return "\n".join(ln for ln in lines if ln)
+
+
+def _graph_dt(value: str | None) -> str:
+    if not value:
+        return ""
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ""
+
+
+def row_from_graph(msg: dict[str, Any], sender: str) -> dict[str, Any]:
+    parsed = parse_details(flatten_graph_body(msg.get("body")))
+    parsed["SourceSender"] = sender
+    parsed["SourceSubject"] = str(msg.get("subject") or "")
+    parsed["SourceReceivedUtc"] = _graph_dt(msg.get("receivedDateTime"))
+    parsed["SourceFile"] = str(msg.get("internetMessageId") or msg.get("id") or "")
+    parsed["DedupKey"] = dedup_key(parsed)
+    return parsed
+
+
+def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | None, dry_run: bool) -> int:
+    """Scan the mailbox for Birkdale TSS-Details emails, parse the ENS block, and
+    write a timestamped CSV to the client ENS_Source folder. Logs to EXC/LOG."""
+    from ingest import IngestionDb, load_db_config
+    import graph_email as G
+
+    db = IngestionDb.connect(load_db_config(ini_path), dry_run=dry_run)
+    rows: list[dict[str, Any]] = []
+    try:
+        if not db.fetch_client(client_code):
+            print(f"[ERROR] Unknown client {client_code}"); return 2
+        db.open_execution(client_code, "INGESTING", PROCESS)
+        db.log("START", f"{PROCESS} run (Transaction_ID={db.transaction_id})", detail={"dry_run": dry_run})
+
+        params = db.fetch_parameters()
+        paths = db.fetch_folder_paths(client_code)
+        rules = db.fetch_email_rules(client_code)
+        domain = next((r["SenderRule"] for r in rules if r.get("SenderRuleType") == "DOMAIN" and r.get("SenderRule")),
+                      "birkdalesales.com").lower().lstrip("@")
+        out_dir = Path(out_dir_override or paths.get("ENS_SOURCE") or FALLBACK_ENS_DIR)
+
+        mailbox = params.get("GRAPH_MAILBOX") or ""
+        tenant = params.get("GRAPH_TENANT_ID") or ""
+        client_id = params.get("GRAPH_CLIENT_ID") or ""
+        if not (mailbox and tenant and client_id) or tenant.startswith("<"):
+            db.log("EMAIL", "Graph config incomplete (set GRAPH_TENANT_ID/CLIENT_ID/MAILBOX).", "WARN")
+            db.finish_execution("ERROR", 0, 0, 1, "Graph config incomplete")
+            return 1
+        if dry_run:
+            db.log("EMAIL", f"[dry-run] would scan {mailbox} for @{domain} TSS-Details mail -> {out_dir}")
+            db.finish_execution("INGESTED", 0, 0, 0)
+            return 0
+
+        token = G.acquire_token(params.get("GRAPH_AUTHORITY", "https://login.microsoftonline.com/"),
+                                tenant, client_id, G.resolve_client_secret(params),
+                                params.get("GRAPH_SCOPE", "https://graph.microsoft.com/.default"))
+        client = G.GraphClient(token)
+        inbox_id = G.resolve_inbox_id(client, mailbox)
+        # Scan the inbox AND all sub-folders (incl. Fusion_Processed/<client> where the
+        # downloader may have moved the mail) - reading is harmless.
+        folders = [{"id": inbox_id}] + G.scan_folders(client, mailbox, inbox_id, skip_names=set())
+        for folder in folders:
+            msgs = client.get_all(
+                f"/users/{mailbox}/mailFolders/{folder['id']}/messages",
+                {"$select": "id,subject,from,receivedDateTime,internetMessageId,body", "$top": 50})
+            for msg in msgs:
+                sender = (msg.get("from", {}).get("emailAddress", {}) or {}).get("address", "").lower()
+                if not sender.endswith("@" + domain):
+                    continue
+                row = row_from_graph(msg, sender)
+                if row["ParseStatus"] == "no_details_block":
+                    continue
+                rows.append(row)
+                db.log("ENS", f"{row['DedupKey']} ({row['ParseStatus']}) from {sender}")
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        out_path = out_dir / f"ENS_Headers_{stamp}.csv"
+        written, skipped = write_csv(rows, out_path)
+        db.finish_execution("INGESTED", len(rows), written, 0)
+        db.log("FINISH", f"Wrote {written} ENS row(s) ({skipped} in-batch dup) to {out_path}", "OK")
+        print(f"{PROCESS}: {written} ENS row(s) written to {out_path} ({skipped} in-batch duplicate(s)).")
+        return 0
+    finally:
+        db.close()
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="Birkdale Process_ENS_Headers - ENS details block -> CSV.")
-    p.add_argument("--eml", nargs="*", type=Path, default=[], help="One or more .eml files")
-    p.add_argument("--eml-dir", type=Path, help="Folder of .eml files to parse")
-    p.add_argument("--out-dir", type=Path, default=Path("."), help="Folder for the timestamped CSV")
+    p.add_argument("--graph", action="store_true", help="Look for the TSS-Details emails in the mailbox (Graph)")
+    p.add_argument("--client", default="BKD", help="Client code (default BKD)")
+    p.add_argument("--ini", type=Path, default=DEFAULT_INI, help="Path to Fusion_Flow_QAS.ini")
+    p.add_argument("--eml", nargs="*", type=Path, default=[], help="Offline: one or more .eml files")
+    p.add_argument("--eml-dir", type=Path, help="Offline: folder of .eml files to parse")
+    p.add_argument("--out-dir", help="Folder for the timestamped CSV (default: client ENS_Source from CFG)")
     p.add_argument("--out", type=Path, help="Explicit CSV path (overrides --out-dir + timestamp)")
+    p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
+    # Graph mailbox mode (default operational path).
+    if args.graph:
+        return run_from_graph(args.client.strip().upper(), args.ini, args.out_dir, args.dry_run)
+
+    # Offline .eml mode.
     files = list(args.eml)
     if args.eml_dir:
         files += sorted(args.eml_dir.glob("*.eml"))
     if not files:
-        p.error("Provide --eml <file...> or --eml-dir <dir>")
-
-    # Fresh, timestamped output file per run (cleaner for DB processing).
+        p.error("Provide --graph (mailbox) or --eml/--eml-dir (offline files)")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    out_path = args.out or (args.out_dir / f"ENS_Headers_{stamp}.csv")
-
+    out_path = args.out or (Path(args.out_dir or ".") / f"ENS_Headers_{stamp}.csv")
     rows = [row_from_eml(f) for f in files]
     written, skipped = write_csv(rows, out_path)
     for r in rows:
