@@ -2,6 +2,28 @@
 
 A simple, auditable deployment pipeline for SQL DDL.
 
+## Two runners
+
+- **`deploy.py`** (recommended) — Python + `pyodbc`. Applies DDL directly
+  (splits on `GO`), **prompts for a description**, logs every run + script to the
+  **`CHG`** change-management schema, and moves succeeded scripts to `Archive/`.
+  Self-bootstraps the `CHG` schema. No `sqlcmd` required.
+- `Deploy-Database.ps1` — the original PowerShell runner (uses `Invoke-Sqlcmd`/`sqlcmd`).
+
+### deploy.py usage
+
+```powershell
+cd "Development\Deploy"
+python deploy.py --dry-run                                   # list the queue only
+python deploy.py --description "Create CFG foundation"       # apply + log to CHG + archive
+python deploy.py                                             # prompts: "Describe this deployment:"
+python deploy.py --description "..." --promote-log           # also copy summary to logs\
+```
+
+Every run writes:
+- `CHG.Deployment` — one row (run stamp, **description**, server, db, who, counts, status).
+- `CHG.Change_Log` — one row per script (name, sha256 hash, batch count, SUCCESS/FAILED, archive path).
+
 ## How it works
 
 ```
