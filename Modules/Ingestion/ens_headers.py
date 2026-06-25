@@ -62,8 +62,12 @@ API_FIELDS = [field for _, field in ENS_LABELS]
 
 CSV_COLUMNS = [
     "DedupKey", "DetailsDate", "SourceReceivedUtc", "SourceSender", "SourceSubject",
+    "OriginalFrom", "OriginalSent",
     *API_FIELDS, "ParseStatus", "SourceFile",
 ]
+
+# Subjects that identify a TSS-Details / ENS email (used to pre-filter the mailbox).
+ENS_SUBJECT_HINTS = ("tss details", "details for")
 
 STOP_WORDS = {"from", "sent", "to", "subject", "cc", "bcc"}
 
@@ -133,7 +137,26 @@ def parse_details(body_text: str) -> dict[str, Any]:
 
     found = sum(1 for f in API_FIELDS if result[f])
     result["ParseStatus"] = "ok" if found >= 8 else ("partial" if found else "empty")
+    of, os_ = extract_forwarded(body_text)
+    result["OriginalFrom"] = of
+    result["OriginalSent"] = os_
     return result
+
+
+def extract_forwarded(body_text: str) -> tuple[str, str]:
+    """Pull the original Primeline sender + sent date from the forwarded header
+    block (From:/Sent:) - additional identifiers carried in the email body."""
+    orig_from = orig_sent = ""
+    for line in body_text.splitlines():
+        norm = normalize(line)
+        if not orig_from and norm.startswith("from "):
+            m = re.search(r"<([^>]+@[^>]+)>", line) or re.search(r"([\w.\-]+@[\w.\-]+)", line)
+            orig_from = (m.group(1) if m else "").strip().lower()
+        elif not orig_sent and norm.startswith("sent "):
+            orig_sent = re.sub(r"(?i)^\s*sent\s*:\s*", "", line).strip()
+        if orig_from and orig_sent:
+            break
+    return orig_from, orig_sent
 
 
 def row_from_eml(path: Path) -> dict[str, Any]:
@@ -267,13 +290,20 @@ def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | Non
         # downloader may have moved the mail) - reading is harmless.
         folders = [{"id": inbox_id}] + G.scan_folders(client, mailbox, inbox_id, skip_names=set())
         for folder in folders:
+            # LIGHT listing first (no body) - avoids pulling every message body and
+            # hanging on a real mailbox. Body is fetched only for matched candidates.
             msgs = client.get_all(
                 f"/users/{mailbox}/mailFolders/{folder['id']}/messages",
-                {"$select": "id,subject,from,receivedDateTime,internetMessageId,body", "$top": 50})
+                {"$select": "id,subject,from,receivedDateTime,internetMessageId", "$top": 50})
             for msg in msgs:
                 sender = (msg.get("from", {}).get("emailAddress", {}) or {}).get("address", "").lower()
+                subject = (msg.get("subject") or "").lower()
                 if not sender.endswith("@" + domain):
                     continue
+                if not any(hint in subject for hint in ENS_SUBJECT_HINTS):
+                    continue
+                full = client.get(f"/users/{mailbox}/messages/{msg['id']}", {"$select": "body"})
+                msg["body"] = full.get("body")
                 row = row_from_graph(msg, sender)
                 if row["ParseStatus"] == "no_details_block":
                     continue
