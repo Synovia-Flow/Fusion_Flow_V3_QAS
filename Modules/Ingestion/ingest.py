@@ -118,6 +118,10 @@ class IngestionDb:
             "WHERE ParameterKey = ? AND IsActive = 1", key)
         return rows[0]["ParameterValue"] if rows else default
 
+    def fetch_parameters(self) -> dict[str, str]:
+        rows = self._query("SELECT ParameterKey, ParameterValue FROM CFG.Application_Parameters WHERE IsActive = 1")
+        return {r["ParameterKey"]: r["ParameterValue"] for r in rows}
+
     # --- execution spine ----------------------------------------------------
     def open_execution(self, client_code: str, process: str, run_mode: str) -> None:
         if self.dry_run:
@@ -347,13 +351,20 @@ def run(client_code: str, channel_filter: str | None, ini_path: Path, dry_run: b
                 continue
             if not channel.is_enabled():
                 continue
-            db.log("CHANNEL", f"Channel {channel.name} enabled - SKELETON (not yet implemented)", "WARN")
-            # TODO: when a route is implemented, replace this block with:
+            if channel.name == "EMAIL":
+                # Implemented route: Microsoft Graph mail (see graph_email.py).
+                from graph_email import run_email_ingest
+                stats = run_email_ingest(db, client_code, db.fetch_parameters(), dry_run)
+                found += stats.get("messages", 0)
+                processed += stats.get("files", 0)
+                failed += stats.get("errors", 0)
+                continue
+            # Other routes remain skeletons (different per client). To implement:
             #   for artefact in channel.discover():
             #       name, content = channel.fetch(artefact)
             #       file_id = db.land_inbound_file(client_code, channel.name, name, content, ...)
-            #       rows = channel.parse_rows(name, content)
-            #       processed += db.land_raw_rows(file_id, client_code, rows)
+            #       processed += db.land_raw_rows(file_id, client_code, channel.parse_rows(name, content))
+            db.log("CHANNEL", f"Channel {channel.name} enabled - SKELETON (not yet implemented)", "WARN")
 
         status = "INGESTED" if failed == 0 else "ERROR"
         if db:

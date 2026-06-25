@@ -24,6 +24,7 @@ later module phases.
 | 3 | `003_seed_cfg.sql` | Seed: parameters (incl. integration + documentation roots), clients (BKD active; CWD + PLE inactive), credentials (refs only), per-client folder paths, email rules, API version, BKD Route A process map, 35 choice fields, status vocabulary |
 | 4 | `004_exc_log_tables.sql` | EXC spine (`Execution`, `Transaction`, `Error`, `Data_Processing_Enhancement`) + LOG (`Process_Log`, `Error_Log`, `API_Trace`) |
 | 5 | `005_ing_tables.sql` | ING ingestion landing (`Inbound_File`, `Raw_Record`, `Source_Email`) |
+| 6 | `006_seed_graph_params.sql` | Seed Microsoft Graph app config into `CFG.Application_Parameters` (client id, tenant, mailbox, secret **reference**) |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 
