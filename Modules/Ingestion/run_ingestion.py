@@ -25,6 +25,10 @@ from pathlib import Path
 from ingest import DEFAULT_INI
 import birkdale_sales_orders as DL
 import ens_headers as ENS
+<<<<<<< HEAD
+=======
+import load_raw as LOAD
+>>>>>>> 67309b5ea49f635abdd66ff6c994b3875b31523f
 
 
 def main() -> int:
@@ -36,11 +40,20 @@ def main() -> int:
     client = args.client.strip().upper()
 
     print(f"=== Fusion Flow ingestion: {client} ===")
+<<<<<<< HEAD
     rc_download = DL.run(args.ini, args.dry_run)
     rc_ens = ENS.run_from_graph(client, args.ini, None, args.dry_run)
 
     overall = max(rc_download, rc_ens)
     print(f"=== done: download rc={rc_download}, ens rc={rc_ens}, overall rc={overall} ===")
+=======
+    rc_download = DL.run(args.ini, args.dry_run)              # 1. download files + move mail
+    rc_ens = ENS.run_from_graph(client, args.ini, None, args.dry_run)   # 2. ENS CSV
+    rc_load = LOAD.run(args.ini, args.dry_run)               # 3. load raw tables + move files to Processed
+
+    overall = max(rc_download, rc_ens, rc_load)
+    print(f"=== done: download={rc_download}, ens={rc_ens}, load={rc_load}, overall={overall} ===")
+>>>>>>> 67309b5ea49f635abdd66ff6c994b3875b31523f
     return overall
 
 
