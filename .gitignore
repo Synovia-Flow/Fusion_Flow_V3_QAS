@@ -23,5 +23,9 @@ Integration_Layer/FLOW_V3/Run_History/
 *.xlsx
 *.docx
 
+# ...but curated reference documents under Documentation/ ARE versioned,
+# so they replicate to every clone and show in file explorers.
+!Documentation/**
+
 # Deprecated code/files — kept locally but not versioned.
 Deprecated/
