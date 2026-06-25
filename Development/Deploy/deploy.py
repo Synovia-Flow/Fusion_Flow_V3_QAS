@@ -168,12 +168,20 @@ def deploy(args: argparse.Namespace) -> int:
     for d in (queue, archive, log_root, ignore_dir):
         d.mkdir(parents=True, exist_ok=True)
 
+    # Source of DDL: the Queue by default (moved on success), or an explicit
+    # --source folder (copied to Archive by default so canonical scripts survive).
+    source = args.source or queue
+    move_mode = (args.source is None) or args.move
+
     run_stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     log_path = ignore_dir / f"deploy_{run_stamp}.log"
 
-    scripts = sorted(queue.glob("*.sql"))
+    scripts = sorted(Path(source).glob("*.sql"))
     if not scripts:
-        print("Queue is empty - nothing to deploy.")
+        print(f"No *.sql found in {source} - nothing to deploy.")
+        if args.source is None:
+            print("Tip: stage DDL into the Queue, or deploy a folder directly with "
+                  "--source ..\\..\\Configuration_Layer\\SQL")
         return 0
 
     print(f"Queue ({len(scripts)}): " + ", ".join(s.name for s in scripts))
@@ -214,9 +222,13 @@ def deploy(args: argparse.Namespace) -> int:
                 batches = dep.run_script_text(text)
                 run_archive.mkdir(parents=True, exist_ok=True)
                 dest = run_archive / script.name
-                shutil.move(str(script), str(dest))
+                if move_mode:
+                    shutil.move(str(script), str(dest))
+                else:
+                    shutil.copy2(str(script), str(dest))  # keep canonical source intact
                 dep.record_change(script.name, script_hash, batches, "SUCCESS", archive_path=str(dest))
-                dep.log(f"    SUCCESS ({batches} batch(es)) -> archived to {dest}", "OK")
+                verb = "archived (moved)" if move_mode else "archived (copied)"
+                dep.log(f"    SUCCESS ({batches} batch(es)) -> {verb} to {dest}", "OK")
                 succeeded += 1
             except Exception as error:  # noqa: BLE001
                 conn.rollback()
@@ -266,6 +278,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ini", type=Path, default=DEFAULT_INI, help="Path to Fusion_Flow_QAS.ini")
     p.add_argument("--server", help="Override the server from the .ini")
     p.add_argument("--queue", type=Path, help="Queue folder (default Development/Deploy/Queue)")
+    p.add_argument("--source", type=Path, help="Deploy *.sql from this folder instead of the Queue "
+                                               "(copied to Archive by default; add --move to move)")
+    p.add_argument("--move", action="store_true", help="With --source, move instead of copy to Archive")
     p.add_argument("--archive", type=Path, help="Archive folder (default Archive)")
     p.add_argument("--log-root", type=Path, help="Log root (default logs)")
     p.add_argument("--dry-run", action="store_true", help="List only; no DB changes, no archive, no CHG log")

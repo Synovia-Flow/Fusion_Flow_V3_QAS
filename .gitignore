@@ -32,3 +32,7 @@ Configuration_Layer/Fusion_Flow_QAS.ini
 # Deploy run logs: verbose/transient. logs/ itself IS committed; only the
 # _Ignore subfolder is excluded. Promote a summary up to logs/ to share it.
 logs/_Ignore/
+
+# Deploy Queue is a transient staging area; canonical DDL lives in
+# Configuration_Layer/SQL. Keep the folder (README) but not staged scripts.
+Development/Deploy/Queue/*.sql
