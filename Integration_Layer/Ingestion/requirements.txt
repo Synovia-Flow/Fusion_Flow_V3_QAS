@@ -1,0 +1,8 @@
+pyodbc==5.*
+openpyxl==3.1.*
+# EMAIL (Microsoft Graph) route:
+msal==1.*
+requests==2.32.*
+# Optional - only if resolving the Graph secret from Key Vault (else set env GRAPH_CLIENT_SECRET):
+azure-identity==1.*
+azure-keyvault-secrets==4.*
