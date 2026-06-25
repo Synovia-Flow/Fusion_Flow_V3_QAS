@@ -125,22 +125,34 @@ def resolve_inbox_id(client: GraphClient, mailbox: str) -> str:
     return client.get(f"/users/{mailbox}/mailFolders/inbox", {"$select": "id"})["id"]
 
 
-def ensure_processed_folder(client: GraphClient, mailbox: str, inbox_id: str, name: str) -> str:
-    children = client.get_all(f"/users/{mailbox}/mailFolders/{inbox_id}/childFolders", {"$select": "id,displayName"})
-    for c in children:
-        if c.get("displayName", "").lower() == name.lower():
-            return c["id"]
-    return client.post(f"/users/{mailbox}/mailFolders/{inbox_id}/childFolders", {"displayName": name})["id"]
+def ensure_processed_folder(client: GraphClient, mailbox: str, inbox_id: str,
+                            name: str, subfolder: str | None = None) -> str:
+    """Ensure Inbox/<name> (and optionally Inbox/<name>/<subfolder>) exist; return the
+    deepest folder id. Processed mail is moved into a per-client subfolder, e.g.
+    Fusion_Processed/BKD."""
+    def ensure_child(parent_id: str, child_name: str) -> str:
+        for c in client.get_all(f"/users/{mailbox}/mailFolders/{parent_id}/childFolders",
+                                {"$select": "id,displayName"}):
+            if c.get("displayName", "").lower() == child_name.lower():
+                return c["id"]
+        return client.post(f"/users/{mailbox}/mailFolders/{parent_id}/childFolders",
+                           {"displayName": child_name})["id"]
+
+    processed_id = ensure_child(inbox_id, name)
+    return ensure_child(processed_id, subfolder) if subfolder else processed_id
 
 
-def scan_folders(client: GraphClient, mailbox: str, inbox_id: str, processed_id: str) -> list[dict]:
-    """Inbox sub-folders (recursive), skipping system folders and the processed target."""
+def scan_folders(client: GraphClient, mailbox: str, inbox_id: str,
+                 skip_names: set[str] | None = None) -> list[dict]:
+    """Inbox sub-folders (recursive), skipping system folders and the processed tree."""
+    skip = {s.lower() for s in (skip_names or set())}
     out: list[dict] = []
 
     def walk(folder_id: str):
         for f in client.get_all(f"/users/{mailbox}/mailFolders/{folder_id}/childFolders",
                                  {"$select": "id,displayName,childFolderCount", "$top": 100}):
-            if f["id"] == processed_id or f.get("displayName", "").lower() in SYSTEM_FOLDERS:
+            name = f.get("displayName", "").lower()
+            if name in SYSTEM_FOLDERS or name in skip:
                 continue
             out.append(f)
             if f.get("childFolderCount", 0):
@@ -204,9 +216,10 @@ def run_email_ingest(db: Any, client_code: str, params: dict[str, str], dry_run:
     db.log("EMAIL", f"Authenticated to Graph for {mailbox}.")
 
     inbox_id = resolve_inbox_id(client, mailbox)
-    processed_id = ensure_processed_folder(client, mailbox, inbox_id, processed_name)
-    folders = scan_folders(client, mailbox, inbox_id, processed_id)
-    db.log("EMAIL", f"Scanning {len(folders)} folder(s) under Inbox (excluding system + {processed_name}).")
+    # Move processed mail into a per-client subfolder: Fusion_Processed/<CLIENT>.
+    processed_id = ensure_processed_folder(client, mailbox, inbox_id, processed_name, subfolder=client_code)
+    folders = scan_folders(client, mailbox, inbox_id, skip_names={processed_name})
+    db.log("EMAIL", f"Scanning {len(folders)} folder(s) under Inbox (-> processed: {processed_name}/{client_code}).")
 
     for folder in folders:
         msgs = client.get_all(
