@@ -51,7 +51,7 @@ def load_credentials() -> list[dict]:
     if not CRED_FILE.exists():
         raise SystemExit(
             f"Missing credentials file: {CRED_FILE}. Copy "
-            f"Development\\Connectivity\\tss_credentials.example.json to "
+            f"Modules\\Global\\tss_credentials.example.json to "
             f"Configuration\\tss_credentials.json and fill in the credentials.")
     data = json.loads(CRED_FILE.read_text(encoding="utf-8"))
     return data.get("credentials", data if isinstance(data, list) else [])
