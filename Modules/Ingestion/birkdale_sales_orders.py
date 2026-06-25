@@ -107,7 +107,7 @@ def run(ini_path: Path, dry_run: bool) -> int:
                 stats["emails"] += 1
                 try:
                     atts = client.get_all(f"/users/{mailbox}/messages/{msg['id']}/attachments",
-                                          {"$select": "id,name,contentType,size,isInline,@odata.type"})
+                                          {"$select": "id,name,contentType,size,isInline"})
                     for att in atts:
                         if att.get("@odata.type") != "#microsoft.graph.fileAttachment" or att.get("isInline"):
                             continue

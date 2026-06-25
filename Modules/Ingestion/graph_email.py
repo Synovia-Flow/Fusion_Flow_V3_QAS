@@ -239,7 +239,7 @@ def run_email_ingest(db: Any, client_code: str, params: dict[str, str], dry_run:
             try:
                 _record_email(db, client_code, mailbox, msg)
                 atts = client.get_all(f"/users/{mailbox}/messages/{msg['id']}/attachments",
-                                      {"$select": "id,name,contentType,size,isInline,@odata.type"})
+                                      {"$select": "id,name,contentType,size,isInline"})
                 saved_any = False
                 for att in atts:
                     if att.get("@odata.type") != "#microsoft.graph.fileAttachment" or att.get("isInline"):
