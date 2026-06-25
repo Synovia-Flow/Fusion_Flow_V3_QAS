@@ -286,29 +286,32 @@ def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | Non
                                 params.get("GRAPH_SCOPE", "https://graph.microsoft.com/.default"))
         client = G.GraphClient(token)
         inbox_id = G.resolve_inbox_id(client, mailbox)
-        # Scan the inbox AND all sub-folders (incl. Fusion_Processed/<client> where the
-        # downloader may have moved the mail) - reading is harmless.
-        folders = [{"id": inbox_id}] + G.scan_folders(client, mailbox, inbox_id, skip_names=set())
-        for folder in folders:
-            # LIGHT listing first (no body) - avoids pulling every message body and
-            # hanging on a real mailbox. Body is fetched only for matched candidates.
+        # Targeted scan: the Inbox itself, plus Fusion_Processed/<client> where the
+        # downloader may have moved the mail. (Not the whole folder tree - fast.)
+        processed_name = params.get("GRAPH_PROCESSED_FOLDER", "Fusion_Processed")
+        processed_id = G.ensure_processed_folder(client, mailbox, inbox_id, processed_name, subfolder=client_code)
+        targets = [("Inbox", inbox_id), (f"{processed_name}/{client_code}", processed_id)]
+
+        scanned = sender_matched = 0
+        for label, fid in targets:
             msgs = client.get_all(
-                f"/users/{mailbox}/mailFolders/{folder['id']}/messages",
+                f"/users/{mailbox}/mailFolders/{fid}/messages",
                 {"$select": "id,subject,from,receivedDateTime,internetMessageId", "$top": 50})
+            scanned += len(msgs)
             for msg in msgs:
                 sender = (msg.get("from", {}).get("emailAddress", {}) or {}).get("address", "").lower()
-                subject = (msg.get("subject") or "").lower()
                 if not sender.endswith("@" + domain):
                     continue
-                if not any(hint in subject for hint in ENS_SUBJECT_HINTS):
-                    continue
+                sender_matched += 1
+                # Fetch body only for sender-domain matches (few), then detect the ENS block.
                 full = client.get(f"/users/{mailbox}/messages/{msg['id']}", {"$select": "body"})
                 msg["body"] = full.get("body")
                 row = row_from_graph(msg, sender)
                 if row["ParseStatus"] == "no_details_block":
                     continue
                 rows.append(row)
-                db.log("ENS", f"{row['DedupKey']} ({row['ParseStatus']}) from {sender}")
+                db.log("ENS", f"{row['DedupKey']} ({row['ParseStatus']}) from {sender} [{label}]")
+        db.log("SCAN", f"scanned={scanned} sender_matched={sender_matched} ens_rows={len(rows)} domain=@{domain}")
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         out_path = out_dir / f"ENS_Headers_{stamp}.csv"
