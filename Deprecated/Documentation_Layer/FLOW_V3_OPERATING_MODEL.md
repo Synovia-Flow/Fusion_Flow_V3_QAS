@@ -52,7 +52,7 @@ BKD operational artefacts:
 | --- | --- | --- |
 | Original ENS source text | `Integration_Layer/BKD/Inbound/ENS_Source/ENS_Source_{dd.MM.yyyy}.txt` | Keeps the received email body as traceable ENS source evidence, trimmed after the last `customsadmin@primelineexpress.co.uk` marker to remove forwarded-chain noise. |
 | Original sales order attachment | `Integration_Layer/BKD/Inbound/Sales_Order_files/` | Keeps the customer Excel exactly as received. |
-| Generated API pack | `Integration_Layer/BKD/Process/BKD_API_PACK_{dd.MM.yyyy}.xlsx` | Combines `ENS PACK` from the first ENS body email and `DEC PACK` from the later Excel attachment email for review/mapping before TSS API processing. |
+| Generated API pack | `Integration_Layer/BKD/Processed/BKD_API_PACK_{dd.MM.yyyy}.xlsx` | Combines `ENS PACK` from the first ENS body email and `DEC PACK` from the later Excel attachment email for review/mapping before TSS API processing. |
 
 ## Source Material
 

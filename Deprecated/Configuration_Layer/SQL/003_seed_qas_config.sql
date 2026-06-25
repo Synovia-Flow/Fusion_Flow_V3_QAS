@@ -30,7 +30,7 @@ DECLARE @PLERoot nvarchar(1000) = CONCAT(@IntegrationLayerRoot, N'\PLE');
 /* SECTION 1 - Tenants and default folders. */
 MERGE CFG.Tenant AS target
 USING (VALUES
-    ('QAS', 'BKD', 'Birkdale', @BKDRoot, CONCAT(@BKDRoot, N'\Inbound\Sales_Order_files'), CONCAT(@BKDRoot, N'\Process'), CONCAT(@BKDRoot, N'\Fails'), 1, 'Active first tenant. Email body is saved as ENS source text; generated API pack contains ENS PACK and DEC PACK sheets.'),
+    ('QAS', 'BKD', 'Birkdale', @BKDRoot, CONCAT(@BKDRoot, N'\Inbound\Sales_Order_files'), CONCAT(@BKDRoot, N'\Processed'), CONCAT(@BKDRoot, N'\Fails'), 1, 'Active first tenant. Email body is saved as ENS source text; generated API pack contains ENS PACK and DEC PACK sheets.'),
     ('QAS', 'CWH', 'Country Wide Homes', @CWHRoot, CONCAT(@CWHRoot, N'\Inbound\Sales_Order_files'), CONCAT(@CWHRoot, N'\Process'), CONCAT(@CWHRoot, N'\Fails'), 0, 'Tenant configured but inactive. Sender/source pending confirmation. MVP flow is existing ENS reference plus DEC PACK upload.'),
     ('QAS', 'PLE', 'Primeline Express', @PLERoot, CONCAT(@PLERoot, N'\Inbound\Sales_Order_files'), CONCAT(@PLERoot, N'\Process'), CONCAT(@PLERoot, N'\Fails'), 0, 'Tenant configured but inactive. Sender/source pending confirmation. MVP flow is existing ENS reference plus DEC PACK upload.')
 ) AS source (EnvCode, TenantCode, TenantName, IntegrationRoot, DefaultInboundFolder, ProcessFolder, FailFolder, IsActive, Notes)
@@ -74,7 +74,7 @@ MERGE CFG.IngestionRoute AS target
 USING (
     SELECT t.TenantID, v.*
     FROM (VALUES
-        ('QAS', 'BKD', 'GRAPH_SALES_ORDERS', 'GRAPH_EMAIL', 'nexus@synoviaflow.cloud', 'DOMAIN', 'birkdalesales.com', CONCAT(@BKDRoot, N'\Inbound\Sales_Order_files'), CONCAT(@BKDRoot, N'\Process'), CONCAT(@BKDRoot, N'\Fails'), '.xlsx', 'ACTIVE', 1, 'BKD active Graph route.'),
+        ('QAS', 'BKD', 'GRAPH_SALES_ORDERS', 'GRAPH_EMAIL', 'nexus@synoviaflow.cloud', 'DOMAIN', 'birkdalesales.com', CONCAT(@BKDRoot, N'\Inbound\Sales_Order_files'), CONCAT(@BKDRoot, N'\Processed'), CONCAT(@BKDRoot, N'\Fails'), '.xlsx', 'ACTIVE', 1, 'BKD active Graph route.'),
         ('QAS', 'CWH', 'GRAPH_SALES_ORDERS', 'GRAPH_EMAIL', 'nexus@synoviaflow.cloud', 'TBD', 'TBD', CONCAT(@CWHRoot, N'\Inbound\Sales_Order_files'), CONCAT(@CWHRoot, N'\Process'), CONCAT(@CWHRoot, N'\Fails'), '.xlsx,.csv', 'PENDING_SENDER_RULE', 0, 'Countrywide sender/source pending confirmation.'),
         ('QAS', 'PLE', 'GRAPH_SALES_ORDERS', 'GRAPH_EMAIL', 'nexus@synoviaflow.cloud', 'TBD', 'TBD', CONCAT(@PLERoot, N'\Inbound\Sales_Order_files'), CONCAT(@PLERoot, N'\Process'), CONCAT(@PLERoot, N'\Fails'), '.xlsx,.csv', 'PENDING_SENDER_RULE', 0, 'Primeline sender/source pending confirmation.')
     ) AS v (EnvCode, TenantCode, RouteName, SourceType, Mailbox, SenderRuleType, SenderRule, DestinationFolder, ProcessFolder, FailFolder, AllowedFileTypes, RouteStatus, IsActive, Notes)
@@ -105,8 +105,8 @@ MERGE CFG.IngestionPackRule AS target
 USING (
     SELECT r.RouteID, v.*
     FROM (VALUES
-        ('QAS', 'BKD', 'GRAPH_SALES_ORDERS', 'ENS_PACK', 'EMAIL_BODY', 'XLSX', 'BKD_API_PACK_{dd.MM.yyyy}.xlsx', 'ENS PACK', CONCAT(@BKDRoot, N'\Process'), 1, 'Email body saved as ENS text evidence and converted into the ENS PACK sheet.'),
-        ('QAS', 'BKD', 'GRAPH_SALES_ORDERS', 'DEC_PACK', 'ATTACHMENT', 'XLSX', 'BKD_API_PACK_{dd.MM.yyyy}.xlsx', 'DEC PACK', CONCAT(@BKDRoot, N'\Process'), 1, 'Sales order attachment rows are copied into the DEC PACK sheet of the generated API pack.'),
+        ('QAS', 'BKD', 'GRAPH_SALES_ORDERS', 'ENS_PACK', 'EMAIL_BODY', 'XLSX', 'BKD_API_PACK_{dd.MM.yyyy}.xlsx', 'ENS PACK', CONCAT(@BKDRoot, N'\Processed'), 1, 'Email body saved as ENS text evidence and converted into the ENS PACK sheet.'),
+        ('QAS', 'BKD', 'GRAPH_SALES_ORDERS', 'DEC_PACK', 'ATTACHMENT', 'XLSX', 'BKD_API_PACK_{dd.MM.yyyy}.xlsx', 'DEC PACK', CONCAT(@BKDRoot, N'\Processed'), 1, 'Sales order attachment rows are copied into the DEC PACK sheet of the generated API pack.'),
         ('QAS', 'CWH', 'GRAPH_SALES_ORDERS', 'DEC_PACK', 'ATTACHMENT', 'XLSX', 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx', 'DEC PACK', CONCAT(@CWHRoot, N'\Process\DEC_PACK'), 0, 'Pending source confirmation; expected existing ENS reference plus consignment/goods upload.'),
         ('QAS', 'PLE', 'GRAPH_SALES_ORDERS', 'DEC_PACK', 'ATTACHMENT', 'XLSX', 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx', 'DEC PACK', CONCAT(@PLERoot, N'\Process\DEC_PACK'), 0, 'Pending source confirmation; expected existing ENS reference plus consignment/goods upload.')
     ) AS v (EnvCode, TenantCode, RouteName, PackCode, SourcePart, OutputFormat, OutputFilePattern, SheetName, OutputFolder, IsActive, Notes)
@@ -132,7 +132,7 @@ MERGE CFG.Graph AS target
 USING (
     SELECT t.TenantID, r.RouteID, v.*
     FROM (VALUES
-        ('QAS', 'BKD', 'Birkdale', 'nexus@synoviaflow.cloud', 'birkdalesales.com', '.xlsx', CONCAT(@BKDRoot, N'\Inbound\Sales_Order_files'), CONCAT(@BKDRoot, N'\Process'), CONCAT(@BKDRoot, N'\Fails'), 'email_body', 'TEST_API_ONLY', 1, 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx', 'ENS PACK', 'DEC PACK', 'Active first tenant. Body text plus attachment generate the BKD API pack.'),
+        ('QAS', 'BKD', 'Birkdale', 'nexus@synoviaflow.cloud', 'birkdalesales.com', '.xlsx', CONCAT(@BKDRoot, N'\Inbound\Sales_Order_files'), CONCAT(@BKDRoot, N'\Processed'), CONCAT(@BKDRoot, N'\Fails'), 'email_body', 'TEST_API_ONLY', 1, 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx', 'ENS PACK', 'DEC PACK', 'Active first tenant. Body text plus attachment generate the BKD API pack.'),
         ('QAS', 'CWH', 'Country Wide Homes', 'nexus@synoviaflow.cloud', 'TBD', '.xlsx,.csv', CONCAT(@CWHRoot, N'\Inbound\Sales_Order_files'), CONCAT(@CWHRoot, N'\Process'), CONCAT(@CWHRoot, N'\Fails'), 'existing_ens_reference', 'TEST_API_ONLY', 0, 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx', NULL, 'DEC PACK', 'Inactive until sender/source is confirmed.'),
         ('QAS', 'PLE', 'Primeline Express', 'nexus@synoviaflow.cloud', 'TBD', '.xlsx,.csv', CONCAT(@PLERoot, N'\Inbound\Sales_Order_files'), CONCAT(@PLERoot, N'\Process'), CONCAT(@PLERoot, N'\Fails'), 'existing_ens_reference', 'TEST_API_ONLY', 0, 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx', NULL, 'DEC PACK', 'Inactive until sender/source is confirmed.')
     ) AS v (EnvCode, TenantCode, TenantName, Mailbox, SenderRule, AllowedFileTypes, DestinationFolder, ProcessFolder, FailFolder, BodySourceForEns, ProcessingEnvironment, IsActive, OutputFilePattern, EnsSheetName, DecSheetName, Notes)

@@ -14,7 +14,7 @@ Sender_Rules,QAS,Fusion_Flow_V3_QAS,BKD,GRAPH_SENDER_RULE,DOMAIN,birkdalesales.c
 Sender_Rules,QAS,Fusion_Flow_V3_QAS,CWH,GRAPH_SENDER_RULE,TBD,TBD,FALSE,Add after source and file format are confirmed.
 Sender_Rules,QAS,Fusion_Flow_V3_QAS,PLE,GRAPH_SENDER_RULE,TBD,TBD,FALSE,Add after source and file format are confirmed.
 Sender_Rules,QAS,Fusion_Flow_V3_QAS,AVN,GRAPH_SENDER_RULE,TBD,TBD,FALSE,Add after source and file format are confirmed.
-Process_Folders,QAS,Fusion_Flow_V3_QAS,BKD,INGESTION_ROUTE,PROCESS_FOLDER,\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Process,FALSE,Folder used after email assets are saved and before DB load into ING.
+Process_Folders,QAS,Fusion_Flow_V3_QAS,BKD,INGESTION_ROUTE,PROCESS_FOLDER,\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Processed,FALSE,Folder used after email assets are saved and before DB load into ING.
 Process_Folders,QAS,Fusion_Flow_V3_QAS,BKD,INGESTION_ROUTE,FAIL_FOLDER,\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Fails,FALSE,Folder for files that fail parsing/loading.
 Process_Folders,QAS,Fusion_Flow_V3_QAS,CWH,INGESTION_ROUTE,PROCESS_FOLDER,\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\CWH\Process,FALSE,Folder prepared; sender/source pending.
 Process_Folders,QAS,Fusion_Flow_V3_QAS,CWH,INGESTION_ROUTE,FAIL_FOLDER,\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\CWH\Fails,FALSE,Folder prepared; sender/source pending.

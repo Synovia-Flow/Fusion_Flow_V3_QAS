@@ -209,7 +209,7 @@ FALLBACK_BIRKDALE_CONFIG = {
     ),
     "body_source_for_ens": "email_body",
     "body_text_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Inbound" / "ENS_Source",
-    "process_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Process",
+    "process_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Processed",
     "fail_folder": INTEGRATION_LAYER_ROOT / "BKD" / "Fails",
     "body_text_file_pattern": "ENS_Source_{dd.MM.yyyy}.txt",
     "body_text_cut_after_marker": "customsadmin@primelineexpress.co.uk",

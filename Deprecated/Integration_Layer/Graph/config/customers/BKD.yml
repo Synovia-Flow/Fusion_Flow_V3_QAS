@@ -23,7 +23,7 @@ file_types:
 
 destination_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Inbound\Sales_Order_files'
 body_text_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Inbound\ENS_Source'
-process_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Process'
+process_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Processed'
 fail_folder: '\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer\BKD\Fails'
 
 output_file_pattern: 'Sales Orders Synovia_{dd.MM.yyyy}.xlsx'
