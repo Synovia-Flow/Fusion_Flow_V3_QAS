@@ -25,6 +25,7 @@ later module phases.
 | 4 | `004_exc_log_tables.sql` | EXC spine (`Execution`, `Transaction`, `Error`, `Data_Processing_Enhancement`) + LOG (`Process_Log`, `Error_Log`, `API_Trace`) |
 | 5 | `005_ing_tables.sql` | ING ingestion landing (`Inbound_File`, `Raw_Record`, `Source_Email`) |
 | 6 | `006_seed_graph_params.sql` | Seed Microsoft Graph app config into `CFG.Application_Parameters` (client id, tenant, mailbox, secret **reference**) |
+| 7 | `007_cfg_ingestion_source.sql` | `CFG.Ingestion_Source` — DB-driven acquisition-channel registry per client (EMAIL active; SFTP/AS2/API registered + inactive) + processed subfolder |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 

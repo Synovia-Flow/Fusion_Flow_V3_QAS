@@ -164,24 +164,21 @@ def _hdr_date(value: str | None) -> str:
 
 
 def write_csv(rows: list[dict[str, Any]], out_path: Path) -> tuple[int, int]:
-    """Append rows to the CSV, skipping DedupKeys already present. Returns (written, skipped)."""
-    existing: set[str] = set()
-    if out_path.exists():
-        with out_path.open("r", encoding="utf-8-sig", newline="") as fh:
-            existing = {r.get("DedupKey", "") for r in csv.DictReader(fh)}
-    new_file = not out_path.exists()
-    written = skipped = 0
+    """Write a FRESH CSV (one per run). Duplicate DedupKeys WITHIN this batch are
+    collapsed; cross-day de-duplication happens at DB ingest time. Returns
+    (written, skipped_in_batch)."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("a", encoding="utf-8-sig", newline="") as fh:
+    seen: set[str] = set()
+    written = skipped = 0
+    with out_path.open("w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS)
-        if new_file:
-            writer.writeheader()
+        writer.writeheader()
         for row in rows:
-            if row["DedupKey"] in existing:
+            if row["DedupKey"] in seen:
                 skipped += 1
                 continue
             writer.writerow({c: row.get(c, "") for c in CSV_COLUMNS})
-            existing.add(row["DedupKey"])
+            seen.add(row["DedupKey"])
             written += 1
     return written, skipped
 
@@ -190,7 +187,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Birkdale Process_ENS_Headers - ENS details block -> CSV.")
     p.add_argument("--eml", nargs="*", type=Path, default=[], help="One or more .eml files")
     p.add_argument("--eml-dir", type=Path, help="Folder of .eml files to parse")
-    p.add_argument("--out", type=Path, default=Path("ENS_Headers.csv"), help="CSV output path (appended)")
+    p.add_argument("--out-dir", type=Path, default=Path("."), help="Folder for the timestamped CSV")
+    p.add_argument("--out", type=Path, help="Explicit CSV path (overrides --out-dir + timestamp)")
     args = p.parse_args()
 
     files = list(args.eml)
@@ -199,11 +197,15 @@ def main() -> int:
     if not files:
         p.error("Provide --eml <file...> or --eml-dir <dir>")
 
+    # Fresh, timestamped output file per run (cleaner for DB processing).
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    out_path = args.out or (args.out_dir / f"ENS_Headers_{stamp}.csv")
+
     rows = [row_from_eml(f) for f in files]
-    written, skipped = write_csv(rows, args.out)
+    written, skipped = write_csv(rows, out_path)
     for r in rows:
         print(f"  {r['SourceFile']}: {r['ParseStatus']}  key={r['DedupKey']}  ICR={r['transport_document_number']}")
-    print(f"\n{args.out}: {written} written, {skipped} duplicate(s) skipped.")
+    print(f"\n{out_path}: {written} written, {skipped} in-batch duplicate(s) skipped.")
     return 0
 
 

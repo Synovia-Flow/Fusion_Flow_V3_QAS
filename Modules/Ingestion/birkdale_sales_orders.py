@@ -90,9 +90,10 @@ def run(ini_path: Path, dry_run: bool) -> int:
                                 params.get("GRAPH_SCOPE", "https://graph.microsoft.com/.default"))
         client = G.GraphClient(token)
         inbox_id = G.resolve_inbox_id(client, mailbox)
-        processed_id = G.ensure_processed_folder(client, mailbox, inbox_id,
-                                                 params.get("GRAPH_PROCESSED_FOLDER", "Fusion_Processed"))
-        folders = [{"id": inbox_id}] + G.scan_folders(client, mailbox, inbox_id, processed_id)
+        processed_name = params.get("GRAPH_PROCESSED_FOLDER", "Fusion_Processed")
+        # Processed mail moves into the per-client subfolder Fusion_Processed/BKD.
+        processed_id = G.ensure_processed_folder(client, mailbox, inbox_id, processed_name, subfolder=CLIENT_CODE)
+        folders = [{"id": inbox_id}] + G.scan_folders(client, mailbox, inbox_id, skip_names={processed_name})
         inbound.mkdir(parents=True, exist_ok=True)
 
         for folder in folders:
