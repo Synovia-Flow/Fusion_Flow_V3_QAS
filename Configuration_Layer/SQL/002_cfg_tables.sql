@@ -14,7 +14,7 @@
     Safe to rerun: Yes. Every CREATE is guarded by an existence check.
 
     Tables:
-        CFG.Application_Settings   global key/value runtime settings
+        CFG.Application_Parameters global key/value runtime settings (all non-connection settings)
         CFG.Clients                principal registry (3-letter code, schema, prefix)
         CFG.Credentials            TSS API username + secret REFERENCE (no plaintext secret)
         CFG.Folder_Paths           per-client operational folders
@@ -27,19 +27,21 @@
 */
 
 /* ------------------------------------------------------------------ */
-/* CFG.Application_Settings - global runtime settings                  */
+/* CFG.Application_Parameters - global runtime settings.               */
+/* The .ini holds ONLY the DB connection (bootstrap); every other       */
+/* application setting lives here so it is centrally managed and audited.*/
 /* ------------------------------------------------------------------ */
-IF OBJECT_ID('CFG.Application_Settings', 'U') IS NULL
+IF OBJECT_ID('CFG.Application_Parameters', 'U') IS NULL
 BEGIN
-    CREATE TABLE CFG.Application_Settings (
-        SettingID     int IDENTITY(1,1) NOT NULL CONSTRAINT PK_CFG_Application_Settings PRIMARY KEY,
-        SettingKey    varchar(100) NOT NULL,
-        SettingValue  nvarchar(1000) NULL,
-        ValueType     varchar(20) NOT NULL CONSTRAINT DF_CFG_AppSettings_ValueType DEFAULT ('STRING'),
-        Description   nvarchar(500) NULL,
-        IsActive      bit NOT NULL CONSTRAINT DF_CFG_AppSettings_IsActive DEFAULT (1),
-        UpdatedAt     datetime2(3) NOT NULL CONSTRAINT DF_CFG_AppSettings_UpdatedAt DEFAULT (SYSUTCDATETIME()),
-        CONSTRAINT UQ_CFG_Application_Settings UNIQUE (SettingKey)
+    CREATE TABLE CFG.Application_Parameters (
+        ParameterID    int IDENTITY(1,1) NOT NULL CONSTRAINT PK_CFG_Application_Parameters PRIMARY KEY,
+        ParameterKey   varchar(100) NOT NULL,
+        ParameterValue nvarchar(1000) NULL,
+        ValueType      varchar(20) NOT NULL CONSTRAINT DF_CFG_AppParams_ValueType DEFAULT ('STRING'),
+        Description    nvarchar(500) NULL,
+        IsActive       bit NOT NULL CONSTRAINT DF_CFG_AppParams_IsActive DEFAULT (1),
+        UpdatedAt      datetime2(3) NOT NULL CONSTRAINT DF_CFG_AppParams_UpdatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT UQ_CFG_Application_Parameters UNIQUE (ParameterKey)
     );
 END;
 GO

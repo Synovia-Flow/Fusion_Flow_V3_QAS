@@ -31,9 +31,9 @@ DECLARE @CWDRoot nvarchar(1000) = CONCAT(@IntRoot, N'\CWD');
 DECLARE @PLERoot nvarchar(1000) = CONCAT(@IntRoot, N'\PLE');
 
 /* ================================================================== */
-/* 1. Application settings                                             */
+/* 1. Application parameters (all non-connection settings)             */
 /* ================================================================== */
-MERGE CFG.Application_Settings AS t
+MERGE CFG.Application_Parameters AS t
 USING (VALUES
     ('DEFAULT_ENV',              'TEST',  'STRING', 'Default TSS environment (TEST|PROD).'),
     ('API_TIME_ZONE',            'UTC',   'STRING', 'All API datetimes are UTC.'),
@@ -44,11 +44,11 @@ USING (VALUES
     ('SDI_DEADLINE_DAY',         '10',    'INT',    'Supplementary Declaration due by the 10th of month after arrival.'),
     ('INTEGRATION_LAYER_ROOT',   N'\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer', 'STRING', 'Root for per-client inbound/process/fail/archive subfolders.'),
     ('DOCUMENTATION_OUTPUT_ROOT',N'\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer','STRING', 'Top-level output for reports/documents produced by scripts (Module 5).')
-) AS s (SettingKey, SettingValue, ValueType, Description)
-ON t.SettingKey = s.SettingKey
-WHEN MATCHED THEN UPDATE SET SettingValue=s.SettingValue, ValueType=s.ValueType, Description=s.Description, UpdatedAt=SYSUTCDATETIME()
-WHEN NOT MATCHED THEN INSERT (SettingKey, SettingValue, ValueType, Description)
-    VALUES (s.SettingKey, s.SettingValue, s.ValueType, s.Description);
+) AS s (ParameterKey, ParameterValue, ValueType, Description)
+ON t.ParameterKey = s.ParameterKey
+WHEN MATCHED THEN UPDATE SET ParameterValue=s.ParameterValue, ValueType=s.ValueType, Description=s.Description, UpdatedAt=SYSUTCDATETIME()
+WHEN NOT MATCHED THEN INSERT (ParameterKey, ParameterValue, ValueType, Description)
+    VALUES (s.ParameterKey, s.ParameterValue, s.ValueType, s.Description);
 
 /* ================================================================== */
 /* 2. Clients                                                          */

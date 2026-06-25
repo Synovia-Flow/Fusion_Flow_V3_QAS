@@ -20,7 +20,9 @@ later module phases.
 |---|------|---------|
 | 1 | `001_create_schemas.sql` | The 11 schemas: CFG, ING, EXC, LOG, PRS, STG, API, CTL, ARC, SRV, BKD |
 | 2 | `002_cfg_tables.sql` | CFG tables + FKs + indexes |
-| 3 | `003_seed_cfg.sql` | Seed: settings (incl. integration + documentation roots), clients (BKD active; CWD + PLE inactive), credentials (refs only), per-client folder paths, email rules, API version, BKD Route A process map, 35 choice fields, status vocabulary |
+| 3 | `003_seed_cfg.sql` | Seed: parameters (incl. integration + documentation roots), clients (BKD active; CWD + PLE inactive), credentials (refs only), per-client folder paths, email rules, API version, BKD Route A process map, 35 choice fields, status vocabulary |
+| 4 | `004_exc_log_tables.sql` | EXC spine (`Execution`, `Transaction`, `Error`, `Data_Processing_Enhancement`) + LOG (`Process_Log`, `Error_Log`, `API_Trace`) |
+| 5 | `005_ing_tables.sql` | ING ingestion landing (`Inbound_File`, `Raw_Record`, `Source_Email`) |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 
@@ -36,7 +38,7 @@ sqlcmd -S <server> -d Fusion_Flow_V3_QAS -i 003_seed_cfg.sql
 
 | Table | Purpose |
 |-------|---------|
-| `CFG.Application_Settings` | Global runtime settings (env, rate limit, GMR wait, SDI deadline) |
+| `CFG.Application_Parameters` | Global runtime settings — **all non-connection settings** (env, rate limit, GMR wait, SDI deadline, roots). The `.ini` holds only the DB connection. |
 | `CFG.Clients` | Principal registry: 3-letter code → schema + STG prefix + route |
 | `CFG.Credentials` | TSS API username + **Key Vault secret reference** (no plaintext secret) |
 | `CFG.Folder_Paths` | Per-client INBOUND / ENS_SOURCE / PROCESS / FAIL / ARCHIVE folders |
