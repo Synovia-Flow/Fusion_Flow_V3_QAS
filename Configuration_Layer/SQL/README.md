@@ -18,6 +18,7 @@ later module phases.
 
 | # | File | Creates |
 |---|------|---------|
+| 0 | `000_chg_schema.sql` | `CHG` change-management schema (`Deployment`, `Change_Log`) — deploy audit |
 | 1 | `001_create_schemas.sql` | The 11 schemas: CFG, ING, EXC, LOG, PRS, STG, API, CTL, ARC, SRV, BKD |
 | 2 | `002_cfg_tables.sql` | CFG tables + FKs + indexes |
 | 3 | `003_seed_cfg.sql` | Seed: parameters (incl. integration + documentation roots), clients (BKD active; CWD + PLE inactive), credentials (refs only), per-client folder paths, email rules, API version, BKD Route A process map, 35 choice fields, status vocabulary |
