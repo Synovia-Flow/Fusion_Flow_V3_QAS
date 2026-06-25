@@ -16,9 +16,9 @@
       supplied out of band) - they are NOT committed to git. On re-deploy the
       MERGE never overwrites a password you have set.
 
-    NOTE: the supplied credential matrix uses client code 'CWF'; CFG.Clients holds
-    'CWD' (CountryWide). These tables are intentionally NOT FK-bound to CFG.Clients
-    so the verification matrix can be seeded verbatim - reconcile CWF vs CWD later.
+    Client codes are aligned to CWF (CountryWide) across CFG.Clients and these
+    tables. Not FK-bound to CFG.Clients so the verification matrix can be seeded
+    independently of client onboarding order.
 */
 
 /* ------------------------------------------------------------------ */
