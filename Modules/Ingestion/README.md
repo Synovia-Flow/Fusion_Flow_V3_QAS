@@ -36,7 +36,7 @@ class, then replace the SKELETON block in `run()` with the documented landing lo
 
 ## Config (no hardcoding)
 
-- **DB connection** → `Configuration_Layer/Fusion_Flow_QAS.ini` `[database]` (gitignored).
+- **DB connection** → `Configuration/Fusion_Flow_QAS.ini` `[database]` (gitignored).
 - **Parameters** → `CFG.Application_Parameters`.
 - **Routing** → `CFG.Clients`, `CFG.Email_Rules`, `CFG.Folder_Paths`.
 

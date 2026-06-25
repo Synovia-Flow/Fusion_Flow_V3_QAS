@@ -26,6 +26,7 @@ __pycache__/
 
 # Live DB connection config (contains a password). Commit the .example template
 # instead. Do not remove.
+Configuration/Fusion_Flow_QAS.ini
 Configuration_Layer/Fusion_Flow_QAS.ini
 *.local.ini
 

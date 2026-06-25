@@ -27,7 +27,7 @@ python export_datamodel.py --all --max-rows 5000
 python export_datamodel.py --all --out "C:\temp"   # override output folder
 ```
 
-Connection is read from `Configuration_Layer\Fusion_Flow_QAS.ini` (same as the
+Connection is read from `Configuration\Fusion_Flow_QAS.ini` (same as the
 deploy tool). Requires `pyodbc` and `openpyxl`.
 
 ## Interactive picker

@@ -4,7 +4,7 @@
 Applies queued DDL to the database and logs every change to the CHG schema.
 
 Flow:
-  1. Read the DB connection from Configuration_Layer/Fusion_Flow_QAS.ini ([database]).
+  1. Read the DB connection from Configuration/Fusion_Flow_QAS.ini ([database]).
   2. Ensure the CHG change-management schema exists (self-bootstrap).
   3. Prompt for a deployment Description (or take --description).
   4. Open one CHG.Deployment row for the run.
@@ -37,8 +37,8 @@ os.environ.setdefault("NO_COLOR", "1")  # ASCII-safe stdout on Windows (Rule 21)
 
 DEPLOY_DIR = Path(__file__).resolve().parent
 REPO_ROOT = DEPLOY_DIR.parents[1]
-DEFAULT_INI = REPO_ROOT / "Configuration_Layer" / "Fusion_Flow_QAS.ini"
-CHG_BOOTSTRAP = REPO_ROOT / "Configuration_Layer" / "SQL" / "000_chg_schema.sql"
+DEFAULT_INI = REPO_ROOT / "Configuration" / "Fusion_Flow_QAS.ini"
+CHG_BOOTSTRAP = REPO_ROOT / "Configuration" / "SQL" / "000_chg_schema.sql"
 
 GO_SPLIT = re.compile(r"(?im)^[\t ]*GO[\t ]*(?:\d+)?[\t ]*$")
 
@@ -181,7 +181,7 @@ def deploy(args: argparse.Namespace) -> int:
         print(f"No *.sql found in {source} - nothing to deploy.")
         if args.source is None:
             print("Tip: stage DDL into the Queue, or deploy a folder directly with "
-                  "--source ..\\..\\Configuration_Layer\\SQL")
+                  "--source ..\\..\\Configuration\\SQL")
         return 0
 
     print(f"Queue ({len(scripts)}): " + ", ".join(s.name for s in scripts))

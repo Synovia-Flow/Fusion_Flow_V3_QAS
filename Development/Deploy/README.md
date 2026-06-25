@@ -24,18 +24,18 @@ python deploy.py --description "..." --promote-log           # also copy summary
 
 - **Default = the Queue.** Stage scripts into `Queue\`; succeeded scripts are
   **moved** to `Archive\`. The Queue is a transient staging area (gitignored);
-  canonical DDL lives in `Configuration_Layer\SQL`.
+  canonical DDL lives in `Configuration\SQL`.
 - **Deploy the canonical folder directly** with `--source` (succeeded scripts are
   **copied** to Archive so the originals survive):
 
   ```powershell
-  python deploy.py --source ..\..\Configuration_Layer\SQL --description "R1 foundation"
+  python deploy.py --source ..\..\Configuration\SQL --description "R1 foundation"
   ```
 
 To stage the foundation into the Queue instead:
 
 ```powershell
-copy ..\..\Configuration_Layer\SQL\00*.sql .\Queue\
+copy ..\..\Configuration\SQL\00*.sql .\Queue\
 python deploy.py --description "R1 foundation"
 ```
 
@@ -77,7 +77,7 @@ cd "Development\Deploy"
 ### Connection from the .ini (recommended)
 
 If you don't pass `-Server`, the runner reads the `[database]` section of
-`Configuration_Layer\Fusion_Flow_QAS.ini` (server, database, user, password,
+`Configuration\Fusion_Flow_QAS.ini` (server, database, user, password,
 encrypt, trust_server_certificate). That file is **gitignored** because it holds
 a password — copy `Fusion_Flow_QAS.example.ini` to `Fusion_Flow_QAS.ini` and set
 the real password locally. So this is enough:
@@ -99,9 +99,9 @@ You can also set `$env:FUSION_SQL_SERVER`, or override any value on the command 
 ## Typical flow for these scripts
 
 1. Copy the DDL you want to deploy into `Queue\` (e.g. the
-   `Configuration_Layer\SQL\001_*.sql … 003_*.sql` foundation scripts).
+   `Configuration\SQL\001_*.sql … 003_*.sql` foundation scripts).
 2. Run `Deploy-Database.ps1 -Server <server> -PromoteLog`.
 3. On success the scripts are in `Archive\<timestamp>\`; the summary is in `logs\`.
 
-> Scripts should be idempotent (the `Configuration_Layer\SQL` files are), so a
+> Scripts should be idempotent (the `Configuration\SQL` files are), so a
 > re-run after a partial failure is safe.

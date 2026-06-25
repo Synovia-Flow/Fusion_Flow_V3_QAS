@@ -12,7 +12,7 @@ orchestration, config loading, EXC/LOG wiring and verbatim-landing helpers are
 real so a route can be implemented by filling one class.
 
 Config sources (no hardcoded connection, no scattered settings):
-  - DB connection : Configuration_Layer/Fusion_Flow_QAS.ini  -> [database]
+  - DB connection : Configuration/Fusion_Flow_QAS.ini  -> [database]
   - Parameters    : CFG.Application_Parameters
   - Routing       : CFG.Clients, CFG.Email_Rules, CFG.Folder_Paths
 
@@ -36,7 +36,7 @@ from typing import Any
 os.environ.setdefault("NO_COLOR", "1")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_INI = REPO_ROOT / "Configuration_Layer" / "Fusion_Flow_QAS.ini"
+DEFAULT_INI = REPO_ROOT / "Configuration" / "Fusion_Flow_QAS.ini"
 
 MODULE_NAME = "INGESTION"
 

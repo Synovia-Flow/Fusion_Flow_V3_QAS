@@ -10,7 +10,7 @@ output folder:
   - Tab 2+ one per table         : all rows of that table (capped by --max-rows),
                                     with a link back to the analysis tab.
 
-Connection comes from Configuration_Layer/Fusion_Flow_QAS.ini ([database]).
+Connection comes from Configuration/Fusion_Flow_QAS.ini ([database]).
 Output root comes from CFG.Application_Parameters.DOCUMENTATION_OUTPUT_ROOT
 (falling back to the known UNC path), under a Database_Analysis subfolder.
 
@@ -36,7 +36,7 @@ os.environ.setdefault("NO_COLOR", "1")
 
 REVIEW_DIR = Path(__file__).resolve().parent
 REPO_ROOT = REVIEW_DIR.parents[1]
-DEFAULT_INI = REPO_ROOT / "Configuration_Layer" / "Fusion_Flow_QAS.ini"
+DEFAULT_INI = REPO_ROOT / "Configuration" / "Fusion_Flow_QAS.ini"
 FALLBACK_DOC_ROOT = r"\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer"
 
 HEADER_FILL = "1F4E78"   # navy
