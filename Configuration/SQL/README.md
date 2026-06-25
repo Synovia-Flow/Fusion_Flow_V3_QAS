@@ -27,6 +27,7 @@ later module phases.
 | 6 | `006_seed_graph_params.sql` | Seed Microsoft Graph app config into `CFG.Application_Parameters` (client id, tenant, mailbox, secret **reference**) |
 | 7 | `007_cfg_ingestion_source.sql` | `CFG.Ingestion_Source` — DB-driven acquisition-channel registry per client (EMAIL active; SFTP/AS2/API registered + inactive) + processed subfolder |
 | 8 | `008_ing_bkd_raw_tables.sql` | `ING.BKD_Raw_ENS` (typed, from ENS CSV) + `ING.BKD_Raw_Sales_Orders` (verbatim row JSON) |
+| 9 | `009_cfg_tss_credentials_environments.sql` | `CFG.TSS_Environment` + `CFG.TSS_Credential` (per client/env: username, active, last verification result; passwords set in DB) |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 
