@@ -37,3 +37,6 @@ logs/_Ignore/
 # Deploy Queue is a transient staging area; canonical DDL lives in
 # Configuration_Layer/SQL. Keep the folder (README) but not staged scripts.
 Development/Deploy/Queue/*.sql
+
+# TSS connectivity test credentials (live passwords) - never commit.
+Development/Connectivity/tss_credentials.json
