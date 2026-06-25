@@ -19,3 +19,7 @@ obj/
 .env
 .env.*
 !.env.example
+
+# Deploy run logs: verbose/transient. logs/ itself IS committed; only the
+# _Ignore subfolder is excluded. Promote a summary up to logs/ to share it.
+logs/_Ignore/
