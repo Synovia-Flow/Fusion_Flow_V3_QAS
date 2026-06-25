@@ -41,11 +41,20 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp",
 # --------------------------------------------------------------------------- #
 # Secret resolution (never stored in the DB)
 # --------------------------------------------------------------------------- #
-def resolve_client_secret(secret_ref: str) -> str:
+def resolve_client_secret(params: dict[str, str]) -> str:
+    """Resolve the Graph client secret. Order (design: secret lives in the table):
+      1. CFG.Application_Parameters.GRAPH_CLIENT_SECRET (passed in `params`)
+      2. env var GRAPH_CLIENT_SECRET
+      3. Key Vault via GRAPH_CLIENT_SECRET_REF ("<vault>/<secret>")
+    """
+    direct = (params.get("GRAPH_CLIENT_SECRET") or "").strip()
+    if direct and not direct.startswith("<"):
+        return direct
     env = os.environ.get("GRAPH_CLIENT_SECRET", "").strip()
     if env:
         return env
-    if secret_ref and "/" in secret_ref:
+    secret_ref = (params.get("GRAPH_CLIENT_SECRET_REF") or "").strip()
+    if secret_ref and "/" in secret_ref and not secret_ref.startswith("<"):
         try:
             from azure.identity import DefaultAzureCredential
             from azure.keyvault.secrets import SecretClient
@@ -55,12 +64,11 @@ def resolve_client_secret(secret_ref: str) -> str:
             return client.get_secret(name).value
         except Exception as error:  # noqa: BLE001
             raise RuntimeError(
-                f"Could not resolve Graph secret from Key Vault ref '{secret_ref}': {error}. "
-                f"Set env GRAPH_CLIENT_SECRET, or install azure-identity + azure-keyvault-secrets."
+                f"Could not resolve Graph secret from Key Vault ref '{secret_ref}': {error}."
             ) from error
     raise RuntimeError(
-        "No Graph client secret available. Set env GRAPH_CLIENT_SECRET or a Key Vault "
-        "reference in CFG.Application_Parameters.GRAPH_CLIENT_SECRET_REF.")
+        "No Graph client secret. Set CFG.Application_Parameters.GRAPH_CLIENT_SECRET, "
+        "env GRAPH_CLIENT_SECRET, or a Key Vault ref in GRAPH_CLIENT_SECRET_REF.")
 
 
 def acquire_token(authority_base: str, tenant_id: str, client_id: str, client_secret: str, scope: str) -> str:
@@ -210,7 +218,7 @@ def run_email_ingest(db: Any, client_code: str, params: dict[str, str], dry_run:
         db.log("EMAIL", f"[dry-run] would scan {mailbox} and land non-image attachments.")
         return stats
 
-    secret = resolve_client_secret(params.get("GRAPH_CLIENT_SECRET_REF", ""))
+    secret = resolve_client_secret(params)
     token = acquire_token(authority, tenant, client_id, secret, scope)
     client = GraphClient(token)
     db.log("EMAIL", f"Authenticated to Graph for {mailbox}.")

@@ -86,7 +86,7 @@ def run(ini_path: Path, dry_run: bool) -> int:
             return 0
 
         token = G.acquire_token(params.get("GRAPH_AUTHORITY", "https://login.microsoftonline.com/"),
-                                tenant, client_id, G.resolve_client_secret(params.get("GRAPH_CLIENT_SECRET_REF", "")),
+                                tenant, client_id, G.resolve_client_secret(params),
                                 params.get("GRAPH_SCOPE", "https://graph.microsoft.com/.default"))
         client = G.GraphClient(token)
         inbox_id = G.resolve_inbox_id(client, mailbox)
