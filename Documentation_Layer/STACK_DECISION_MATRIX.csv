@@ -1,0 +1,16 @@
+﻿Area;Decision propuesta;Opciones consideradas;Recomendacion;Motivo;Decision equipo
+Infraestructura;Azure como objetivo principal;Azure / Render;Azure;Encaja mejor con Microsoft Graph, Azure SQL, Key Vault, App Insights y storage;Pendiente
+Infraestructura QAS/demo;Render como opcion temporal;Render / Azure only;Render opcional;V2 prod ya tiene render.yaml y cron jobs, util para pruebas rapidas;Pendiente
+Backend;Flask;Flask / FastAPI;Flask;V2 prod y V3 QAS ya usan Flask, blueprints y WSGI;Pendiente
+Frontend;HTML CSS JS nativo;HTML CSS JS / React / Angular;HTML CSS JS nativo;El producto es operacional, no necesita SPA al inicio;Pendiente
+Templates UI;Jinja templates;Jinja / SPA frontend;Jinja;Se alinea con V2 prod y reduce complejidad;Pendiente
+Python;Python 3.12;Python 3.12 / otras versiones;Python 3.12;V2 prod usa Python 3.12 y V3 puede seguir igual;Pendiente
+Base de datos;Azure SQL / SQL Server;Azure SQL / otra DB;Azure SQL;El modelo actual usa SQL Server schemas CFG EXC ING STG TSS;Pendiente
+Driver SQL;ODBC Driver 18;ODBC 17 / ODBC 18;ODBC Driver 18;V3 .env.example ya apunta a Driver 18, Driver 17 queda fallback;Pendiente
+Portal soporte;Incluir desde fase 1;Si / No;Si;Necesitamos health, ingestion queue, technical logs, retry y trazabilidad;Pendiente
+Analytics;Operacional basico en fase 1;No analytics / basico / BI avanzado;Basico;V2 tiene soporte tecnico y algunos analytics, pero PRD analytics avanzado no esta consolidado;Pendiente
+Jobs;Scripts FLOW_V3 + scheduled jobs;Scripts / workers / functions;Scripts con scheduler;El flujo actual ya esta separado en pasos 01-05;Pendiente
+Configuracion tenant;DB first con YAML fallback;YAML only / DB first;DB first;El operating model V3 indica CFG como fuente principal y YAML para transicion/dev;Pendiente
+Secretos;Environment / Key Vault;Env files / Key Vault;Key Vault en Azure, .env solo local;Evita secretos en GitHub y alinea despliegue Azure;Pendiente
+Storage operativo;Azure Storage o file share controlado;Repo / file share / Blob;Azure Storage o file share;El repo debe quedar para codigo, SQL y docs, no para archivos operativos;Pendiente
+Estructura app;Evitar nombres genericos repetidos;Generic app folders / Portal/fusion_portal;Portal/fusion_portal;Reduce ambiguedad entre modulo funcional y paquete Python interno;Pendiente
