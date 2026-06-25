@@ -15,6 +15,10 @@
 bin/
 obj/
 
+# Python artifacts
+__pycache__/
+*.py[cod]
+
 # Local secrets - keep credentials out of source control. Do not remove.
 .env
 .env.*
