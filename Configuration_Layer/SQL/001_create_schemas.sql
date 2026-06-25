@@ -23,8 +23,12 @@
         SRV  Serve                - reporting & analytics views/facts
         BKD  Client schema        - per-client pulled-back/reconciled records (Birkdale pilot)
 
-    Note: BKD is the first per-client schema. Each principal added later receives
-          its own schema named after its 3-letter CFG.Clients code.
+    Per-client schemas (one per registered principal in CFG.Clients):
+        BKD  Birkdale          (active pilot)
+        CWD  CountryWide       (registered, inactive)
+        PLE  Primeline Express (agent / actAs, inactive)
+
+    Each principal added later receives its own schema named after its 3-letter code.
 */
 
 IF SCHEMA_ID('CFG') IS NULL EXEC('CREATE SCHEMA CFG');
@@ -48,4 +52,10 @@ GO
 IF SCHEMA_ID('SRV') IS NULL EXEC('CREATE SCHEMA SRV');
 GO
 IF SCHEMA_ID('BKD') IS NULL EXEC('CREATE SCHEMA BKD');
+GO
+
+/* Additional per-client schemas (registered principals; activated later). */
+IF SCHEMA_ID('CWD') IS NULL EXEC('CREATE SCHEMA CWD');
+GO
+IF SCHEMA_ID('PLE') IS NULL EXEC('CREATE SCHEMA PLE');
 GO
