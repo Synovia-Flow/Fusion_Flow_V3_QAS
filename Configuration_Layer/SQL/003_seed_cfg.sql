@@ -2,8 +2,16 @@
     FUSION FLOW V3 QAS - DATABASE SETUP - FILE 3 OF 3
     =================================================
     Purpose : Seed the CFG layer for Release 1.
-              BKD (Birkdale) is the active pilot; PLE (Primeline) is seeded as an
-              inactive agent placeholder (R2 fast-follow).
+
+    Clients (confirmed):
+        BKD  Birkdale          - ACTIVE pilot (Route A simplified procedure)
+        CWD  CountryWide       - registered, inactive (sender/source pending)
+        PLE  Primeline Express - agent (actAs), inactive (R2 fast-follow)
+
+    Confirmed operational roots:
+        Integration Layer : \\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer
+                            with per-client subfolders, e.g. ...\Integration_Layer\BKD
+        Reports/documents : \\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer  (top level)
 
     Run after : 001_create_schemas.sql, 002_cfg_tables.sql
     Safe to rerun: Yes. Every block is a MERGE on the natural key.
@@ -11,26 +19,31 @@
     Secrets   : NO plaintext secrets here. CFG.Credentials stores the API username
                 and a Key Vault secret REFERENCE only.
 
-    >>> REVIEW BEFORE PROD: confirm the UNC folder root, the TSS API usernames,
-        the PLE actAs id, and BKD's birkdalesales.com sender domain.
+    >>> REVIEW BEFORE PROD: confirm the TSS API usernames, the PLE actAs id,
+        and the CWD / PLE sender rules.
 */
 
-/* Adjust this root to the confirmed operational file store. */
-DECLARE @Root nvarchar(1000) = N'\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer';
-DECLARE @BKDRoot nvarchar(1000) = CONCAT(@Root, N'\BKD');
+/* Confirmed roots. */
+DECLARE @IntRoot nvarchar(1000) = N'\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer';
+DECLARE @DocRoot nvarchar(1000) = N'\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer';
+DECLARE @BKDRoot nvarchar(1000) = CONCAT(@IntRoot, N'\BKD');
+DECLARE @CWDRoot nvarchar(1000) = CONCAT(@IntRoot, N'\CWD');
+DECLARE @PLERoot nvarchar(1000) = CONCAT(@IntRoot, N'\PLE');
 
 /* ================================================================== */
 /* 1. Application settings                                             */
 /* ================================================================== */
 MERGE CFG.Application_Settings AS t
 USING (VALUES
-    ('DEFAULT_ENV',            'TEST',  'STRING', 'Default TSS environment (TEST|PROD).'),
-    ('API_TIME_ZONE',          'UTC',   'STRING', 'All API datetimes are UTC.'),
-    ('API_RATE_LIMIT_SECONDS', '0.25',  'DECIMAL','Minimum seconds between production API calls (Rule 14).'),
-    ('GMR_READ_WAIT_SECONDS',  '90',    'INT',    'Wait after GMR submit before reading gmr_id (Rule 19).'),
-    ('API_VERSION_DEFAULT',    'NEW',   'STRING', 'Default API version for the New/Old switch.'),
-    ('ARRIVAL_MAX_FUTURE_DAYS','14',    'INT',    'arrival_date_time max days in the future (Rule 4).'),
-    ('SDI_DEADLINE_DAY',       '10',    'INT',    'Supplementary Declaration due by the 10th of month after arrival.')
+    ('DEFAULT_ENV',              'TEST',  'STRING', 'Default TSS environment (TEST|PROD).'),
+    ('API_TIME_ZONE',            'UTC',   'STRING', 'All API datetimes are UTC.'),
+    ('API_RATE_LIMIT_SECONDS',   '0.25',  'DECIMAL','Minimum seconds between production API calls (Rule 14).'),
+    ('GMR_READ_WAIT_SECONDS',    '90',    'INT',    'Wait after GMR submit before reading gmr_id (Rule 19).'),
+    ('API_VERSION_DEFAULT',      'NEW',   'STRING', 'Default API version for the New/Old switch.'),
+    ('ARRIVAL_MAX_FUTURE_DAYS',  '14',    'INT',    'arrival_date_time max days in the future (Rule 4).'),
+    ('SDI_DEADLINE_DAY',         '10',    'INT',    'Supplementary Declaration due by the 10th of month after arrival.'),
+    ('INTEGRATION_LAYER_ROOT',   N'\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer', 'STRING', 'Root for per-client inbound/process/fail/archive subfolders.'),
+    ('DOCUMENTATION_OUTPUT_ROOT',N'\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer','STRING', 'Top-level output for reports/documents produced by scripts (Module 5).')
 ) AS s (SettingKey, SettingValue, ValueType, Description)
 ON t.SettingKey = s.SettingKey
 WHEN MATCHED THEN UPDATE SET SettingValue=s.SettingValue, ValueType=s.ValueType, Description=s.Description, UpdatedAt=SYSUTCDATETIME()
@@ -43,6 +56,7 @@ WHEN NOT MATCHED THEN INSERT (SettingKey, SettingValue, ValueType, Description)
 MERGE CFG.Clients AS t
 USING (VALUES
     ('BKD', 'Birkdale',          'BKD', 'BKD_', 'A', 0, NULL, 1, 'Active pilot client. Route A simplified procedure.'),
+    ('CWD', 'CountryWide',       'CWD', 'CWD_', 'A', 0, NULL, 0, 'Registered, inactive. Sender/source pending confirmation.'),
     ('PLE', 'Primeline Express', 'PLE', 'PLE_', 'A', 1, NULL, 0, 'Agent (actAs) - R2 fast-follow. Inactive until actAs id confirmed.')
 ) AS s (ClientCode, ClientName, SchemaName, StgTablePrefix, DefaultRoute, IsAgent, ActAsSysId, IsActive, Notes)
 ON t.ClientCode = s.ClientCode
@@ -58,6 +72,7 @@ MERGE CFG.Credentials AS t
 USING (VALUES
     ('BKD', 'TEST', 'BASIC', 'API.TSS0000000', 'kv-fusionflow-qas/BKD-TSS-TEST', 1, 'Placeholder - set real username; secret lives in Key Vault.'),
     ('BKD', 'PROD', 'BASIC', 'API.TSS0000000', 'kv-fusionflow-prd/BKD-TSS-PROD', 0, 'Placeholder - enable at cutover.'),
+    ('CWD', 'TEST', 'BASIC', 'API.TSS0000000', 'kv-fusionflow-qas/CWD-TSS-TEST', 0, 'Placeholder - inactive.'),
     ('PLE', 'TEST', 'BASIC', 'API.TSS0000000', 'kv-fusionflow-qas/PLE-TSS-TEST', 0, 'Placeholder - agent, inactive.')
 ) AS s (ClientCode, EnvCode, AuthType, ApiUsername, SecretRef, IsActive, Notes)
 ON t.ClientCode = s.ClientCode AND t.EnvCode = s.EnvCode
@@ -66,7 +81,7 @@ WHEN NOT MATCHED THEN INSERT (ClientCode, EnvCode, AuthType, ApiUsername, Secret
     VALUES (s.ClientCode, s.EnvCode, s.AuthType, s.ApiUsername, s.SecretRef, s.IsActive, s.Notes);
 
 /* ================================================================== */
-/* 4. Folder paths (BKD)                                               */
+/* 4. Folder paths - per-client subfolders under the Integration root   */
 /* ================================================================== */
 MERGE CFG.Folder_Paths AS t
 USING (VALUES
@@ -74,7 +89,15 @@ USING (VALUES
     ('BKD', 'ENS_SOURCE', CONCAT(@BKDRoot, N'\Inbound\ENS_Source')),
     ('BKD', 'PROCESS',    CONCAT(@BKDRoot, N'\Process')),
     ('BKD', 'FAIL',       CONCAT(@BKDRoot, N'\Fails')),
-    ('BKD', 'ARCHIVE',    CONCAT(@BKDRoot, N'\Archive'))
+    ('BKD', 'ARCHIVE',    CONCAT(@BKDRoot, N'\Archive')),
+    ('CWD', 'INBOUND',    CONCAT(@CWDRoot, N'\Inbound\Sales_Order_files')),
+    ('CWD', 'PROCESS',    CONCAT(@CWDRoot, N'\Process')),
+    ('CWD', 'FAIL',       CONCAT(@CWDRoot, N'\Fails')),
+    ('CWD', 'ARCHIVE',    CONCAT(@CWDRoot, N'\Archive')),
+    ('PLE', 'INBOUND',    CONCAT(@PLERoot, N'\Inbound\Sales_Order_files')),
+    ('PLE', 'PROCESS',    CONCAT(@PLERoot, N'\Process')),
+    ('PLE', 'FAIL',       CONCAT(@PLERoot, N'\Fails')),
+    ('PLE', 'ARCHIVE',    CONCAT(@PLERoot, N'\Archive'))
 ) AS s (ClientCode, PathType, PathValue)
 ON t.ClientCode = s.ClientCode AND t.PathType = s.PathType
 WHEN MATCHED THEN UPDATE SET PathValue=s.PathValue, UpdatedAt=SYSUTCDATETIME()
@@ -85,7 +108,8 @@ WHEN NOT MATCHED THEN INSERT (ClientCode, PathType, PathValue) VALUES (s.ClientC
 /* ================================================================== */
 MERGE CFG.Email_Rules AS t
 USING (VALUES
-    ('BKD', N'nexus@synoviaflow.cloud', 'DOMAIN', N'birkdalesales.com', '.xlsx', 1, 'Active BKD inbound route.'),
+    ('BKD', N'nexus@synoviaflow.cloud', 'DOMAIN', N'birkdalesales.com', '.xlsx',      1, 'Active BKD inbound route.'),
+    ('CWD', N'nexus@synoviaflow.cloud', 'DOMAIN', N'TBD',               '.xlsx,.csv', 0, 'Pending sender confirmation.'),
     ('PLE', N'nexus@synoviaflow.cloud', 'DOMAIN', N'TBD',               '.xlsx,.csv', 0, 'Pending sender confirmation.')
 ) AS s (ClientCode, Mailbox, SenderRuleType, SenderRule, AllowedFileTypes, IsActive, Notes)
 ON t.ClientCode = s.ClientCode AND t.SenderRule = s.SenderRule
@@ -99,6 +123,7 @@ WHEN NOT MATCHED THEN INSERT (ClientCode, Mailbox, SenderRuleType, SenderRule, A
 MERGE CFG.API_Version AS t
 USING (VALUES
     ('BKD', '*', 'NEW', N'https://api.tsstestenv.co.uk', N'https://api.tradersupportservice.co.uk'),
+    ('CWD', '*', 'NEW', N'https://api.tsstestenv.co.uk', N'https://api.tradersupportservice.co.uk'),
     ('PLE', '*', 'NEW', N'https://api.tsstestenv.co.uk', N'https://api.tradersupportservice.co.uk')
 ) AS s (ClientCode, ResourceName, ApiVersion, BaseUrlTest, BaseUrlProd)
 ON t.ClientCode = s.ClientCode AND t.ResourceName = s.ResourceName
