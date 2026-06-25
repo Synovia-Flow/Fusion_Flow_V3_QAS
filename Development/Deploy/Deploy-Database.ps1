@@ -52,10 +52,12 @@ param(
     [string]$QueuePath,
     [string]$ArchivePath,
     [string]$LogRoot,
+    [string]$IniPath,
     [switch]$DryRun,
     [switch]$ContinueOnError,
     [switch]$PromoteLog,
-    [switch]$TrustServerCertificate = $true
+    [switch]$Encrypt = $true,
+    [switch]$TrustServerCertificate = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -92,9 +94,38 @@ function Write-Log {
     }
 }
 
+# --- Read connection from the .ini if -Server not supplied ------------------
+function Read-IniSection {
+    param([string]$Path, [string]$Section)
+    $result = @{}; $current = ''
+    foreach ($raw in Get-Content -LiteralPath $Path) {
+        $line = $raw.Trim()
+        if ($line -eq '' -or $line.StartsWith('#') -or $line.StartsWith(';')) { continue }
+        if ($line -match '^\[(.+)\]$') { $current = $Matches[1].Trim().ToLower(); continue }
+        if ($current -eq $Section -and $line -match '^\s*([^=]+?)\s*=\s*(.*)$') {
+            $result[$Matches[1].Trim().ToLower()] = $Matches[2].Trim()
+        }
+    }
+    return $result
+}
+
+if (-not $IniPath) { $IniPath = Join-Path $RepoRoot 'Configuration_Layer\Fusion_Flow_QAS.ini' }
+if (-not $Server -and (Test-Path -LiteralPath $IniPath)) {
+    $db = Read-IniSection -Path $IniPath -Section 'database'
+    if ($db.Count) {
+        if ($db['server'])       { $Server      = $db['server'] }
+        if ($db['database'])     { $Database    = $db['database'] }
+        if (-not $SqlUser -and $db['user'])     { $SqlUser     = $db['user'] }
+        if (-not $SqlPassword -and $db['password']) { $SqlPassword = $db['password'] }
+        if ($db.ContainsKey('encrypt'))                  { $Encrypt = ($db['encrypt'] -match '^(yes|true|1)$') }
+        if ($db.ContainsKey('trust_server_certificate')) { $TrustServerCertificate = ($db['trust_server_certificate'] -match '^(yes|true|1)$') }
+        Write-Log "Connection loaded from $IniPath (server/database/user; password hidden)."
+    }
+}
+
 # --- Validate ---------------------------------------------------------------
 if (-not $Server) {
-    throw "No -Server given and `$env:FUSION_SQL_SERVER is not set."
+    throw "No -Server given, `$env:FUSION_SQL_SERVER not set, and no [database] server in $IniPath."
 }
 
 # --- Pick execution engine --------------------------------------------------
@@ -114,10 +145,15 @@ function Invoke-SqlFile {
         }
         if ($TrustServerCertificate) { $p['TrustServerCertificate'] = $true }
         if ($SqlUser) { $p['Username'] = $SqlUser; $p['Password'] = $SqlPassword }
+        # Only pass -Encrypt if this Invoke-Sqlcmd build supports it (older modules do not).
+        if ((Get-Command Invoke-Sqlcmd).Parameters.ContainsKey('Encrypt')) {
+            $p['Encrypt'] = $(if ($Encrypt) { 'Mandatory' } else { 'Optional' })
+        }
         Invoke-Sqlcmd @p -Verbose 4>&1 2>&1 | Tee-Object -FilePath $PerFileLog | Out-Null
     } else {
         $sqlArgs = @('-S', $Server, '-d', $Database, '-i', $Path, '-b', '-V', '16')
         if ($SqlUser) { $sqlArgs += @('-U', $SqlUser, '-P', $SqlPassword) } else { $sqlArgs += '-E' }
+        if ($Encrypt) { $sqlArgs += '-N' }
         if ($TrustServerCertificate) { $sqlArgs += '-C' }
         & sqlcmd @sqlArgs *>&1 | Tee-Object -FilePath $PerFileLog
         if ($LASTEXITCODE -ne 0) { throw "sqlcmd exited with code $LASTEXITCODE" }

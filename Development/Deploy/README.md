@@ -33,7 +33,19 @@ cd "Development\Deploy"
 .\Deploy-Database.ps1 -Server <server> -SqlUser <user> -SqlPassword <pwd>
 ```
 
-You can also set `$env:FUSION_SQL_SERVER` once instead of passing `-Server`.
+### Connection from the .ini (recommended)
+
+If you don't pass `-Server`, the runner reads the `[database]` section of
+`Configuration_Layer\Fusion_Flow_QAS.ini` (server, database, user, password,
+encrypt, trust_server_certificate). That file is **gitignored** because it holds
+a password — copy `Fusion_Flow_QAS.example.ini` to `Fusion_Flow_QAS.ini` and set
+the real password locally. So this is enough:
+
+```powershell
+.\Deploy-Database.ps1 -PromoteLog
+```
+
+You can also set `$env:FUSION_SQL_SERVER`, or override any value on the command line.
 
 ## Logs and the `_Ignore` convention
 

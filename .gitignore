@@ -20,6 +20,11 @@ obj/
 .env.*
 !.env.example
 
+# Live DB connection config (contains a password). Commit the .example template
+# instead. Do not remove.
+Configuration_Layer/Fusion_Flow_QAS.ini
+*.local.ini
+
 # Deploy run logs: verbose/transient. logs/ itself IS committed; only the
 # _Ignore subfolder is excluded. Promote a summary up to logs/ to share it.
 logs/_Ignore/
