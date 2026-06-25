@@ -1,31 +1,21 @@
-﻿*.env
-.env
-.env.*
-!.env.example
+# =====================================================================
+# Fusion Flow V3 QAS - .gitignore
+# Minimal baseline: Visual Studio / C# solution artifacts.
+# Extend this file as the solution grows.
+# =====================================================================
 
-__pycache__/
-*.py[cod]
-
+# Visual Studio
 .vs/
 *.suo
 *.user
 *.userosscache
 *.sln.docstates
 
-Integration_Layer/Graph/run_logs/
-Integration_Layer/Graph/reports/
-Integration_Layer/FLOW_V3/Run_History/
+# Build output
+bin/
+obj/
 
-~$*
-*.tmp
-
-# Do not version operational Excel/Word files containing live values.
-*.xlsx
-*.docx
-
-# ...but curated reference documents under Documentation/ ARE versioned,
-# so they replicate to every clone and show in file explorers.
-!Documentation/**
-
-# Deprecated code/files — kept locally but not versioned.
-Deprecated/
+# Local secrets - keep credentials out of source control. Do not remove.
+.env
+.env.*
+!.env.example
