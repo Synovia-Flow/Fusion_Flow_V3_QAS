@@ -3,30 +3,3 @@
 ################################################################################
 
 /.vs/Fusion_Flow_V3_QAS.slnx/FileContentIndex
-
-# Local environment files
-.env
-.env.*
-!.env.example
-
-# Python runtime/cache
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.venv/
-venv/
-
-# Runtime outputs and downloaded working files
-Integration_Layer/FLOW_V3/Run_History/**
-!Integration_Layer/FLOW_V3/Run_History/.gitkeep
-Integration_Layer/Graph/run_logs/**
-!Integration_Layer/Graph/run_logs/.gitkeep
-Integration_Layer/*/Inbound/**
-!Integration_Layer/*/Inbound/.gitkeep
-Integration_Layer/*/Process/**
-!Integration_Layer/*/Process/.gitkeep
-Integration_Layer/*/Fails/**
-!Integration_Layer/*/Fails/.gitkeep
-
-# Office temporary files
-~$*
