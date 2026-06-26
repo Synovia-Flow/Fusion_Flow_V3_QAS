@@ -1,0 +1,512 @@
+<title>Fusion Flow — Data Processing Module (PRS)</title>
+<meta name="description" content="How Fusion Flow's Module 2 turns raw client data into validated, TSS-shaped customs declarations — an end-to-end walkthrough.">
+
+<style>
+  :root{
+    --ground:#0A1B2E; --ground-2:#0E2440; --panel:#10294699; --line:#1E3A5C;
+    --ink:#EAF1F8; --ink-2:#C3D3E3; --muted:#8AA0B6;
+    --accent:#4FB0D6; --accent-soft:#4FB0D62e; --seal:#D9A23B; --seal-soft:#D9A23B22;
+    --ok:#46C08A; --warn:#E0A341; --bad:#E5685F;
+    --mono:ui-monospace,"SF Mono","Cascadia Code","Roboto Mono",Consolas,monospace;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:1080px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 78% -10%, #143157 0%, transparent 55%),
+      radial-gradient(900px 600px at 0% 110%, #0d2949 0%, transparent 50%),
+      var(--ground);
+    color:var(--ink); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; overflow:hidden;
+  }
+
+  /* ---------- deck shell ---------- */
+  .deck{position:fixed; inset:0; overflow:hidden}
+  .slide{
+    position:absolute; inset:0; display:grid; place-items:center;
+    padding:clamp(22px,4.5vw,72px) clamp(20px,5vw,84px) 76px;
+    opacity:0; visibility:hidden; transform:translateY(14px) scale(.992);
+    transition:opacity .5s ease, transform .5s ease, visibility 0s linear .5s;
+    overflow-y:auto;
+  }
+  .slide.is-active{opacity:1; visibility:visible; transform:none; transition:opacity .55s ease, transform .55s ease}
+  .inner{width:100%; max-width:var(--maxw); margin:auto}
+
+  /* ---------- type ---------- */
+  .eyebrow{
+    font-family:var(--mono); font-size:.74rem; letter-spacing:.26em; text-transform:uppercase;
+    color:var(--accent); display:flex; align-items:center; gap:.7em; margin:0 0 1.1rem;
+  }
+  .eyebrow::before{content:""; width:26px; height:1px; background:var(--accent); opacity:.7}
+  h1{font-size:clamp(2.4rem,6.4vw,4.6rem); line-height:1.02; letter-spacing:-.02em; font-weight:800; margin:.1em 0 .35em; text-wrap:balance}
+  h2{font-size:clamp(1.7rem,3.8vw,2.9rem); line-height:1.06; letter-spacing:-.015em; font-weight:780; margin:0 0 .7em; text-wrap:balance}
+  h3{font-size:1.02rem; letter-spacing:.01em; margin:0 0 .35rem; font-weight:700}
+  p{color:var(--ink-2); line-height:1.6; margin:0 0 1rem; max-width:64ch}
+  .lead{font-size:clamp(1.05rem,1.7vw,1.32rem); color:var(--ink-2); max-width:60ch}
+  .muted{color:var(--muted)}
+  code,.k{font-family:var(--mono)}
+  .k{color:var(--ink); background:#0b2542; border:1px solid var(--line);
+     padding:.08em .42em; border-radius:5px; font-size:.86em; white-space:nowrap}
+  .k.accent{color:var(--accent); border-color:#23597a}
+  .k.gold{color:var(--seal); border-color:#5a4a23}
+
+  /* ---------- cover ---------- */
+  .cover-meta{display:flex; flex-wrap:wrap; gap:.6rem .7rem; margin-top:1.6rem}
+  .chip{font-family:var(--mono); font-size:.78rem; letter-spacing:.04em; color:var(--ink-2);
+        border:1px solid var(--line); background:var(--panel); padding:.42rem .7rem; border-radius:999px}
+  .chip b{color:var(--seal); font-weight:600}
+  .cover-rule{height:1px; background:linear-gradient(90deg,var(--accent),transparent); margin:1.8rem 0 0; max-width:520px}
+
+  /* ---------- journey / checkpoints ---------- */
+  .journey{display:flex; align-items:stretch; gap:0; margin:1.4rem 0 .4rem; width:100%; flex-wrap:wrap}
+  .ckpt{flex:1 1 150px; min-width:148px; position:relative; padding:1rem .9rem 1.05rem;
+        border:1px solid var(--line); background:linear-gradient(180deg,#10294b,#0b2138);
+        border-radius:14px; margin:.3rem}
+  .ckpt .no{font-family:var(--mono); font-size:.74rem; color:var(--seal); letter-spacing:.18em}
+  .ckpt .nm{font-weight:750; font-size:1.05rem; margin:.2rem 0 .5rem; letter-spacing:-.01em}
+  .ckpt .desc{font-size:.82rem; color:var(--muted); line-height:1.45}
+  .ckpt .status{margin-top:.7rem}
+  .arrow{align-self:center; color:#2c557d; font-family:var(--mono); padding:0 .1rem; font-size:1.1rem}
+
+  /* ---------- status pills ---------- */
+  .pill{display:inline-flex; align-items:center; gap:.45em; font-family:var(--mono); font-size:.72rem;
+        letter-spacing:.06em; padding:.28em .6em; border-radius:6px; border:1px solid; white-space:nowrap}
+  .pill::before{content:""; width:7px; height:7px; border-radius:50%; background:currentColor}
+  .pill.ok{color:var(--ok); border-color:#2f6b52; background:#143526}
+  .pill.flow{color:var(--accent); border-color:#23597a; background:#0c2c41}
+  .pill.gold{color:var(--seal); border-color:#5a4a23; background:#2a2110}
+  .pill.bad{color:var(--bad); border-color:#6b3631; background:#3a1b18}
+
+  /* ---------- generic grids / cards ---------- */
+  .grid{display:grid; gap:1rem}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .card{border:1px solid var(--line); background:var(--panel); border-radius:14px; padding:1.15rem 1.2rem}
+  .card .tag{font-family:var(--mono); font-size:.72rem; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); margin-bottom:.5rem}
+  .card.seal .tag{color:var(--seal)}
+  .card p{font-size:.92rem; margin:0; color:var(--ink-2)}
+  .stack{display:flex; flex-direction:column; gap:.8rem}
+
+  /* ---------- step list ---------- */
+  ol.steps{list-style:none; counter-reset:s; margin:0; padding:0; display:flex; flex-direction:column; gap:.7rem}
+  ol.steps li{counter-increment:s; display:grid; grid-template-columns:auto 1fr; gap:.85rem; align-items:start;
+              border:1px solid var(--line); background:var(--panel); border-radius:12px; padding:.8rem .95rem}
+  ol.steps li::before{content:counter(s,decimal-leading-zero); font-family:var(--mono); color:var(--seal);
+              font-size:.82rem; border:1px solid #5a4a23; border-radius:7px; padding:.2em .5em; background:var(--seal-soft)}
+  ol.steps b{font-weight:700}
+  ol.steps span{color:var(--ink-2); font-size:.92rem}
+
+  /* ---------- tables ---------- */
+  .scroll{overflow-x:auto; border:1px solid var(--line); border-radius:12px}
+  table{border-collapse:collapse; width:100%; font-size:.86rem; min-width:520px}
+  th,td{text-align:left; padding:.62rem .8rem; border-bottom:1px solid var(--line); vertical-align:top}
+  thead th{font-family:var(--mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); background:#0b2236}
+  tbody tr:last-child td{border-bottom:0}
+  td .k{font-size:.82em}
+  .rule-no{font-family:var(--mono); color:var(--seal); font-weight:600; white-space:nowrap}
+
+  /* ---------- terminal / trace ---------- */
+  .term{border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#071728; font-family:var(--mono)}
+  .term .bar{display:flex; align-items:center; gap:.5rem; padding:.55rem .8rem; background:#0b2138; border-bottom:1px solid var(--line); font-size:.74rem; color:var(--muted); letter-spacing:.08em}
+  .term .bar .dot{width:9px; height:9px; border-radius:50%; background:#26496e}
+  .term .body{padding:.85rem 1rem; font-size:.8rem; line-height:1.85; overflow-x:auto}
+  .term .ln{white-space:pre; color:var(--ink-2)}
+  .term .fld{color:var(--accent)}
+  .term .arr{color:#56708c}
+  .term .val{color:#f0e3c4}
+  .term .r{color:var(--seal)}
+  .term .rok{color:var(--ok)}
+  .term .rbad{color:var(--bad)}
+
+  /* ---------- tree ---------- */
+  .tree{font-family:var(--mono); font-size:.86rem; line-height:1.9; color:var(--ink-2)}
+  .tree .t1{color:var(--ink); font-weight:600}
+  .tree .card{margin:0}
+  .tree .crd{color:var(--seal)}
+  .tree .nest{color:var(--muted)}
+
+  /* ---------- two-col detail layout ---------- */
+  .split{display:grid; grid-template-columns:1.05fr .95fr; gap:1.6rem; align-items:start}
+
+  /* ---------- nav chrome ---------- */
+  .footer{position:fixed; left:0; right:0; bottom:0; height:54px; display:flex; align-items:center;
+          justify-content:space-between; padding:0 clamp(16px,4vw,40px); z-index:30;
+          border-top:1px solid var(--line); background:#081626cc; backdrop-filter:blur(8px)}
+  .brand{font-family:var(--mono); font-size:.76rem; letter-spacing:.16em; color:var(--muted); text-transform:uppercase}
+  .brand b{color:var(--ink); font-weight:700}
+  .brand .sq{display:inline-block; width:9px; height:9px; background:var(--seal); margin-right:.6em; transform:rotate(45deg); vertical-align:middle}
+  .dots{display:flex; gap:.42rem; align-items:center}
+  .dots button{width:9px; height:9px; border-radius:50%; border:0; padding:0; cursor:pointer;
+               background:#274a6f; transition:transform .2s, background .2s}
+  .dots button:hover{background:#3f6f9b}
+  .dots button[aria-current="true"]{background:var(--accent); transform:scale(1.45)}
+  .nav{display:flex; align-items:center; gap:.5rem}
+  .nav .count{font-family:var(--mono); font-size:.78rem; color:var(--ink-2); letter-spacing:.08em; min-width:62px; text-align:center}
+  .nav .count b{color:var(--accent)}
+  .nav button.arrowbtn{width:34px; height:34px; border-radius:9px; border:1px solid var(--line); background:var(--panel);
+              color:var(--ink); cursor:pointer; font-size:1rem; display:grid; place-items:center; transition:border-color .2s, background .2s}
+  .nav button.arrowbtn:hover{border-color:var(--accent); background:#0c2c41}
+  .nav button.arrowbtn:focus-visible,.dots button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .progress{position:fixed; top:0; left:0; height:2px; background:linear-gradient(90deg,var(--accent),var(--seal)); z-index:40; transition:width .45s ease}
+
+  .hint{position:fixed; bottom:64px; right:clamp(16px,4vw,40px); font-family:var(--mono); font-size:.68rem;
+        color:var(--muted); letter-spacing:.08em; z-index:25; opacity:.8}
+  .hint kbd{border:1px solid var(--line); border-radius:5px; padding:.05em .4em; color:var(--ink-2); background:var(--panel)}
+
+  @media (max-width:760px){
+    .g3,.g2,.split{grid-template-columns:1fr}
+    .hint{display:none}
+    h1{font-size:2.3rem}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .slide{transition:opacity .2s ease}
+    .slide.is-active{transition:opacity .2s ease}
+    .progress{transition:none}
+  }
+</style>
+
+<div class="progress" id="progress"></div>
+
+<div class="deck" id="deck">
+
+  <!-- 1 · COVER -->
+  <section class="slide" data-title="Cover">
+    <div class="inner">
+      <div class="eyebrow">Synovia Fusion · Fusion Flow · Release 1</div>
+      <h1>Data Processing<br>Module — PRS</h1>
+      <p class="lead">How Module 2 turns raw client files into <b style="color:var(--ink)">validated, TSS-shaped customs declarations</b> — the journey from an inbox attachment to a submission-ready record, one checkpoint at a time.</p>
+      <div class="cover-meta">
+        <span class="chip">Pilot client <b>BKD · Birkdale</b></span>
+        <span class="chip">Route A <b>ENS → SFD → GMR → SDI</b></span>
+        <span class="chip">Movement <b>GB → NI · Windsor Framework</b></span>
+        <span class="chip">Stack <b>Python 3.11 · Azure SQL · pyodbc</b></span>
+      </div>
+      <div class="cover-rule"></div>
+    </div>
+  </section>
+
+  <!-- 2 · WHERE IT SITS -->
+  <section class="slide" data-title="Pipeline position">
+    <div class="inner">
+      <div class="eyebrow">Architecture · Where Module 2 sits</div>
+      <h2>One transform, three neighbours</h2>
+      <p class="lead">Each stage of the platform is its own SQL schema. Module 2 reads from <span class="k accent">ING</span>, writes to <span class="k accent">PRS</span>, and hands off to submission. It never talks to the TSS API itself.</p>
+      <div class="grid g3" style="margin-top:1.4rem">
+        <div class="card">
+          <div class="tag">Upstream · ING</div>
+          <h3>Raw, verbatim</h3>
+          <p>What Ingestion landed, untouched: <span class="k">BKD_Raw_ENS</span> (typed ENS header fields) and <span class="k">BKD_Raw_Sales_Orders</span> (goods lines as JSON).</p>
+        </div>
+        <div class="card seal" style="border-color:#5a4a23">
+          <div class="tag">This module · PRS</div>
+          <h3>Canonical &amp; validated</h3>
+          <p>The four-checkpoint transform. Output is a clean object graph in exact TSS field shape, each row marked <span class="pill ok" style="font-size:.66rem">VALIDATED</span> or <span class="pill bad" style="font-size:.66rem">REJECTED</span>.</p>
+        </div>
+        <div class="card">
+          <div class="tag">Downstream · STG / API</div>
+          <h3>Submission</h3>
+          <p>Module 3 stages the validated objects and runs the ordered Route&nbsp;A calls to TSS. <span class="muted">Out of scope here.</span></p>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:1.3rem; font-size:.9rem">Cross-cutting throughout: <span class="k">CFG</span> drives behaviour · <span class="k">EXC</span> carries the execution &amp; audit spine · <span class="k">LOG</span> holds technical traces.</p>
+    </div>
+  </section>
+
+  <!-- 3 · HOW A RUN STARTS -->
+  <section class="slide" data-title="Run trigger">
+    <div class="inner">
+      <div class="eyebrow">The trigger · Config-driven, no CLI</div>
+      <h2>The scheduler just runs the script</h2>
+      <div class="split" style="margin-top:1rem">
+        <div>
+          <div class="term" style="margin-bottom:1.1rem">
+            <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp;scheduler</div>
+            <div class="body"><span class="ln">$ python Modules/Processing/process_data.py</span></div>
+          </div>
+          <p>No arguments, no flags. Everything the run needs to know lives in the database — so onboarding a new client or flipping to dry-run is a <b style="color:var(--ink)">config change, not a code change</b>.</p>
+        </div>
+        <div class="stack">
+          <div class="card"><div class="tag">Connection</div><p>Read from <span class="k">Configuration/Fusion_Flow_QAS.ini</span> — the only thing outside the DB, and it stays out of git.</p></div>
+          <div class="card seal" style="border-color:#5a4a23"><div class="tag">Behaviour · CFG.Application_Parameters</div>
+            <p style="font-family:var(--mono); font-size:.82rem; line-height:1.9">
+              <span class="k gold">PROCESSING_CLIENT</span> = BKD<br>
+              <span class="k gold">PROCESSING_TRANSACTION_MODE</span> = latest<br>
+              <span class="k gold">PROCESSING_DRY_RUN</span> = 0
+            </p>
+          </div>
+          <div class="card"><div class="tag">Traceability</div><p>The run opens one <span class="k">EXC.Execution</span> row with a <span class="k accent">TransactionID</span> that threads through every PRS row and every audit record.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · FOUR CHECKPOINTS -->
+  <section class="slide" data-title="Four checkpoints">
+    <div class="inner">
+      <div class="eyebrow">The pipeline · One movement, four checkpoints</div>
+      <h2>Like a shipment clearing the border</h2>
+      <p class="lead">A “movement” is one truck / one ENS, keyed by <span class="k accent">MovementKey</span> (= the ENS <span class="k">DedupKey</span>, <code>DetailsDate|ICR</code>). It clears four checkpoints in order — each one only runs if the last one passed.</p>
+      <div class="journey" style="margin-top:1.6rem">
+        <div class="ckpt"><div class="no">CHECKPOINT 01</div><div class="nm">Normalise</div><div class="desc">Map source → canonical. Fix dates, codes, casing.</div><div class="status"><span class="pill flow">NORMALISED</span></div></div>
+        <div class="arrow">→</div>
+        <div class="ckpt"><div class="no">CHECKPOINT 02</div><div class="nm">Enrich</div><div class="desc">Resolve choice values. Apply BKD business rules.</div><div class="status"><span class="pill flow">ENRICHED</span></div></div>
+        <div class="arrow">→</div>
+        <div class="ckpt"><div class="no">CHECKPOINT 03</div><div class="nm">Construct</div><div class="desc">Assemble header → consignments → goods + nested.</div><div class="status"><span class="pill flow">CONSTRUCTED</span></div></div>
+        <div class="arrow">→</div>
+        <div class="ckpt"><div class="no">CHECKPOINT 04</div><div class="nm">Validate</div><div class="desc">Check every mandatory &amp; conditional field.</div><div class="status"><span class="pill ok">VALIDATED</span> <span class="pill bad">REJECTED</span></div></div>
+      </div>
+      <p class="muted" style="margin-top:1.2rem; font-size:.9rem">At each boundary the runner writes an <span class="k">EXC.Transaction</span> row and advances the shared status vocabulary — so you can always see exactly where a movement got to.</p>
+    </div>
+  </section>
+
+  <!-- 5 · NORMALISE -->
+  <section class="slide" data-title="Normalise">
+    <div class="inner">
+      <div class="eyebrow"><span style="color:var(--seal)">Checkpoint 01</span> · Normalise · DP-FR-01</div>
+      <h2>Speak one language</h2>
+      <div class="split">
+        <div>
+          <p>The two raw sources use the client's column names and human formats. Normalise rewrites them into the single canonical vocabulary the rest of the platform uses.</p>
+          <ol class="steps">
+            <li><b>Map columns</b><br><span>Source headers → canonical TSS field names, via the maps in <span class="k">mapping.py</span>. The first non-empty alias wins, so a later blank never wipes a good value.</span></li>
+            <li><b>Fix the clock</b><br><span>Relative dates like <span class="k">"Tomorrow's Date / 06:30"</span> resolve to strict <span class="k">DD/MM/YYYY HH:MM:SS</span> UTC, plus a parallel sortable timestamp.</span></li>
+            <li><b>Tidy codes</b><br><span>Trim whitespace; upper-case EORIs, country and port codes.</span></li>
+          </ol>
+        </div>
+        <div class="stack">
+          <div class="card"><div class="tag">In</div>
+            <p style="font-family:var(--mono); font-size:.8rem; line-height:1.8">arrival_date_time:<br>&nbsp;&nbsp;<span style="color:#f0e3c4">"Tomorrow's Date / 06:30"</span><br>nationality: <span style="color:#f0e3c4">"gb"</span></p>
+          </div>
+          <div style="text-align:center; color:#56708c; font-family:var(--mono)">↓ normalise</div>
+          <div class="card seal" style="border-color:#5a4a23"><div class="tag">Out · canonical</div>
+            <p style="font-family:var(--mono); font-size:.8rem; line-height:1.8"><span class="fld" style="color:var(--accent)">arrival_date_time</span> = <span style="color:#f0e3c4">26/06/2026 06:30:00</span><br><span class="fld" style="color:var(--accent)">nationality_of_transport</span> = <span style="color:#f0e3c4">GB</span></p>
+          </div>
+          <div class="status"><span class="pill flow">→ NORMALISED</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · ENRICH -->
+  <section class="slide" data-title="Enrich">
+    <div class="inner">
+      <div class="eyebrow"><span style="color:var(--seal)">Checkpoint 02</span> · Enrich · DP-FR-02 / 08</div>
+      <h2>Add what TSS demands</h2>
+      <p class="lead">Two jobs: resolve coded values against the cached choice-value reference sets in <span class="k">CFG.Choice_Value_Cache</span>, then apply Birkdale's business rules — the hard-won constants that stop TSS rejecting the payload.</p>
+      <div class="grid g2" style="margin-top:1.2rem">
+        <div class="card"><div class="tag">Choice resolution · Rule 9</div><p>Before any lookup the runner introspects the cache's real column names via <span class="k">INFORMATION_SCHEMA</span> — names vary between reference sets, so nothing is assumed.</p></div>
+        <div class="card seal" style="border-color:#5a4a23"><div class="tag">BKD QAS rules</div><p>Fixed and fallback values applied automatically for every Birkdale movement, each one logged with the rule it came from.</p></div>
+      </div>
+      <div class="scroll" style="margin-top:1.1rem">
+        <table>
+          <thead><tr><th>Rule</th><th>Field</th><th>Value applied</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td class="rule-no">12</td><td><span class="k">arrival_port</span></td><td><span class="k gold">GBAUBELBELBEL</span></td><td>Belfast — the single port for all BKD GB→NI movements</td></tr>
+            <tr><td class="rule-no">11</td><td><span class="k">transport_charges</span></td><td><span class="k gold">Y</span></td><td>Account holder with carrier — not <span class="k">H</span></td></tr>
+            <tr><td class="rule-no">10</td><td><span class="k">goods_domestic_status</span></td><td><span class="k gold">D</span></td><td>Single char — TSS 400s on the portal value <span class="k">NIDOM</span></td></tr>
+            <tr><td class="rule-no">13</td><td><span class="k">importer_eori</span></td><td><span class="k gold">XI379692092000</span></td><td>No customer EORI → Birkdale is importer &amp; consignor</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="status" style="margin-top:1rem"><span class="pill flow">→ ENRICHED</span></div>
+    </div>
+  </section>
+
+  <!-- 7 · CRITICAL RULES -->
+  <section class="slide" data-title="Critical rules">
+    <div class="inner">
+      <div class="eyebrow">Why it exists · The empirically-confirmed gotchas</div>
+      <h2>The rules that cost half-days to learn</h2>
+      <p class="lead">TSS rejects — often <i>silently</i> — when these aren't right. They're encoded once, in data, so no one rediscovers them in production.</p>
+      <div class="scroll" style="margin-top:1.1rem">
+        <table>
+          <thead><tr><th>#</th><th>The trap</th><th>What we do</th></tr></thead>
+          <tbody>
+            <tr><td class="rule-no">4</td><td><span class="k">arrival_date_time</span> must be strict UTC, not past, ≤14 days ahead — portal shows BST+1</td><td>Reformat in Normalise, bounds-check in Validate</td></tr>
+            <tr><td class="rule-no">3</td><td>For RoRo Accompanied (<span class="k">3a</span>) TSS treats “conditional” carrier &amp; place fields as mandatory</td><td>Validate enforces the full 3a set</td></tr>
+            <tr><td class="rule-no">9</td><td>Choice-cache column names differ per reference set</td><td>Introspect columns before every read/insert</td></tr>
+            <tr><td class="rule-no">10</td><td><span class="k">goods_domestic_status</span> = <span class="k">NIDOM</span> → 400</td><td>Force single char <span class="k gold">D</span></td></tr>
+            <tr><td class="rule-no">11</td><td>Wrong <span class="k">transport_charges</span> literal</td><td>Force <span class="k gold">Y</span> for BKD</td></tr>
+            <tr><td class="rule-no">12</td><td>Free-text port fails validation</td><td>Force <span class="k gold">GBAUBELBELBEL</span></td></tr>
+            <tr><td class="rule-no">13</td><td>Unregistered importer → SDI silently never generates</td><td>Fall back to Birkdale EORI <span class="k gold">XI379692092000</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · CONSTRUCT -->
+  <section class="slide" data-title="Construct">
+    <div class="inner">
+      <div class="eyebrow"><span style="color:var(--seal)">Checkpoint 03</span> · Construct · DP-FR-03</div>
+      <h2>Build the object graph</h2>
+      <div class="split">
+        <div>
+          <p>The flat, normalised fields are assembled into the shape TSS expects, honouring the cardinality exactly: <b style="color:var(--ink)">one header → many consignments → up to 99 goods</b>, each with its own nested arrays.</p>
+          <p>Rows are written to the 13 <span class="k accent">PRS</span> tables with an <span class="k">upsert on MovementKey</span> — so re-processing the same movement updates in place rather than duplicating.</p>
+          <div class="grid g2" style="margin-top:.4rem">
+            <div class="card"><div class="tag">Keys</div><p>Surrogate <span class="k">…RowID</span> PKs; business keys on <span class="k">MovementKey</span> &amp; ordinals.</p></div>
+            <div class="card"><div class="tag">Spine</div><p><span class="k">ExecutionID</span> + <span class="k">TransactionID</span> on every table.</p></div>
+          </div>
+        </div>
+        <div class="card" style="background:#071728">
+          <div class="tag">PRS object graph · 13 tables</div>
+          <div class="tree">
+            <div class="t1">▸ PRS.ENS_Header</div>
+            <div>&nbsp;&nbsp;└ <span class="crd">PRS.Consignment</span> <span class="nest">×N</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├ <span class="nest">PreviousDocument · HolderOfAuthorisation</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└ <span class="crd">PRS.Goods_Item</span> <span class="nest">×≤99</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├ <span class="nest">AdditionalProcedure</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├ <span class="nest">DocumentReference</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├ <span class="nest">AdditionalInformation</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├ <span class="nest">PreviousDocument · ItemAddDed</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├ <span class="nest">NationalAdditionalCode · TaxBase</span></div>
+            <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└ <span class="nest">AdditionalParties</span></div>
+          </div>
+          <div class="status" style="margin-top:1rem"><span class="pill flow">→ CONSTRUCTED</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 · VALIDATE -->
+  <section class="slide" data-title="Validate">
+    <div class="inner">
+      <div class="eyebrow"><span style="color:var(--seal)">Checkpoint 04</span> · Validate · DP-FR-04</div>
+      <h2>Pass, or fail with a reason</h2>
+      <div class="split">
+        <div>
+          <p>Three layers of checks run against the constructed movement. The first failure isn't fatal — <b style="color:var(--ink)">every</b> failing rule is collected so the reject reason is complete.</p>
+          <ol class="steps">
+            <li><b>Always-mandatory</b><br><span>The fields TSS requires on every header, consignment and goods line.</span></li>
+            <li><b>Conditional</b><br><span>Rules that fire on a value — e.g. Air needs <span class="k">conveyance_ref</span>; controlled goods need <span class="k">commodity_code</span>.</span></li>
+            <li><b>Movement-type · 3a set</b><br><span>RoRo Accompanied makes the carrier address block &amp; place fields mandatory (Rule 3).</span></li>
+          </ol>
+        </div>
+        <div class="stack">
+          <div class="card" style="border-color:#2f6b52; background:#0f2a1e"><div class="tag" style="color:var(--ok)">Pass</div>
+            <p>All checks clear → header &amp; children marked <span class="pill ok">VALIDATED</span> and persisted, ready for staging.</p></div>
+          <div class="card" style="border-color:#6b3631; background:#2a1614"><div class="tag" style="color:var(--bad)">Fail</div>
+            <p style="margin-bottom:.6rem">Status <span class="pill bad">REJECTED</span>, the reason written to <span class="k">RejectReason</span> and <span class="k">LOG.Error_Log</span>:</p>
+            <p style="font-family:var(--mono); font-size:.74rem; color:#e9b3ae; line-height:1.6; margin:0">header.carrier_name mandatory for movement_type 3a; consignment.container_indicator required …</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 · AUDIT TRAIL -->
+  <section class="slide" data-title="Audit trail">
+    <div class="inner">
+      <div class="eyebrow">Trust · DP-FR-06 · Field-level audit</div>
+      <h2>Every change explains itself</h2>
+      <p class="lead">Whenever a value is set, changed or cleared, one row goes to <span class="k">EXC.Data_Processing_Enhancement</span> — old value, new value, the rule, the TransactionID. Here is a real trace of movement <span class="k accent">2026-06-26|ICR123</span>.</p>
+      <div class="term" style="margin-top:1.1rem">
+        <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp;EXC.Data_Processing_Enhancement &nbsp;·&nbsp; MK=2026-06-26|ICR123</div>
+        <div class="body">
+<div class="ln"><span class="fld">arrival_date_time</span>      <span class="arr">"Tomorrow's Date / 06:30"</span> <span class="arr">→</span> <span class="val">26/06/2026 06:30:00</span>   <span class="r">[Rule 4]</span></div>
+<div class="ln"><span class="fld">arrival_port</span>           <span class="arr">∅</span> <span class="arr">→</span> <span class="val">GBAUBELBELBEL</span>                        <span class="r">[Rule 12]</span></div>
+<div class="ln"><span class="fld">transport_charges</span>      <span class="arr">∅</span> <span class="arr">→</span> <span class="val">Y</span>                                    <span class="r">[Rule 11]</span></div>
+<div class="ln"><span class="fld">goods_domestic_status</span>  <span class="arr">∅</span> <span class="arr">→</span> <span class="val">D</span>                                    <span class="r">[Rule 10]</span></div>
+<div class="ln"><span class="fld">importer_eori</span>          <span class="arr">∅</span> <span class="arr">→</span> <span class="val">XI379692092000</span>                       <span class="r">[Rule 13]</span></div>
+<div class="ln"><span class="fld">consignor_eori</span>         <span class="arr">∅</span> <span class="arr">→</span> <span class="val">XI379692092000</span>                       <span class="r">[Rule 13]</span></div>
+<div class="ln"><span class="rok">TXN  ENS_HEADER  NORMALISING → ENRICHING → CONSTRUCTING → VALIDATING → VALIDATED</span></div>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:1rem; font-size:.9rem">Only genuine changes are logged — no-op writes are skipped — so the table is a true field-level changelog, not noise.</p>
+    </div>
+  </section>
+
+  <!-- 11 · IDEMPOTENCY -->
+  <section class="slide" data-title="Re-runs">
+    <div class="inner">
+      <div class="eyebrow">Operations · Safe to run again</div>
+      <h2>Re-runs don't double up</h2>
+      <div class="grid g2" style="margin-top:1rem">
+        <div class="card"><div class="tag">Mode · latest</div>
+          <p>Picks up the most recent INGESTED rows that don't yet have a <span class="k">VALIDATED</span> / <span class="k">REJECTED</span> PRS header. The normal scheduled path — process what's new.</p></div>
+        <div class="card"><div class="tag">Mode · explicit ExecutionID</div>
+          <p>Re-processes a specific load. CONSTRUCT upserts on <span class="k accent">MovementKey</span> and ordinals, so rows update in place.</p></div>
+      </div>
+      <div class="card seal" style="border-color:#5a4a23; margin-top:1rem"><div class="tag">The guarantee</div>
+        <p>Because the audit only logs real changes, a clean re-run produces <b style="color:var(--ink)">zero spurious enhancement rows</b>. And <span class="k">PROCESSING_DRY_RUN=1</span> runs the whole pipeline, prints everything, and writes nothing — perfect for a pre-flight check.</p></div>
+    </div>
+  </section>
+
+  <!-- 12 · WHERE THE LOGIC LIVES + NEXT -->
+  <section class="slide" data-title="Build & next">
+    <div class="inner">
+      <div class="eyebrow">The build · Separation of concerns &amp; what's next</div>
+      <h2>Where the logic lives</h2>
+      <div class="grid g2">
+        <div class="stack">
+          <div class="card"><div class="tag">mapping.py · pure data</div><p>Column maps, BKD constants, validation rule tables. Change a rule here — never in the engine.</p></div>
+          <div class="card"><div class="tag">process_data.py · the engine</div><p>The four stages, the DB adapter, the audit writer. Imports <span class="k">mapping.py</span>; talks to the DB.</p></div>
+          <div class="card"><div class="tag">010 + 011 · SQL</div><p>The 13 PRS tables, and the run-control parameters seeded into CFG (insert-only, operator-owned).</p></div>
+        </div>
+        <div class="stack">
+          <div class="card" style="border-color:#23597a; background:#0c2c41"><div class="tag" style="color:var(--accent)">Quality gate</div>
+            <p>Delivered by an Architect → PM → 3 Dev → QA team. QA caught four real defects — a kwarg mismatch, a flat-vs-nested rule bug that silenced Rules 10/11/12, a conditional-rule crash and a source-alias clobber — all fixed and re-verified before commit.</p></div>
+          <div class="card" style="border-color:#5a4a23; background:#2a2110"><div class="tag" style="color:var(--seal)">One open question</div>
+            <p>The BKD ENS source doesn't carry the carrier address block or <span class="k">container_indicator</span>, yet a <span class="k">3a</span> movement requires them. Where should those come from — a fixed carrier config row, or another source field? That's the decision before the first live end-to-end run.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="hint"><kbd>←</kbd> <kbd>→</kbd> to navigate</div>
+
+<footer class="footer">
+  <div class="brand"><span class="sq"></span><b>SYNOVIA</b> FUSION — Fusion Flow</div>
+  <div class="dots" id="dots" role="tablist" aria-label="Slides"></div>
+  <div class="nav">
+    <button class="arrowbtn" id="prev" aria-label="Previous slide">←</button>
+    <span class="count"><b id="cur">01</b> / <span id="tot">12</span></span>
+    <button class="arrowbtn" id="next" aria-label="Next slide">→</button>
+  </div>
+</footer>
+
+<script>
+  (function(){
+    var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+    var dotsWrap = document.getElementById('dots');
+    var cur = document.getElementById('cur');
+    var progress = document.getElementById('progress');
+    var i = 0;
+
+    document.getElementById('tot').textContent = String(slides.length).padStart(2,'0');
+
+    slides.forEach(function(s, idx){
+      var b = document.createElement('button');
+      b.setAttribute('role','tab');
+      b.setAttribute('aria-label', s.dataset.title || ('Slide '+(idx+1)));
+      b.addEventListener('click', function(){ go(idx); });
+      dotsWrap.appendChild(b);
+    });
+    var dots = Array.prototype.slice.call(dotsWrap.children);
+
+    function go(n){
+      i = Math.max(0, Math.min(slides.length-1, n));
+      slides.forEach(function(s,idx){ s.classList.toggle('is-active', idx===i); });
+      dots.forEach(function(d,idx){ d.setAttribute('aria-current', idx===i ? 'true':'false'); });
+      cur.textContent = String(i+1).padStart(2,'0');
+      progress.style.width = ((i+1)/slides.length*100) + '%';
+      var active = slides[i]; if(active){ active.scrollTop = 0; }
+    }
+
+    document.getElementById('prev').addEventListener('click', function(){ go(i-1); });
+    document.getElementById('next').addEventListener('click', function(){ go(i+1); });
+    document.addEventListener('keydown', function(e){
+      if(e.key==='ArrowRight'||e.key==='PageDown'||e.key===' '){ e.preventDefault(); go(i+1); }
+      else if(e.key==='ArrowLeft'||e.key==='PageUp'){ e.preventDefault(); go(i-1); }
+      else if(e.key==='Home'){ e.preventDefault(); go(0); }
+      else if(e.key==='End'){ e.preventDefault(); go(slides.length-1); }
+    });
+
+    go(0);
+  })();
+</script>
