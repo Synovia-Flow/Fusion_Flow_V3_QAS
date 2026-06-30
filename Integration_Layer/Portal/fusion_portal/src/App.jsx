@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload } from './api';
+import { getAdminSettings, getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'PLE',
@@ -11,6 +11,13 @@ const DEFAULT_SESSION = {
 const PORTAL_CLIENTS = [
   { tenantCode: 'PLE', tenantName: 'Primeline Express' },
   { tenantCode: 'CWD', tenantName: 'Countrywide' },
+];
+const SETTINGS_NAV_SECTIONS = [
+  { id: 'TSS_API', label: 'TSS Portal API', icon: 'sync_alt' },
+  { id: 'GRAPH', label: 'Inbound Graph', icon: 'mail' },
+  { id: 'INGEST_AUTO', label: 'Ingestion & Folders', icon: 'drive_folder_upload' },
+  { id: 'VALIDATION', label: 'Validation Controls', icon: 'shield' },
+  { id: 'NOTIFY', label: 'Notifications', icon: 'notifications' },
 ];
 
 function clientOptionFor(clientCode) {
@@ -161,7 +168,10 @@ function DrawerRow({ icon, label, active = false, danger = false, indent = false
   );
 }
 
-function Drawer({ open, view, isAuthenticated, isDarkTheme, onNavigate, onLogout, onToggleTheme }) {
+function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [], settingsSection, onNavigate, onSettingsSection, onLogout, onToggleTheme }) {
+  const visibleSettings = settingsSections.length ? settingsSections : SETTINGS_NAV_SECTIONS;
+  const firstSettingsId = visibleSettings[0]?.id || SETTINGS_NAV_SECTIONS[0].id;
+
   return (
     <aside className={`drawer ${open ? 'is-open' : ''}`} aria-label="Navigation">
       <div className="drawer-brand">SynoviaFlow</div>
@@ -173,7 +183,10 @@ function Drawer({ open, view, isAuthenticated, isDarkTheme, onNavigate, onLogout
             <DrawerRow icon="list_alt" label="View Consignments" active={view === 'consignments'} onClick={() => onNavigate('consignments')} />
           </>
         )}
-        <DrawerRow icon="settings" label="Settings" trailing="expand_less" />
+        <DrawerRow icon="settings" label="Settings" active={view === 'settings'} trailing={isAuthenticated ? 'expand_less' : 'expand_more'} onClick={isAuthenticated ? () => onSettingsSection(settingsSection || firstSettingsId) : undefined} />
+        {isAuthenticated && visibleSettings.map((section) => (
+          <DrawerRow key={section.id} icon={section.icon || 'tune'} label={section.label} active={view === 'settings' && settingsSection === section.id} indent onClick={() => onSettingsSection(section.id)} />
+        ))}
         <DrawerRow icon="dark_mode" label="Dark theme" active={isDarkTheme} indent onClick={onToggleTheme} />
         <DrawerRow icon="frame_reload" label="Reload application" danger indent onClick={() => window.location.reload()} />
         <DrawerRow icon="badge" label="Session" trailing="expand_less" />
@@ -317,6 +330,135 @@ function DashboardPage({ onNavigate, connection }) {
   );
 }
 
+function SettingsInput({ row, value, onChange }) {
+  if (row.editable === false) {
+    return <div className="settings-readonly">{value || row.placeholder || 'Not configured'}</div>;
+  }
+
+  if (row.inputType === 'boolean') {
+    const checked = String(value).toLowerCase() === 'true' || value === '1';
+    return (
+      <button className={`settings-toggle ${checked ? 'is-on' : ''}`} type="button" onClick={() => onChange(checked ? 'false' : 'true')} aria-pressed={checked}>
+        <span className="settings-toggle-track"><span /></span>
+        <strong>{checked ? 'Enabled' : 'Disabled'}</strong>
+      </button>
+    );
+  }
+
+  if (row.inputType === 'select' && row.choices?.length) {
+    return (
+      <select className="settings-input" value={value || ''} onChange={(event) => onChange(event.target.value)}>
+        <option value="">Select</option>
+        {row.choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label || choice.value}</option>)}
+      </select>
+    );
+  }
+
+  return (
+    <input
+      className="settings-input"
+      type={row.inputType === 'password' ? 'password' : row.inputType || 'text'}
+      value={value || ''}
+      placeholder={row.placeholder || ''}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+function SettingsPage({ settings, activeSection, onSectionChange, onBack }) {
+  const sections = useMemo(() => (
+    settings?.sections?.length ? settings.sections : SETTINGS_NAV_SECTIONS.map((section) => ({ ...section, rows: [] }))
+  ), [settings]);
+  const selectedSection = sections.find((section) => section.id === activeSection) || sections[0];
+  const [draft, setDraft] = useState({});
+  const [saveState, setSaveState] = useState('idle');
+
+  useEffect(() => {
+    const nextDraft = {};
+    sections.forEach((section) => {
+      (section.rows || []).forEach((row) => {
+        nextDraft[`${section.id}.${row.key}`] = row.value || '';
+      });
+    });
+    setDraft(nextDraft);
+    setSaveState('idle');
+  }, [settings]);
+
+  function draftKey(row) {
+    return `${selectedSection.id}.${row.key}`;
+  }
+
+  function updateRow(row, value) {
+    setDraft((current) => ({ ...current, [draftKey(row)]: value }));
+    setSaveState('changed');
+  }
+
+  function saveDraft() {
+    setSaveState('saved');
+  }
+
+  return (
+    <section className="settings-page" aria-label="Configuration settings">
+      <div className="settings-header">
+        <div className="settings-heading-row">
+          <button className="back-button" type="button" onClick={onBack}>
+            <MaterialIcon>arrow_back</MaterialIcon>
+            <span>Back</span>
+          </button>
+          <div>
+            <h1>Configuration</h1>
+            <p>{settings?.clientCode || 'Tenant'} values from {settings?.source || 'CFG'}.</p>
+          </div>
+        </div>
+        <button className="settings-save" type="button" onClick={saveDraft} disabled={saveState !== 'changed'}>
+          <MaterialIcon>save</MaterialIcon>
+          <span>{saveState === 'saved' ? 'Draft saved' : 'Save draft'}</span>
+        </button>
+      </div>
+
+      <div className="settings-workspace">
+        <nav className="settings-section-nav" aria-label="Settings sections">
+          {sections.map((section) => (
+            <button key={section.id} className={section.id === selectedSection.id ? 'active' : ''} type="button" onClick={() => onSectionChange(section.id)}>
+              <MaterialIcon>{section.icon || 'tune'}</MaterialIcon>
+              <span>{section.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="settings-form-panel">
+          <div className="settings-panel-title">
+            <div>
+              <h2>{selectedSection.label}</h2>
+              <p>{selectedSection.description || 'Settings prepared for this tenant.'}</p>
+            </div>
+            <span className="settings-mode-chip">{settings?.writeMode === 'draft_only' ? 'Draft only' : 'Ready'}</span>
+          </div>
+
+          <div className="settings-grid">
+            {(selectedSection.rows || []).map((row) => (
+              <div className="settings-config-row" key={row.key}>
+                <div className="settings-key-cell">
+                  <strong>{row.label}</strong>
+                  <span>{row.key}</span>
+                </div>
+                <div className="settings-value-cell">
+                  <SettingsInput row={row} value={draft[draftKey(row)] ?? row.value ?? ''} onChange={(value) => updateRow(row, value)} />
+                </div>
+                <div className="settings-desc-cell">{row.description}</div>
+                <div className="settings-updated-cell">
+                  <span>{row.sourceTable}</span>
+                  <strong>{row.updatedAt ? String(row.updatedAt).replace('T', ' ').slice(0, 19) : 'No timestamp'}</strong>
+                </div>
+              </div>
+            ))}
+            {!(selectedSection.rows || []).length && <div className="settings-empty">No settings loaded for this section.</div>}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 function TemplateButton({ icon, children }) {
   return (
     <button className="template-button" type="button">
@@ -623,6 +765,8 @@ export default function App() {
   const [session, setSession] = useState(sessionFallback(DEFAULT_SESSION.tenantCode));
   const [connection, setConnection] = useState(null);
   const [consignmentRows, setConsignmentRows] = useState(CONSIGNMENTS);
+  const [settingsPayload, setSettingsPayload] = useState(null);
+  const [settingsSection, setSettingsSection] = useState(SETTINGS_NAV_SECTIONS[0].id);
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
 
@@ -635,11 +779,12 @@ export default function App() {
       setApiStatus('loading');
       setApiError('');
       try {
-        const [sessionPayload, dashboardPayload, consignmentPayload, connectionPayload] = await Promise.all([
+        const [sessionPayload, dashboardPayload, consignmentPayload, connectionPayload, settingsPayload] = await Promise.all([
           getSession(clientCode),
           getDashboard(clientCode),
           getConsignments({ clientCode }),
           getTssConnections(clientCode),
+          getAdminSettings(clientCode),
         ]);
         if (cancelled) return;
         const activeConnection = (connectionPayload.connections || [])[0] || null;
@@ -652,6 +797,8 @@ export default function App() {
         });
         setConnection(activeConnection);
         setConsignmentRows((consignmentPayload.consignments || []).map(normalizeConsignment));
+        setSettingsPayload(settingsPayload);
+        setSettingsSection(settingsPayload.sections?.[0]?.id || SETTINGS_NAV_SECTIONS[0].id);
         setApiStatus('online');
         setApiError(dashboardPayload?.counts ? '' : 'Dashboard counts unavailable');
       } catch (error) {
@@ -659,6 +806,7 @@ export default function App() {
         setSession(sessionFallback(clientCode));
         setConnection(null);
         setConsignmentRows(CONSIGNMENTS);
+        setSettingsPayload(null);
         setApiStatus('offline');
         setApiError(error.message);
       }
@@ -673,6 +821,11 @@ export default function App() {
   function navigate(nextView) {
     setView(nextView);
     setDrawerOpen(false);
+  }
+
+  function navigateSettings(sectionId = SETTINGS_NAV_SECTIONS[0].id) {
+    setSettingsSection(sectionId);
+    navigate('settings');
   }
 
   async function handleLogin(credentials) {
@@ -704,6 +857,8 @@ export default function App() {
     setSession(sessionFallback(DEFAULT_SESSION.tenantCode));
     setConnection(null);
     setConsignmentRows(CONSIGNMENTS);
+    setSettingsPayload(null);
+    setSettingsSection(SETTINGS_NAV_SECTIONS[0].id);
     setApiStatus('idle');
     setApiError('');
     navigate('login');
@@ -727,9 +882,10 @@ export default function App() {
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} />}
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} />}
         {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} session={session} connection={connection} onQueueForTss={handleQueueForTss} />}
+        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
-      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} onNavigate={navigate} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />
+      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || SETTINGS_NAV_SECTIONS} settingsSection={settingsSection} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />
     </div>
   );
 }

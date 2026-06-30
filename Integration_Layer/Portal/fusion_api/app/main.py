@@ -91,7 +91,7 @@ def load_portal_profile(value: str) -> dict[str, object]:
     try:
         client = query_one(
             """
-            SELECT ClientCode, ClientName, SchemaName, DefaultRoute, IsAgent, IsActive, Notes
+            SELECT ClientCode, ClientName, SchemaName, DefaultRoute, IsAgent, ActAsSysId, IsActive, Notes
             FROM CFG.Clients
             WHERE ClientCode = ?
             """,
@@ -103,6 +103,7 @@ def load_portal_profile(value: str) -> dict[str, object]:
             profile["schemaName"] = client.get("SchemaName")
             profile["defaultRoute"] = client.get("DefaultRoute")
             profile["isAgent"] = bool(client.get("IsAgent"))
+            profile["actAsSysId"] = client.get("ActAsSysId")
             profile["isActive"] = bool(client.get("IsActive"))
             profile["notes"] = client.get("Notes") or profile.get("notes")
 
@@ -232,6 +233,174 @@ def public_credential_payload(credential: dict[str, object] | None) -> dict[str,
         return None
     return {key: value for key, value in credential.items() if key != "password"}
 
+
+def settings_row(
+    key: str,
+    label: str,
+    value: object = "",
+    description: str = "",
+    source_table: str = "CFG.Application_Parameters",
+    input_type: str = "text",
+    updated_at: object | None = None,
+    choices: list[dict[str, str]] | None = None,
+    is_secret: bool = False,
+    placeholder: str = "",
+    editable: bool = True,
+) -> dict[str, object]:
+    return {
+        "key": key,
+        "label": label,
+        "value": "" if value is None else str(value),
+        "description": description,
+        "sourceTable": source_table,
+        "inputType": input_type,
+        "updatedAt": updated_at,
+        "choices": choices or [],
+        "isSecret": is_secret,
+        "placeholder": placeholder,
+        "editable": editable,
+    }
+
+
+def settings_section(section_id: str, label: str, icon: str, description: str, rows: list[dict[str, object]]) -> dict[str, object]:
+    return {"id": section_id, "label": label, "icon": icon, "description": description, "rows": rows}
+
+
+def application_parameter_map(keys: list[str]) -> dict[str, dict[str, object]]:
+    if not keys:
+        return {}
+    placeholders = ",".join("?" for _ in keys)
+    rows = query_all(
+        f"""
+        SELECT ParameterKey, ParameterValue, ValueType, IsActive, UpdatedAt
+        FROM CFG.Application_Parameters
+        WHERE ParameterKey IN ({placeholders})
+        """,
+        keys,
+    )
+    return {str(row["ParameterKey"]): row for row in rows}
+
+
+def parameter_value(params: dict[str, dict[str, object]], key: str) -> str:
+    row = params.get(key)
+    if not row:
+        return ""
+    if str(row.get("ValueType") or "").upper() == "SECRET":
+        return ""
+    return str(row.get("ParameterValue") or "")
+
+
+def parameter_updated_at(params: dict[str, dict[str, object]], key: str) -> object | None:
+    return params.get(key, {}).get("UpdatedAt")
+
+
+def parse_config_json(value: object) -> dict[str, object]:
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
+    app_keys = [
+        "GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET", "GRAPH_MAILBOX",
+        "GRAPH_PROCESSED_FOLDER", "GRAPH_FORWARDERS", "PROCESSING_CLIENT", "PROCESSING_DRY_RUN",
+        "PROCESSING_TRANSACTION_MODE", "ARRIVAL_MAX_FUTURE_DAYS", "API_RATE_LIMIT_SECONDS", "DEFAULT_ENV",
+    ]
+    params = application_parameter_map(app_keys)
+    environments = query_all(
+        """
+        SELECT EnvCode, EnvName, BaseUrl, IsActive
+        FROM CFG.TSS_Environment
+        WHERE EnvCode IN ('PRD', 'TST')
+        """
+    )
+    env_by_code = {str(row["EnvCode"]): row for row in environments}
+    credential = credential_status(profile)
+    folder_rows = query_all(
+        """
+        SELECT PathType, PathValue, IsActive, UpdatedAt
+        FROM CFG.Folder_Paths
+        WHERE ClientCode = ?
+        ORDER BY PathType
+        """,
+        [profile["clientCode"]],
+    )
+    folders = {str(row["PathType"]): row for row in folder_rows}
+    source_email = query_one(
+        """
+        SELECT TOP 1 Channel, IsActive, ProcessedSubfolder, ConfigJson, UpdatedAt
+        FROM CFG.Ingestion_Source
+        WHERE ClientCode = ? AND Channel = 'EMAIL'
+        """,
+        [profile["clientCode"]],
+    ) or {}
+    source_config = parse_config_json(source_email.get("ConfigJson"))
+    file_selection = profile.get("fileSelection") or {}
+
+    tss_rows = [
+        settings_row("BASE_URL", "Production URL", env_by_code.get("PRD", {}).get("BaseUrl"), "Production TSS API base URL.", "CFG.TSS_Environment", "url"),
+        settings_row("TEST_URL", "Test URL", env_by_code.get("TST", {}).get("BaseUrl"), "Test/QAS TSS API base URL.", "CFG.TSS_Environment", "url"),
+        settings_row("ENVIRONMENT", "Environment", profile.get("preferredEnvCode"), "Active TSS target for this tenant.", "CFG.TSS_Credential", "select", choices=[{"value": "PRD", "label": "Production"}, {"value": "TST", "label": "Test/QAS"}]),
+        settings_row("USERNAME", "User", (credential or {}).get("tssUsername"), "TSS API username for this tenant.", "CFG.TSS_Credential"),
+        settings_row("PASSWORD", "Password", "", "TSS API password for this tenant.", "CFG.TSS_Credential", "password", is_secret=True, placeholder="Configured" if (credential or {}).get("hasPassword") else "Not configured"),
+        settings_row("ACT_AS", "Act as", profile.get("actAsSysId"), "Optional customer_account_sys_id for delegated TSS calls.", "CFG.Clients"),
+    ]
+
+    graph_rows = [
+        settings_row("ENABLED", "Enabled", "true" if source_email.get("IsActive") else "false", "Microsoft Graph mailbox polling for inbound messages.", "CFG.Ingestion_Source", "boolean", source_email.get("UpdatedAt")),
+        settings_row("TENANT_ID", "Tenant ID", "", "Microsoft Entra tenant id used by Graph.", "CFG.Application_Parameters", "password", parameter_updated_at(params, "GRAPH_TENANT_ID"), is_secret=True, placeholder="Configured" if parameter_value(params, "GRAPH_TENANT_ID") else "Not configured"),
+        settings_row("CLIENT_ID", "Client ID", "", "Microsoft Graph application client id.", "CFG.Application_Parameters", "password", parameter_updated_at(params, "GRAPH_CLIENT_ID"), is_secret=True, placeholder="Configured" if parameter_value(params, "GRAPH_CLIENT_ID") else "Not configured"),
+        settings_row("CLIENT_SECRET", "Client secret", "", "Microsoft Graph application client secret.", "CFG.Application_Parameters", "password", parameter_updated_at(params, "GRAPH_CLIENT_SECRET"), is_secret=True, placeholder="Configured" if params.get("GRAPH_CLIENT_SECRET") else "Not configured"),
+        settings_row("MAILBOX", "Mailbox", parameter_value(params, "GRAPH_MAILBOX"), "Mailbox UPN or email address to poll.", "CFG.Application_Parameters", "email", parameter_updated_at(params, "GRAPH_MAILBOX")),
+        settings_row("FOLDER", "Folder", source_config.get("folder", "INBOX"), "Graph folder id, well-known name, or root display name.", "CFG.Ingestion_Source"),
+        settings_row("PROCESSED_FOLDER", "Processed folder", parameter_value(params, "GRAPH_PROCESSED_FOLDER"), "Folder used after successful processing.", "CFG.Application_Parameters", "text", parameter_updated_at(params, "GRAPH_PROCESSED_FOLDER")),
+        settings_row("ALLOWED_SENDER_DOMAINS", "Allowed sender domains", source_config.get("sender_domain", ""), "Comma-separated sender domains allowed for Graph ingestion.", "CFG.Ingestion_Source"),
+    ]
+
+    ingestion_rows = [
+        settings_row("ENABLED", "Email source enabled", "true" if source_email.get("IsActive") else "false", "Enables the EMAIL ingestion source for this tenant.", "CFG.Ingestion_Source", "boolean", source_email.get("UpdatedAt")),
+        settings_row("PROCESSED_SUBFOLDER", "Processed subfolder", source_email.get("ProcessedSubfolder"), "Subfolder label used after processing.", "CFG.Ingestion_Source"),
+        settings_row("ATTACHMENT_TO_MAP", "Attachment to map", file_selection.get("requiredFileOrdinal"), "Attached file ordinal that becomes the consignment input.", "portal_bridge", "number"),
+        settings_row("TARGET_RAW", "Raw target", file_selection.get("targetLandingTable"), "Landing tables used by upload preview.", "portal_bridge", editable=False),
+        *[
+            settings_row(path_type, path_type.replace("_", " ").title(), folders.get(path_type, {}).get("PathValue"), f"Operational {path_type.lower()} folder.", "CFG.Folder_Paths", "text", folders.get(path_type, {}).get("UpdatedAt"))
+            for path_type in ("INBOUND", "PROCESS", "FAIL", "ARCHIVE", "ENS_SOURCE")
+            if path_type in folders
+        ],
+    ]
+
+    validation_rows = [
+        settings_row("PROCESSING_CLIENT", "Processing client", parameter_value(params, "PROCESSING_CLIENT"), "Client selected for Module 2 processing.", "CFG.Application_Parameters", "text", parameter_updated_at(params, "PROCESSING_CLIENT")),
+        settings_row("PROCESSING_DRY_RUN", "Processing dry run", "true" if parameter_value(params, "PROCESSING_DRY_RUN") in ("1", "true", "TRUE") else "false", "When true, processing avoids final mutations.", "CFG.Application_Parameters", "boolean", parameter_updated_at(params, "PROCESSING_DRY_RUN")),
+        settings_row("PROCESSING_TRANSACTION_MODE", "Transaction mode", parameter_value(params, "PROCESSING_TRANSACTION_MODE"), "Module 2 transaction selection mode.", "CFG.Application_Parameters", "select", parameter_updated_at(params, "PROCESSING_TRANSACTION_MODE"), choices=[{"value": "latest", "label": "latest"}, {"value": "all", "label": "all"}]),
+        settings_row("ARRIVAL_MAX_FUTURE_DAYS", "Arrival future days", parameter_value(params, "ARRIVAL_MAX_FUTURE_DAYS"), "Maximum arrival-date future window accepted by validation.", "CFG.Application_Parameters", "number", parameter_updated_at(params, "ARRIVAL_MAX_FUTURE_DAYS")),
+        settings_row("API_RATE_LIMIT_SECONDS", "API rate limit", parameter_value(params, "API_RATE_LIMIT_SECONDS"), "Delay between outbound TSS API calls.", "CFG.Application_Parameters", "number", parameter_updated_at(params, "API_RATE_LIMIT_SECONDS")),
+    ]
+
+    notification_rows = [
+        settings_row("ENS_RECEIVED_ENABLED", "ENS received", "false", "Sends a notification when an ENS source is received.", "planned_CFG.Notification", "boolean", editable=False),
+        settings_row("CONSIGNMENTS_RECEIVED_ENABLED", "Consignments received", "false", "Sends a notification when a consignment pack is received.", "planned_CFG.Notification", "boolean", editable=False),
+        settings_row("STAGING_FAILURES_ENABLED", "Staging failures", "false", "Sends an operational notification when staging needs manual action.", "planned_CFG.Notification", "boolean", editable=False),
+        settings_row("MOVEMENT_AUTHORISED_ENABLED", "Movement authorised", "false", "Sends the final authorised-for-movement notification.", "planned_CFG.Notification", "boolean", editable=False),
+        settings_row("ENS_PACK_AUTO_TO", "ENS pack recipients", "", "Recipient list for automatic ENS movement pack emails.", "planned_CFG.Notification", editable=False),
+    ]
+
+    return {
+        "portalClientCode": profile["portalClientCode"],
+        "clientCode": profile["clientCode"],
+        "clientName": profile["clientName"],
+        "source": "CFG.Application_Parameters + CFG.Folder_Paths + CFG.Ingestion_Source + CFG.TSS_*",
+        "writeMode": "draft_only",
+        "sections": [
+            settings_section("TSS_API", "TSS Portal API", "sync_alt", "Credentials and endpoints for Trader Support Service.", tss_rows),
+            settings_section("GRAPH", "Inbound Email / Microsoft Graph", "mail", "Inbound mailbox pickup using Microsoft Graph application credentials.", graph_rows),
+            settings_section("INGEST_AUTO", "Ingestion & Folders", "drive_folder_upload", "Inbound source, attachment-selection and operational folders.", ingestion_rows),
+            settings_section("VALIDATION", "Validation Controls", "shield", "Runtime switches that control local validation before TSS.", validation_rows),
+            settings_section("NOTIFY", "Email Automation Notifications", "notifications", "Notification controls prepared for the next automation slice.", notification_rows),
+        ],
+    }
 
 def log_api_trace(client_code: str, step: dict[str, object], request_payload: dict[str, object], result: dict[str, object]) -> None:
     execute(
@@ -380,6 +549,14 @@ def file_profiles(client_code: str | None = Query(None)) -> dict[str, object]:
         ]
     }
 
+
+@app.get("/api/admin/settings")
+def admin_settings(client_code: str = Query("PLE")) -> dict[str, object]:
+    try:
+        profile = load_portal_profile(client_code)
+        return admin_settings_payload(profile)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
 
 @app.get("/api/tss/connections")
 def tss_connections(client_code: str | None = Query(None), env_code: str | None = Query(None)) -> dict[str, object]:

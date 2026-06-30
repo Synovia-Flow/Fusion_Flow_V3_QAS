@@ -47,6 +47,10 @@ export function getTssConnections(clientCode) {
   const query = params.toString();
   return request(`/api/tss/connections${query ? `?${query}` : ''}`);
 }
+
+export function getAdminSettings(clientCode) {
+  return request(`/api/admin/settings?client_code=${encodeURIComponent(clientCode)}`);
+}
 export function previewConsignmentUpload({ clientCode, files }) {
   const body = new FormData();
   body.append('client_code', clientCode);
