@@ -118,6 +118,67 @@ class ChoiceResolver:
 
 
 # --------------------------------------------------------------------------- #
+# Local value translation (CFG.Value_Translation): specific FILES (or a whole
+# client/field) DEFINE the output for an incoming value, consulted BEFORE the
+# choice resolver so a configured translation always wins.
+# --------------------------------------------------------------------------- #
+def _basename(path: str | None) -> str:
+    s = (path or "").strip().replace("\\", "/")
+    return s.rsplit("/", 1)[-1] if s else ""
+
+
+class TranslationResolver:
+    def __init__(self, db: ProcessingDb, client: str, entity: str):
+        # by TargetField -> list of override rows (source-file-specific first)
+        self.by_field: dict[str, list[dict]] = {}
+        self.count = 0
+        try:
+            rows = db._query(
+                "SELECT TargetField, SourceFile, IncomingValue, OutputValue, MatchMode "
+                "FROM CFG.Value_Translation "
+                "WHERE ClientCode = ? AND (EntityKind = ? OR EntityKind = '*') AND IsActive = 1",
+                client, entity)
+        except Exception:                       # table not deployed yet -> no overrides
+            rows = []
+        for r in rows:
+            r["_file"] = (r["SourceFile"] or "*").strip()
+            r["_mode"] = (r["MatchMode"] or "CI").strip().upper()
+            self.by_field.setdefault(r["TargetField"], []).append(r)
+            self.count += 1
+        # source-file-specific rows take precedence over the '*' rows
+        for lst in self.by_field.values():
+            lst.sort(key=lambda r: 0 if r["_file"] != "*" else 1)
+
+    @staticmethod
+    def _val_match(row: dict, incoming: str) -> bool:
+        want = row["IncomingValue"] or ""
+        mode = row["_mode"]
+        if mode == "EXACT":
+            return incoming == want
+        if mode == "NORM":
+            return _norm_name(incoming) == _norm_name(want)
+        return incoming.strip().casefold() == want.strip().casefold()   # CI (default)
+
+    def translate(self, field: str, source_file: str | None, incoming: str | None):
+        """Return (output_value, True) if a translation applies, else (None, False)."""
+        if incoming is None:
+            return None, False
+        cand = self.by_field.get(field)
+        if not cand:
+            return None, False
+        base = _basename(source_file).casefold()
+        full = (source_file or "").strip().casefold()
+        for r in cand:                          # source-file-specific first (sorted)
+            if r["_file"] != "*":
+                f = r["_file"].casefold()
+                if f != base and f != full and _basename(r["_file"]).casefold() != base:
+                    continue
+            if self._val_match(r, incoming):
+                return r["OutputValue"], True
+        return None, False
+
+
+# --------------------------------------------------------------------------- #
 # Condition evaluation for COND fields:  "field=value"  or  "field IN (a,b,c)"
 # --------------------------------------------------------------------------- #
 def cond_holds(expr: str | None, rec: dict[str, Any]) -> bool:
@@ -140,14 +201,26 @@ def _empty(v: Any) -> bool:
 
 # --------------------------------------------------------------------------- #
 def _transform(fm: dict, raw: dict, rec: dict, resolver: ChoiceResolver,
-               carrier_for, run_date: datetime) -> tuple[Any, bool]:
-    """Apply one field map row. Returns (new_value, choice_unmatched_flag)."""
+               carrier_for, run_date: datetime,
+               translator: "TranslationResolver | None" = None,
+               source_file: str | None = None) -> tuple[Any, bool]:
+    """Apply one field map row. Returns (new_value, choice_unmatched_flag).
+
+    A local translation (CFG.Value_Translation) is consulted FIRST for value-bearing
+    fields: if a file/client defines the output for this incoming value, that wins
+    and the choice-unmatched flag is cleared."""
     kind = fm["TransformType"]
     src = fm["SourceColumn"]
     incoming = raw.get(src) if src else None
 
     if kind in ("READONLY", "API_RETURN"):
         return None, False
+    if translator is not None and translator.count and src and incoming is not None \
+            and kind not in ("CONST", "QAS", "MASTER_ENRICH"):
+        norm_in = mapping.normalise_text(incoming)
+        ov, hit = translator.translate(fm["TargetField"], source_file, norm_in)
+        if hit:
+            return (ov or None), False
     if kind == "CONST" or kind == "QAS":
         return fm["ConstValue"], False
     if kind == "PASSTHROUGH":
@@ -201,7 +274,8 @@ def _upsert(db: ProcessingDb, schema: str, table: str, obj: dict,
 
 def process_row(db: ProcessingDb, raw: dict, profile: dict, fmap: list[dict],
                 resolver: ChoiceResolver, carrier_for, run_date: datetime,
-                reprocess: bool = False) -> str:
+                reprocess: bool = False,
+                translator: "TranslationResolver | None" = None) -> str:
     client = profile["ClientCode"]
     mk = (raw.get(profile["SourceKeyColumn"]) or "").strip()
     eref = f"MK={mk}"
@@ -209,6 +283,7 @@ def process_row(db: ProcessingDb, raw: dict, profile: dict, fmap: list[dict],
     icr = mk.split("|", 1)[1] if "|" in mk else None
     proc = "REPROCESSING" if reprocess else "STAGING"
     sch, ttab, stab = profile["TargetSchema"], profile["TrackingTable"], profile["TargetTable"]
+    source_file = raw.get("SourceFile") or raw.get("SourceCsv")
 
     # 1) tracking row (control/source spine) - upsert so reprocess updates in place
     tracking = {
@@ -230,7 +305,8 @@ def process_row(db: ProcessingDb, raw: dict, profile: dict, fmap: list[dict],
     unmatched: list[str] = []
     for fm in fmap:                              # already ordered by StepNo
         old = raw.get(fm["SourceColumn"]) if fm["SourceColumn"] else None
-        new, bad_choice = _transform(fm, raw, rec, resolver, carrier_for, run_date)
+        new, bad_choice = _transform(fm, raw, rec, resolver, carrier_for, run_date,
+                                     translator=translator, source_file=source_file)
         if bad_choice:
             unmatched.append(fm["TargetField"])
         rule = f"{fm['TransformType']}" + (f" ({fm['RuleRef']})" if fm.get("RuleRef") else "")
@@ -331,6 +407,7 @@ def run(ini_path: Path = DEFAULT_INI, mode: str | None = None) -> int:
 
         choice_fields = {fm["ChoiceField"] for fm in fmap if fm["TransformType"] == "CHOICE" and fm["ChoiceField"]}
         resolver = ChoiceResolver(db, choice_fields)
+        translator = TranslationResolver(db, client, entity)
         carrier_cache: dict[str, dict | None] = {}
 
         def carrier_for(eori):
@@ -348,12 +425,20 @@ def run(ini_path: Path = DEFAULT_INI, mode: str | None = None) -> int:
         db.advance_execution(proc_name, "RUNNING")
         run_date = datetime.now(timezone.utc)
 
+        if translator.count:
+            db.log("CONFIG", f"{translator.count} local translation(s) loaded from CFG.Value_Translation.")
+
         raw_rows = db._query(f"SELECT * FROM {profile['SourceSchema']}.{profile['SourceTable']} "
                              f"ORDER BY {profile['SourceIdColumn']}")
         idcol = profile["SourceIdColumn"]
         if reprocess:
-            # Re-run rows already tracked, selected by scope (REJECTED|ALL) and optional MovementKey.
-            tsql = (f"SELECT SourceEnsLoadID, MovementKey FROM {profile['TargetSchema']}.{profile['TrackingTable']} "
+            # Re-run rows already processed, selected by scope (REJECTED|ALL) and optional
+            # MovementKey. We read the SUBMISSION (target) table - that is the authoritative
+            # status the rejection views report - and match raw rows by MovementKey (the
+            # stable business key), so a status drift between submission and tracking can't
+            # silently drop the candidates.
+            keycol = profile["SourceKeyColumn"]
+            tsql = (f"SELECT MovementKey, SourceEnsLoadID FROM {profile['TargetSchema']}.{profile['TargetTable']} "
                     f"WHERE ClientCode = ?")
             tparams: list[Any] = [client]
             if scope != "ALL":
@@ -361,11 +446,13 @@ def run(ini_path: Path = DEFAULT_INI, mode: str | None = None) -> int:
             if target_mk:
                 tsql += " AND MovementKey = ?"; tparams.append(target_mk)
             trk = db._query(tsql, *tparams)
+            mks = {(r["MovementKey"] or "").strip() for r in trk if r["MovementKey"]}
             load_ids = {r["SourceEnsLoadID"] for r in trk if r["SourceEnsLoadID"] is not None}
-            pending = [r for r in raw_rows if r.get(idcol) in load_ids]
+            pending = [r for r in raw_rows
+                       if (r.get(keycol) or "").strip() in mks or r.get(idcol) in load_ids]
             db.log("START", f"Reprocessing {client}/{entity} scope={scope}"
                    + (f" MK={target_mk}" if target_mk else "") + f" (dry_run={db.dry_run})")
-            db.log("SOURCE", f"{len(trk)} tracked match(es); {len(pending)} source rows to reprocess.")
+            db.log("SOURCE", f"{len(trk)} rejected/in-scope movement(s); {len(pending)} source rows to reprocess.")
         else:
             staged = ({r["SourceEnsLoadID"] for r in db._query(
                 f"SELECT SourceEnsLoadID FROM {profile['TargetSchema']}.{profile['TrackingTable']} "
@@ -380,7 +467,8 @@ def run(ini_path: Path = DEFAULT_INI, mode: str | None = None) -> int:
         for raw in pending:
             mk = (raw.get(profile["SourceKeyColumn"]) or "").strip()
             try:
-                st = process_row(db, raw, profile, fmap, resolver, carrier_for, run_date, reprocess=reprocess)
+                st = process_row(db, raw, profile, fmap, resolver, carrier_for, run_date,
+                                 reprocess=reprocess, translator=translator)
                 done += 1
                 validated += (st == "VALIDATED"); rejected += (st == "REJECTED")
             except Exception as error:  # noqa: BLE001
