@@ -41,11 +41,11 @@ class UploadPreviewSelectionTests(unittest.TestCase):
 
     def test_countrywide_preview_maps_second_uploaded_attachment(self):
         payload = portal_main.upload_consignment_preview(
-            client_code="CW",
+            client_code="CWD",
             files=[upload_file("primeline-first.csv"), upload_file("countrywide-second.csv")],
         )
 
-        self.assertEqual(payload["portalClientCode"], "CW")
+        self.assertEqual(payload["portalClientCode"], "CWD")
         self.assertEqual(payload["clientCode"], "CWD")
         self.assertEqual(payload["tssCredentialClientCode"], "CWF")
         self.assertEqual(payload["selectedFileOrdinal"], 2)
@@ -55,7 +55,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
 
     def test_countrywide_preview_requires_second_attachment(self):
         with self.assertRaises(HTTPException) as ctx:
-            portal_main.upload_consignment_preview(client_code="CW", files=[upload_file("only-one.csv")])
+            portal_main.upload_consignment_preview(client_code="CWD", files=[upload_file("only-one.csv")])
 
         self.assertEqual(ctx.exception.status_code, 422)
         self.assertIn("requires attached file #2", str(ctx.exception.detail))

@@ -18,10 +18,10 @@ EXPECTED = {
         "portalClientCode": "PLE",
         "fileOrdinal": 1,
     },
-    "CW": {
+    "CWD": {
         "credentialClientCode": "CWF",
         "envCode": "TST",
-        "portalClientCode": "CW",
+        "portalClientCode": "CWD",
         "fileOrdinal": 2,
     },
 }
@@ -116,12 +116,12 @@ def check_portal(portal_code: str, strict: bool) -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Audit PLE/CW portal readiness without printing secrets.")
+    parser = argparse.ArgumentParser(description="Audit PLE/CWD portal readiness without printing secrets.")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero when PRS dry-run data is missing or not ready.")
     args = parser.parse_args()
 
     ok = True
-    for portal_code in ("PLE", "CW"):
+    for portal_code in ("PLE", "CWD"):
         ok = check_portal(portal_code, strict=args.strict) and ok
     return 0 if ok else 1
 

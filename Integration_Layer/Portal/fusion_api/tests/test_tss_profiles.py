@@ -16,9 +16,9 @@ class PortalClientBridgeTests(unittest.TestCase):
         self.assertTrue(profile["requiresEnsBeforeSubmit"])
 
     def test_countrywide_uses_second_file_and_countrywide_credentials(self):
-        profile = fallback_profile("CW")
+        profile = fallback_profile("CWD")
 
-        self.assertEqual(profile["portalClientCode"], "CW")
+        self.assertEqual(profile["portalClientCode"], "CWD")
         self.assertEqual(profile["clientCode"], "CWD")
         self.assertEqual(profile["tssCredentialClientCode"], "CWF")
         self.assertEqual(profile["preferredEnvCode"], "TST")
@@ -43,14 +43,14 @@ class PortalClientBridgeTests(unittest.TestCase):
         self.assertEqual(selected, "primeline.xlsx")
 
     def test_countrywide_selects_second_file_from_uploaded_attachments(self):
-        profile = fallback_profile("CW")
+        profile = fallback_profile("CWD")
 
         selected = select_required_file(["primeline.xlsx", "countrywide.xlsx"], profile)
 
         self.assertEqual(selected, "countrywide.xlsx")
 
     def test_countrywide_requires_second_uploaded_attachment(self):
-        profile = fallback_profile("CW")
+        profile = fallback_profile("CWD")
 
         with self.assertRaisesRegex(ValueError, "requires attached file #2"):
             select_required_file(["only-one.xlsx"], profile)
@@ -58,12 +58,12 @@ class PortalClientBridgeTests(unittest.TestCase):
 
     def test_tss_credential_clients_map_to_portal_codes(self):
         self.assertEqual(portal_code_for_tss_client("PLE"), "PLE")
-        self.assertEqual(portal_code_for_tss_client("CWF"), "CW")
-        self.assertEqual(portal_code_for_tss_client("CWD"), "CW")
+        self.assertEqual(portal_code_for_tss_client("CWF"), "CWD")
+        self.assertEqual(portal_code_for_tss_client("CWD"), "CWD")
     def test_countrywide_aliases_normalise_to_cw(self):
-        for value in ("Countrywide", "Country Wide", "CWD", "CWF", "CWH"):
+        for value in ("Countrywide", "Country Wide", "CW", "CWD", "CWF", "CWH"):
             with self.subTest(value=value):
-                self.assertEqual(normalize_portal_code(value), "CW")
+                self.assertEqual(normalize_portal_code(value), "CWD")
 
 
 if __name__ == "__main__":

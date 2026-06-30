@@ -35,8 +35,6 @@ app.add_middleware(
 
 def client_code_param(client_code: str) -> str:
     portal_code = normalize_portal_code(client_code)
-    if portal_code == "CW":
-        return "CWD"
     if len(portal_code) != 3 or not portal_code.isalnum():
         raise HTTPException(status_code=422, detail="client_code must be a known portal/client code.")
     profile = fallback_profile(portal_code)

@@ -21,8 +21,8 @@ FALLBACK_PORTAL_PROFILES: dict[str, dict[str, object]] = {
             "notes": "Primeline maps the first attached file.",
         },
     },
-    "CW": {
-        "portalClientCode": "CW",
+    "CWD": {
+        "portalClientCode": "CWD",
         "clientCode": "CWD",
         "clientName": "CountryWide",
         "tssCredentialClientCode": "CWF",
@@ -42,12 +42,12 @@ ALIASES = {
     "PRIMELINE": "PLE",
     "PRIMELINE EXPRESS": "PLE",
     "PLE": "PLE",
-    "CW": "CW",
-    "CWD": "CW",
-    "CWF": "CW",
-    "CWH": "CW",
-    "COUNTRYWIDE": "CW",
-    "COUNTRY WIDE": "CW",
+    "CW": "CWD",
+    "CWD": "CWD",
+    "CWF": "CWD",
+    "CWH": "CWD",
+    "COUNTRYWIDE": "CWD",
+    "COUNTRY WIDE": "CWD",
 }
 
 

@@ -10,7 +10,7 @@ const DEFAULT_SESSION = {
 
 const PORTAL_CLIENTS = [
   { tenantCode: 'PLE', tenantName: 'Primeline Express' },
-  { tenantCode: 'CW', tenantName: 'Countrywide' },
+  { tenantCode: 'CWD', tenantName: 'Countrywide' },
 ];
 
 function clientOptionFor(clientCode) {

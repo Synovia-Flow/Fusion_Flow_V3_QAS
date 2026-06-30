@@ -10,7 +10,7 @@ from app.tss_profiles import fallback_profile, required_file_ordinal
 
 EXPECTED = {
     "PLE": {"clientCode": "PLE", "credentialClientCode": "PLE", "envCode": "PRD", "fileOrdinal": 1},
-    "CW": {"clientCode": "CWD", "credentialClientCode": "CWF", "envCode": "TST", "fileOrdinal": 2},
+    "CWD": {"clientCode": "CWD", "credentialClientCode": "CWF", "envCode": "TST", "fileOrdinal": 2},
 }
 NEW_CFG_TABLES = ("Portal_Client_Profile", "File_Profile", "File_Profile_Column_Map", "TSS_Submission_Route")
 
