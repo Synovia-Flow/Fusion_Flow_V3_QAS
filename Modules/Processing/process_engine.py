@@ -97,6 +97,20 @@ class ChoiceResolver:
                 return val, True                                 # cache name begins with the input
             if ni.startswith(nname) and (len(ni) == len(nname) or ni[len(nname)] == " "):
                 return val, True                                 # input begins with cache name
+        # Token-set match: order/punctuation/annotation-proof. One token set is a
+        # subset of the other (e.g. {belfast,port} <= {belfast,port,gbaubelbelbel};
+        # {roro,accompanied,ics2} == {roro,accompanied,ics2}). Pick the closest.
+        itoks = set(re.findall(r"[a-z0-9]+", ni))
+        if itoks:
+            best, best_extra = None, None
+            for nname, val in self.norm_list.get(cf, []):
+                ntoks = set(re.findall(r"[a-z0-9]+", nname))
+                if ntoks and (itoks <= ntoks or ntoks <= itoks):
+                    extra = abs(len(ntoks) - len(itoks))
+                    if best is None or extra < best_extra:
+                        best, best_extra = val, extra
+            if best is not None:
+                return best, True
         return s, False
 
     def is_member(self, cf: str, value: str) -> bool:
