@@ -40,12 +40,34 @@ class, then replace the SKELETON block in `run()` with the documented landing lo
 - **Parameters** → `CFG.Application_Parameters`.
 - **Routing** → `CFG.Clients`, `CFG.Email_Rules`, `CFG.Folder_Paths`.
 
+## Jobs (CFG.Job)
+
+The schedulable units of work are registered as data in **`CFG.Job`** (seeded by
+`Configuration/SQL/012_cfg_jobs.sql`), so the job list is authoritative and
+documented, not buried in code. The active Birkdale cycle:
+
+| JobCode | Step | Purpose | Entry point |
+|---|---|---|---|
+| `ING_BKD_CYCLE` | — | Orchestrates the cycle below (one EXC.Execution per step) | `run_ingestion:main` |
+| `ING_BKD_ACQUIRE_EMAIL` | 1 | Download `@birkdalesales.com` attachments via Graph; prefix + move mail to `Fusion_Processed/BKD`; land provenance | `birkdale_sales_orders:run` |
+| `ING_BKD_PARSE_ENS` | 2 | Parse forwarded TSS *Details* mails into the timestamped ENS CSV (dedup on `DetailsDate\|ICR`) | `ens_headers:run_from_graph` |
+| `ING_BKD_LOAD_RAW` | 3 | Load ENS CSV + Sales Order workbooks into `ING.BKD_Raw_*`; move files to Processed | `load_raw:run` |
+
+Registered but **inactive** (modular, future channels): `ING_ACQUIRE_FILE_DROP`,
+`ING_ACQUIRE_SFTP`, `ING_ACQUIRE_AS2`, `ING_ACQUIRE_API`.
+
 ## Run
 
+The scheduler runs the cycle with **no CLI** — behaviour comes from `CFG.Job` and
+`CFG.Application_Parameters` (`INGESTION_CLIENT`, `INGESTION_DRY_RUN`):
+
 ```bash
-python ingest.py --client BKD --dry-run          # discover/report only, no writes
-python ingest.py --client BKD --channel FILE_DROP
+python run_ingestion.py        # runs the active CFG.Job steps for INGESTION_CLIENT
 ```
+
+`ingest.py` remains the per-channel framework (one class per route); fill in
+`discover()`/`fetch()`/`parse_rows()` to activate a new channel, then flip the
+matching `CFG.Job` row to active.
 
 Requires `pyodbc` (and `openpyxl` once XLSX parsing is implemented). Lands into
 `ING.Inbound_File` / `ING.Raw_Record` / `ING.Source_Email` (see SQL files 004–005).
