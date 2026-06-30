@@ -634,6 +634,31 @@ button:disabled { cursor: default; }
 .drop-zone.is-dragging,
 .drop-zone:hover { border-color: #2f64ea; background: #f8fbff; }
 
+.upload-preview-card {
+  min-height: 48px;
+  margin-top: 14px;
+  border-radius: 10px;
+  border: 1px solid #d7e5f3;
+  background: #f8fbff;
+  color: #1e3a5f;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.upload-preview-card strong { font-size: 14px; color: #0f172a; }
+.upload-preview-card.error {
+  border-color: #fecaca;
+  background: #fff5f5;
+  color: #b91c1c;
+}
+.upload-preview-card.loading {
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
 .upload-actions {
   display: flex;
   justify-content: flex-end;

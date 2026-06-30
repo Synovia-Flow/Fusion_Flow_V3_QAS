@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getConsignments, getDashboard, getSession, previewConsignmentUpload } from './api';
 
-const SESSION = {
+const DEFAULT_SESSION = {
   tenantCode: 'PLE',
   tenantName: 'Primeline Express',
   username: 'synovia',
@@ -82,6 +83,32 @@ const CONSIGNMENTS = [
   },
 ];
 
+function formatNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '0';
+}
+
+function normalizeConsignment(row) {
+  const consignmentRowId = row.ConsignmentRowID ?? row.consignmentRowID ?? row.consignmentRowId;
+  return {
+    id: `PRS-C${String(consignmentRowId || '').padStart(6, '0')}`,
+    ensHeaderRowId: row.EnsHeaderRowID ?? row.ensHeaderRowID ?? row.ensHeaderRowId,
+    consignmentRowId,
+    movementKey: row.MovementKey ?? row.movementKey ?? '',
+    declarationNumber: row.DeclarationNumber ?? row.declarationNumber ?? null,
+    consignmentNumber: row.ConsignmentNumber ?? row.consignmentNumber ?? `PRS-${consignmentRowId}`,
+    traderReference: row.TraderReference ?? row.traderReference ?? '',
+    transportDocumentNumber: row.TransportDocumentNumber ?? row.transportDocumentNumber ?? '',
+    goodsDescription: row.GoodsDescription ?? row.goodsDescription ?? '',
+    consigneeName: row.ConsigneeName ?? row.consigneeName ?? '',
+    destinationCountry: row.DestinationCountry ?? row.destinationCountry ?? '',
+    goodsItems: Number(row.GoodsItems ?? row.goodsItems ?? 0),
+    grossMassKg: formatNumber(row.GrossMassKg ?? row.grossMassKg),
+    status: row.Status ?? row.status ?? 'DRAFT',
+    source: 'PRS.Consignment',
+    updatedAt: row.UpdatedAt ?? row.updatedAt ?? '',
+  };
+}
 function MaterialIcon({ children, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`} aria-hidden="true">{children}</span>;
 }
@@ -222,13 +249,33 @@ function TemplateButton({ icon, children }) {
   );
 }
 
-function UploadConsignmentPage({ onBack }) {
+function UploadConsignmentPage({ onBack, onPreviewUpload }) {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [previewState, setPreviewState] = useState({ status: 'idle', payload: null, error: '' });
 
   function handleFiles(files) {
     const nextFile = files?.[0];
-    if (nextFile) setSelectedFile(nextFile);
+    if (nextFile) {
+      setSelectedFile(nextFile);
+      setPreviewState({ status: 'idle', payload: null, error: '' });
+    }
+  }
+
+  function clearFile() {
+    setSelectedFile(null);
+    setPreviewState({ status: 'idle', payload: null, error: '' });
+  }
+
+  async function handlePreview() {
+    if (!selectedFile) return;
+    setPreviewState({ status: 'loading', payload: null, error: '' });
+    try {
+      const payload = await onPreviewUpload(selectedFile);
+      setPreviewState({ status: 'ready', payload, error: '' });
+    } catch (error) {
+      setPreviewState({ status: 'error', payload: null, error: error.message });
+    }
   }
 
   function handleDrop(event) {
@@ -299,35 +346,57 @@ function UploadConsignmentPage({ onBack }) {
         <span>Max file size: 50 MB</span>
       </label>
 
+      {previewState.status !== 'idle' && (
+        <div className={`upload-preview-card ${previewState.status}`}>
+          {previewState.status === 'loading' && <span>Preparing API preview...</span>}
+          {previewState.status === 'error' && <span>{previewState.error}</span>}
+          {previewState.status === 'ready' && (
+            <>
+              <strong>{previewState.payload.filename}</strong>
+              <span>Target: {previewState.payload.wouldLand.fileTable} / {previewState.payload.wouldLand.rowTable}</span>
+              <span>SHA256: {previewState.payload.sha256.slice(0, 16)}...</span>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="upload-actions">
         <button className="file-picker-button" type="button" onClick={() => document.querySelector('.drop-zone input')?.click()}>Open file picker</button>
-        <button className="clear-button" type="button" disabled={!selectedFile} onClick={() => setSelectedFile(null)}>Clear</button>
+        <button className="clear-button" type="button" disabled={!selectedFile} onClick={clearFile}>Clear</button>
       </div>
 
-      <button className="preview-button" type="button" disabled={!selectedFile}>Upload & Preview</button>
+      <button className="preview-button" type="button" disabled={!selectedFile || previewState.status === 'loading'} onClick={handlePreview}>
+        {previewState.status === 'loading' ? 'Preparing Preview' : 'Upload & Preview'}
+      </button>
     </section>
   );
 }
-
 function StatusBadge({ status }) {
   return <span className={`status-badge ${status.toLowerCase().replace('_', '-')}`}>{status.replace('_', ' ')}</span>;
 }
 
-function ViewConsignmentsPage({ onBack }) {
+function ViewConsignmentsPage({ onBack, rows, session }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
-  const [selectedId, setSelectedId] = useState(CONSIGNMENTS[0].id);
+  const sourceRows = rows.length ? rows : CONSIGNMENTS;
+  const [selectedId, setSelectedId] = useState(sourceRows[0]?.id || '');
+
+  useEffect(() => {
+    if (sourceRows.length && !sourceRows.some((row) => row.id === selectedId)) {
+      setSelectedId(sourceRows[0].id);
+    }
+  }, [sourceRows, selectedId]);
 
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
-    return CONSIGNMENTS.filter((row) => {
+    return sourceRows.filter((row) => {
       const matchesStatus = status === 'ALL' || row.status === status;
       const haystack = `${row.consignmentNumber} ${row.traderReference} ${row.transportDocumentNumber} ${row.goodsDescription} ${row.consigneeName}`.toLowerCase();
       return matchesStatus && (!value || haystack.includes(value));
     });
-  }, [query, status]);
+  }, [query, status, sourceRows]);
 
-  const selected = filtered.find((row) => row.id === selectedId) || filtered[0] || CONSIGNMENTS[0];
+  const selected = filtered.find((row) => row.id === selectedId) || filtered[0] || sourceRows[0] || CONSIGNMENTS[0];
 
   return (
     <section className="consignments-page" aria-label="View consignments">
@@ -343,10 +412,10 @@ function ViewConsignmentsPage({ onBack }) {
       </div>
 
       <div className="summary-rail" aria-label="Consignment summary">
-        <div><span>ClientCode</span><strong>{SESSION.tenantCode}</strong></div>
-        <div><span>PRS.Consignment</span><strong>{CONSIGNMENTS.length}</strong></div>
-        <div><span>Goods Items</span><strong>{CONSIGNMENTS.reduce((total, row) => total + row.goodsItems, 0)}</strong></div>
-        <div><span>Ready / Validated</span><strong>{CONSIGNMENTS.filter((row) => ['READY', 'VALIDATED'].includes(row.status)).length}</strong></div>
+        <div><span>ClientCode</span><strong>{session.tenantCode}</strong></div>
+        <div><span>PRS.Consignment</span><strong>{sourceRows.length}</strong></div>
+        <div><span>Goods Items</span><strong>{sourceRows.reduce((total, row) => total + row.goodsItems, 0)}</strong></div>
+        <div><span>Ready / Validated</span><strong>{sourceRows.filter((row) => ['READY', 'VALIDATED'].includes(row.status)).length}</strong></div>
       </div>
 
       <div className="consignment-workspace">
@@ -433,6 +502,48 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [view, setView] = useState('login');
+  const [session, setSession] = useState(DEFAULT_SESSION);
+  const [consignmentRows, setConsignmentRows] = useState(CONSIGNMENTS);
+  const [apiStatus, setApiStatus] = useState('idle');
+  const [apiError, setApiError] = useState('');
+
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    let cancelled = false;
+
+    async function loadPortalData() {
+      setApiStatus('loading');
+      setApiError('');
+      try {
+        const [sessionPayload, dashboardPayload, consignmentPayload] = await Promise.all([
+          getSession(DEFAULT_SESSION.tenantCode),
+          getDashboard(DEFAULT_SESSION.tenantCode),
+          getConsignments({ clientCode: DEFAULT_SESSION.tenantCode }),
+        ]);
+        if (cancelled) return;
+        setSession({
+          tenantCode: sessionPayload.tenantCode || DEFAULT_SESSION.tenantCode,
+          tenantName: sessionPayload.tenantName || DEFAULT_SESSION.tenantName,
+          username: sessionPayload.username || DEFAULT_SESSION.username,
+          role: sessionPayload.role || DEFAULT_SESSION.role,
+        });
+        setConsignmentRows((consignmentPayload.consignments || []).map(normalizeConsignment));
+        setApiStatus('online');
+        setApiError(dashboardPayload?.counts ? '' : 'Dashboard counts unavailable');
+      } catch (error) {
+        if (cancelled) return;
+        setSession(DEFAULT_SESSION);
+        setConsignmentRows(CONSIGNMENTS);
+        setApiStatus('offline');
+        setApiError(error.message);
+      }
+    }
+
+    loadPortalData();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
 
   function navigate(nextView) {
     setView(nextView);
@@ -446,19 +557,27 @@ export default function App() {
 
   function handleLogout() {
     setIsAuthenticated(false);
+    setSession(DEFAULT_SESSION);
+    setConsignmentRows(CONSIGNMENTS);
+    setApiStatus('idle');
+    setApiError('');
     navigate('login');
+  }
+
+  function handlePreviewUpload(file) {
+    return previewConsignmentUpload({ clientCode: session.tenantCode, file });
   }
 
   const mainClass = isAuthenticated ? `page-main app-main ${view}-main` : 'page-main login-main';
 
   return (
-    <div className="app-shell">
-      <AppBar session={SESSION} isAuthenticated={isAuthenticated} onToggleDrawer={() => setDrawerOpen((value) => !value)} onLogout={handleLogout} />
+    <div className="app-shell" data-api-status={apiStatus} data-api-error={apiError}>
+      <AppBar session={session} isAuthenticated={isAuthenticated} onToggleDrawer={() => setDrawerOpen((value) => !value)} onLogout={handleLogout} />
       <main className={mainClass}>
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} />}
-        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} />}
-        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} />}
+        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} />}
+        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} session={session} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
       <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} onNavigate={navigate} onLogout={handleLogout} />

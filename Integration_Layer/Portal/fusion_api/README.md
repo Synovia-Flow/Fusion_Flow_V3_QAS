@@ -1,0 +1,31 @@
+# Fusion Portal API
+
+FastAPI backend for the Fusion Flow portal. It exposes read-only routes over the current Release 1 database model and keeps DB credentials outside the frontend.
+
+## Local Run
+
+```powershell
+cd Integration_Layer\Portal\fusion_api
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+The API reads the database connection from `DB_CONN_STR` in the process environment or repo `.env` first. If that is not available, it falls back to `Configuration/Fusion_Flow_QAS.ini`. Override the `.ini` path with:
+
+```powershell
+$env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QAS.ini'
+```
+
+## Routes
+
+- `GET /api/health?check_db=true`
+- `GET /api/session?client_code=PLE`
+- `GET /api/dashboard?client_code=PLE`
+- `GET /api/consignments?client_code=PLE&status=ALL&q=&limit=100`
+- `GET /api/consignments/{consignment_row_id}`
+- `GET /api/ingestion/files?client_code=PLE&limit=50`
+- `POST /api/uploads/consignments/preview`
+
+`preview` intentionally does not write to DB yet. It hashes and validates the selected file and returns the target landing path (`ING.Inbound_File` / `ING.Raw_Record`) so the write path can be added deliberately.
