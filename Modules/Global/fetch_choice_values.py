@@ -192,6 +192,8 @@ def sync_field(cur, field: str, items: list[tuple[str, str | None, dict]], eid: 
     seen: set[str] = set()
 
     for value, name, raw in items:
+        if value in seen:
+            continue                     # TSS can return a value twice; first wins
         seen.add(value)
         extra = json.dumps(raw, default=str)[:8000]
         h = row_hash(value, name, extra)
@@ -297,6 +299,17 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
             print(f"  [FAIL] {field}: {msg}")
             if not dry_run:
                 exc_error(cur, eid, txn, "CHOICE_FETCH", f"{field}: {msg}", url)
+                transaction(cur, eid, txn, field, "SYNC_FAILED"); conn.commit()
+        except Exception as error:  # noqa: BLE001 - DB/other: isolate the field, keep going
+            failed_fields += 1
+            try:
+                conn.rollback()         # clear the aborted transaction before logging
+            except Exception:
+                pass
+            msg = f"{type(error).__name__}: {str(error)[:160]}"
+            print(f"  [FAIL] {field}: {msg}")
+            if not dry_run:
+                exc_error(cur, eid, txn, "CHOICE_DB", f"{field}: {msg}", url)
                 transaction(cur, eid, txn, field, "SYNC_FAILED"); conn.commit()
 
     summary = (f"fields ok={ok_fields} failed={failed_fields}; "
