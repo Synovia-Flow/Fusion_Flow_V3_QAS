@@ -85,90 +85,74 @@ def fallback_route(profile: dict[str, object]) -> list[dict[str, object]]:
 
 def load_portal_profile(value: str) -> dict[str, object]:
     portal_code = normalize_portal_code(value)
-    try:
-        if table_exists("CFG.Portal_Client_Profile"):
-            profile = query_one(
-                """
-                SELECT PortalClientCode, ClientCode, ClientName, TssCredentialClientCode,
-                       PreferredEnvCode, UploadProfileCode, RequiresEnsBeforeSubmit, IsActive, Notes
-                FROM CFG.Portal_Client_Profile
-                WHERE PortalClientCode = ? OR ClientCode = ? OR TssCredentialClientCode = ?
-                """,
-                [portal_code, portal_code, portal_code],
-            )
-            if profile:
-                file_profile = None
-                if table_exists("CFG.File_Profile"):
-                    file_profile = query_one(
-                        """
-                        SELECT ProfileCode, FileRole, RequiredFileOrdinal, FileDisplayName,
-                               AcceptedExtensions, TargetLandingTable, TargetCanonicalRoot,
-                               MappingStatus, IsRequired, IsActive, Notes
-                        FROM CFG.File_Profile
-                        WHERE ProfileCode = ? AND IsActive = 1
-                        """,
-                        [profile["UploadProfileCode"]],
-                    )
-                return {
-                    "portalClientCode": profile["PortalClientCode"],
-                    "clientCode": profile["ClientCode"],
-                    "clientName": profile["ClientName"],
-                    "tssCredentialClientCode": profile["TssCredentialClientCode"],
-                    "preferredEnvCode": profile["PreferredEnvCode"],
-                    "uploadProfileCode": profile["UploadProfileCode"],
-                    "requiresEnsBeforeSubmit": bool(profile["RequiresEnsBeforeSubmit"]),
-                    "isActive": bool(profile["IsActive"]),
-                    "notes": profile.get("Notes"),
-                    "fileProfile": {
-                        "profileCode": (file_profile or {}).get("ProfileCode", profile["UploadProfileCode"]),
-                        "fileRole": (file_profile or {}).get("FileRole", "CONSIGNMENT_UPLOAD"),
-                        "requiredFileOrdinal": (file_profile or {}).get("RequiredFileOrdinal"),
-                        "fileDisplayName": (file_profile or {}).get("FileDisplayName"),
-                        "acceptedExtensions": (file_profile or {}).get("AcceptedExtensions"),
-                        "targetLandingTable": (file_profile or {}).get("TargetLandingTable"),
-                        "targetCanonicalRoot": (file_profile or {}).get("TargetCanonicalRoot"),
-                        "mappingStatus": (file_profile or {}).get("MappingStatus", "UNKNOWN"),
-                        "notes": (file_profile or {}).get("Notes"),
-                    },
-                }
-    except DbUnavailable:
-        raise
-    except Exception:
-        # Keep API usable before the optional 013 migration is deployed.
-        pass
-
     profile = fallback_profile(portal_code)
     if not profile:
         raise HTTPException(status_code=404, detail=f"No portal profile configured for {value}.")
+
+    try:
+        client = query_one(
+            """
+            SELECT ClientCode, ClientName, SchemaName, DefaultRoute, IsAgent, IsActive, Notes
+            FROM CFG.Clients
+            WHERE ClientCode = ?
+            """,
+            [profile["clientCode"]],
+        )
+        if client:
+            profile["clientCode"] = client["ClientCode"]
+            profile["clientName"] = client.get("ClientName") or profile["clientName"]
+            profile["schemaName"] = client.get("SchemaName")
+            profile["defaultRoute"] = client.get("DefaultRoute")
+            profile["isAgent"] = bool(client.get("IsAgent"))
+            profile["isActive"] = bool(client.get("IsActive"))
+            profile["notes"] = client.get("Notes") or profile.get("notes")
+
+        credential = query_one(
+            """
+            SELECT TOP 1 ClientCode, EnvCode
+            FROM CFG.TSS_Credential
+            WHERE ClientCode = ?
+            ORDER BY IsActive DESC, CASE WHEN EnvCode IN ('PRD', 'TST') THEN 0 ELSE 1 END, EnvCode
+            """,
+            [profile["tssCredentialClientCode"]],
+        )
+        if credential:
+            profile["tssCredentialClientCode"] = credential["ClientCode"]
+            profile["preferredEnvCode"] = credential["EnvCode"]
+    except DbUnavailable:
+        raise
+    except Exception:
+        pass
+
     return profile
 
 
 def load_submission_route(profile: dict[str, object]) -> list[dict[str, object]]:
     try:
-        if table_exists("CFG.TSS_Submission_Route"):
-            rows = query_all(
-                """
-                SELECT StepNo, OperationCode, ResourceName, Endpoint, HttpMethod, OpType, RequiresPrevious, Notes
-                FROM CFG.TSS_Submission_Route
-                WHERE PortalClientCode = ? AND IsActive = 1
-                ORDER BY RouteCode, StepNo
-                """,
-                [profile["portalClientCode"]],
-            )
-            if rows:
-                return [
-                    {
-                        "stepNo": row["StepNo"],
-                        "operationCode": row["OperationCode"],
-                        "resourceName": row["ResourceName"],
-                        "endpoint": row["Endpoint"],
-                        "httpMethod": row["HttpMethod"],
-                        "opType": row["OpType"],
-                        "requiresPrevious": row.get("RequiresPrevious"),
-                        "notes": row.get("Notes"),
-                    }
-                    for row in rows
-                ]
+        rows = query_all(
+            """
+            SELECT StepNo, ResourceName, Endpoint, HttpMethod, OpType, WaitSeconds, Notes
+            FROM CFG.API_Process_Map
+            WHERE ClientCode = ? AND RouteCode = COALESCE(?, RouteCode) AND IsActive = 1
+            ORDER BY StepNo
+            """,
+            [profile["clientCode"], profile.get("defaultRoute")],
+        )
+        if rows:
+            return [
+                {
+                    "stepNo": row["StepNo"],
+                    "operationCode": f"{str(row.get('ResourceName') or 'TSS').upper().replace(' ', '_')}_{str(row.get('OpType') or '').upper()}",
+                    "resourceName": row["ResourceName"],
+                    "endpoint": row["Endpoint"],
+                    "httpMethod": row["HttpMethod"],
+                    "opType": row.get("OpType"),
+                    "requiresPrevious": None,
+                    "waitSeconds": row.get("WaitSeconds"),
+                    "notes": row.get("Notes"),
+                }
+                for row in rows
+            ]
     except DbUnavailable:
         raise
     except Exception:
@@ -288,23 +272,12 @@ def health(check_db: bool = Query(False)) -> dict[str, object]:
 @app.get("/api/portal/profiles")
 def portal_profiles() -> dict[str, object]:
     try:
-        if table_exists("CFG.Portal_Client_Profile"):
-            rows = query_all(
-                """
-                SELECT PortalClientCode, ClientCode, ClientName, TssCredentialClientCode,
-                       PreferredEnvCode, UploadProfileCode, RequiresEnsBeforeSubmit, IsActive, Notes
-                FROM CFG.Portal_Client_Profile
-                WHERE IsActive = 1
-                ORDER BY PortalClientCode
-                """
-            )
-            if rows:
-                return {"profiles": [load_portal_profile(row["PortalClientCode"]) for row in rows], "source": "CFG.Portal_Client_Profile"}
+        return {
+            "profiles": [load_portal_profile(str(profile["portalClientCode"])) for profile in fallback_profiles()],
+            "source": "CFG.Clients + CFG.TSS_Credential",
+        }
     except DbUnavailable as exc:
         raise db_error(exc) from exc
-    except Exception:
-        pass
-    return {"profiles": fallback_profiles(), "source": "fallback"}
 
 
 @app.get("/api/file-profiles")
@@ -723,25 +696,6 @@ def selected_file_ordinal(profile: dict[str, object]) -> int:
 
 
 def load_file_profile_column_map(profile: dict[str, object]) -> list[dict[str, object]]:
-    file_profile = profile.get("fileProfile") or {}
-    profile_code = file_profile.get("profileCode")
-    if not profile_code:
-        return []
-    try:
-        if table_exists("CFG.File_Profile_Column_Map"):
-            return query_all(
-                """
-                SELECT SourceColumn, TargetTable, TargetColumn, IsRequired, TransformName, DefaultValue, Ordinal, IsActive
-                FROM CFG.File_Profile_Column_Map
-                WHERE ProfileCode = ? AND IsActive = 1
-                ORDER BY COALESCE(Ordinal, 9999), SourceColumn
-                """,
-                [profile_code],
-            )
-    except DbUnavailable:
-        raise
-    except Exception:
-        pass
     return []
 
 

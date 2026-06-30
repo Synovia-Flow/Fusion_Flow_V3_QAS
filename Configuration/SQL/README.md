@@ -31,7 +31,6 @@ later module phases.
 | 10 | `010_prs_tables.sql` | PRS canonical-object tables: `ENS_Header`, `Consignment`, `Goods_Item` + 10 nested child tables (Module 2 Data Processing output; 1 header → many consignments → ≤99 goods + nested arrays) |
 | 11 | `011_seed_processing_params.sql` | Module 2 run-control parameters in `CFG.Application_Parameters` (`PROCESSING_CLIENT`, `PROCESSING_TRANSACTION_MODE`, `PROCESSING_DRY_RUN`) — the runner has **no CLI** |
 | 12 | `012_cfg_jobs.sql` | `CFG.Job` — canonical registry of scheduled jobs (purpose, module, client/channel, step order, entry point). Seeds the ingestion cycle + steps, the channel-acquire stubs, and the PRS processing job; plus `INGESTION_CLIENT` / `INGESTION_DRY_RUN`. The ingestion runner reads this table to drive the cycle. |
-| 13 | `013_cfg_portal_tss_profiles.sql` | `CFG.Portal_Client_Profile`, `CFG.File_Profile`, `CFG.File_Profile_Column_Map`, `CFG.TSS_Submission_Route` - portal upload/TSS route profiles for PLE and CW. PLE uses attached file #1; CW uses attached file #2; both require ENS update before submit. |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 
