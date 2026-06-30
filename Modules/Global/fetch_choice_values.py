@@ -234,8 +234,9 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
     conn = pyodbc.connect(conn_str(load_db_config(ini_path)), autocommit=False)
     cur = conn.cursor()
 
-    env_code = (param(cur, "CHOICE_VALUES_ENV", "TST") or "TST").strip().upper()
+    env_code = (param(cur, "CHOICE_VALUES_ENV", "PRD") or "PRD").strip().upper()
     client_code = (param(cur, "CHOICE_VALUES_CLIENT", "BKD") or "BKD").strip().upper()
+    path_prefix = "/" + (param(cur, "CHOICE_VALUES_PATH", "/choice_values") or "/choice_values").strip().strip("/")
     dry_run = (param(cur, "CHOICE_VALUES_DRY_RUN", "0") or "0").strip().lower() in ("1", "true", "yes", "on")
 
     base_url, user, pwd = resolve_endpoint(cur, env_code, client_code)
@@ -258,7 +259,7 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
     for i, field in enumerate(fields):
         if i:
             time.sleep(RATE_LIMIT_SECONDS)
-        url = f"{base_url}/choice_values/{field}"
+        url = f"{base_url}{path_prefix}/{field}"
         try:
             resp = session.get(url, timeout=TIMEOUT)
             if resp.status_code != 200:
@@ -293,6 +294,13 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                f"values new={tot['new']} changed={tot['changed']} removed={tot['removed']} "
                f"unchanged={tot['unchanged']}")
     print(f"\n{summary}")
+    if ok_fields == 0 and failed_fields:
+        print("[HINT] Every field failed. choice_values is served on PRODUCTION - the TST tenant\n"
+              "       returns HTTP 400 'URI does not represent any resource'. Point the downloader at\n"
+              "       production with an active production credential:\n"
+              "         UPDATE CFG.Application_Parameters SET ParameterValue='PRD' WHERE ParameterKey='CHOICE_VALUES_ENV';\n"
+              "         UPDATE CFG.Application_Parameters SET ParameterValue='BKD' WHERE ParameterKey='CHOICE_VALUES_CLIENT';\n"
+              "       (ensure CFG.TSS_Credential has an active, valid password for that client/PRD).")
     if not dry_run:
         status = "COMPLETED" if failed_fields == 0 else "COMPLETED_WITH_WARNINGS"
         finish_execution(cur, eid, status, len(fields), ok_fields, failed_fields,
