@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import base64
 import json
@@ -47,6 +47,45 @@ def compact(value: Any) -> Any:
     return value
 
 
+def normalise(value: Any) -> str:
+    return str(value or "").strip().lower().replace(" ", "_")
+
+
+def is_consignment_step(step: dict[str, Any]) -> bool:
+    resource = normalise(step.get("resourceName") or step.get("ResourceName"))
+    endpoint = normalise(step.get("endpoint") or step.get("Endpoint"))
+    operation = normalise(step.get("operationCode") or step.get("OperationCode"))
+    return "consignment" in resource or "consignment" in endpoint or "consignment" in operation
+
+
+def route_step_for(route: list[dict[str, Any]], op_type: str) -> tuple[int, dict[str, Any]] | None:
+    wanted = normalise(op_type)
+    for index, step in enumerate(route):
+        operation = normalise(step.get("operationCode") or step.get("OperationCode"))
+        current_op_type = normalise(step.get("opType") or step.get("OpType"))
+        if not is_consignment_step(step):
+            continue
+        if current_op_type == wanted or operation.endswith("_" + wanted) or wanted in operation:
+            return index, step
+    return None
+
+
+def ens_update_before_submit(route: list[dict[str, Any]]) -> tuple[bool, dict[str, Any] | None, dict[str, Any] | None]:
+    update_match = route_step_for(route, "update")
+    submit_match = route_step_for(route, "submit")
+    if not update_match or not submit_match:
+        return False, update_match[1] if update_match else None, submit_match[1] if submit_match else None
+    return update_match[0] < submit_match[0], update_match[1], submit_match[1]
+
+
+def step_endpoint(step: dict[str, Any] | None) -> str:
+    return str((step or {}).get("endpoint") or (step or {}).get("Endpoint") or "/consignments")
+
+
+def step_method(step: dict[str, Any] | None) -> str:
+    return str((step or {}).get("httpMethod") or (step or {}).get("HttpMethod") or "POST")
+
+
 def non_empty_payload(row: dict[str, Any], *, op_type: str, ens_value: str | None) -> dict[str, Any]:
     payload: dict[str, Any] = {"op_type": op_type}
     for key, value in row.items():
@@ -83,8 +122,7 @@ def build_consignment_submission_plan(
     }
     submit_payload = {k: v for k, v in submit_payload.items() if compact(v) is not None}
     missing = missing_required(update_payload, len(goods_items))
-    route_steps = [step.get("operationCode") for step in route]
-    ens_step_first = route_steps[:2] == ["UPDATE_CONSIGNMENT_WITH_ENS", "SUBMIT_CONSIGNMENT"]
+    ens_step_first, update_step, submit_step = ens_update_before_submit(route)
     submit_allowed = not missing and ens_step_first and bool(profile.get("requiresEnsBeforeSubmit", True))
 
     return {
@@ -93,17 +131,18 @@ def build_consignment_submission_plan(
         "ensDeclarationNumber": ens_value,
         "goodsItemCount": len(goods_items),
         "routeIsEnsFirst": ens_step_first,
+        "routeBlockers": [] if ens_step_first else ["UPDATE_CONSIGNMENT_WITH_ENS must be configured before SUBMIT_CONSIGNMENT."],
         "steps": [
             {
                 "operationCode": "UPDATE_CONSIGNMENT_WITH_ENS",
-                "endpoint": "/consignments",
-                "httpMethod": "POST",
+                "endpoint": step_endpoint(update_step),
+                "httpMethod": step_method(update_step),
                 "payload": update_payload,
             },
             {
                 "operationCode": "SUBMIT_CONSIGNMENT",
-                "endpoint": "/consignments",
-                "httpMethod": "POST",
+                "endpoint": step_endpoint(submit_step),
+                "httpMethod": step_method(submit_step),
                 "payload": submit_payload,
             },
         ],
