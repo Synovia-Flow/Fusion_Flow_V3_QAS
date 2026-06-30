@@ -15,7 +15,7 @@ from .config import allowed_origins
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
 from .file_introspection import inspect_upload, summarise_mapping
 from .mapping_suggestions import suggest_column_mappings
-from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code
+from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, required_file_ordinal
 from .tss_submission import build_consignment_submission_plan, post_tss_json
 
 app = FastAPI(
@@ -687,12 +687,7 @@ def consignment_detail(consignment_row_id: int) -> dict[str, object]:
 
 
 def selected_file_ordinal(profile: dict[str, object]) -> int:
-    raw = (profile.get("fileSelection") or {}).get("requiredFileOrdinal")
-    try:
-        ordinal = int(raw or 1)
-    except (TypeError, ValueError):
-        ordinal = 1
-    return max(1, ordinal)
+    return required_file_ordinal(profile)
 
 
 def load_file_profile_column_map(profile: dict[str, object]) -> list[dict[str, object]]:

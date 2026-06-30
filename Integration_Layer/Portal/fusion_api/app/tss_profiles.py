@@ -62,5 +62,13 @@ def fallback_profile(value: str) -> dict[str, object] | None:
     return deepcopy(profile) if profile else None
 
 
+def required_file_ordinal(profile: dict[str, object]) -> int:
+    raw = (profile.get("fileSelection") or {}).get("requiredFileOrdinal")
+    try:
+        ordinal = int(raw or 1)
+    except (TypeError, ValueError):
+        ordinal = 1
+    return max(1, ordinal)
+
 def fallback_profiles() -> list[dict[str, object]]:
     return [deepcopy(profile) for profile in FALLBACK_PORTAL_PROFILES.values()]
