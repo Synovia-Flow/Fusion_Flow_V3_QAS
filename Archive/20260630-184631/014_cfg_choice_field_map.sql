@@ -49,14 +49,10 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='IX_CFG_Choice_Field_Map_Fie
     CREATE INDEX IX_CFG_Choice_Field_Map_Field ON CFG.Choice_Field_Map (ChoiceField, IsActive);
 GO
 
-/* Ensure transport_charges is in the registry (choice field; downloaded too). */
-MERGE CFG.Choice_Field_Registry AS t
-USING (VALUES ('transport_charges'), ('controlled_goods_type'), ('package_type'))
-    AS s (ChoiceField)
-ON t.ChoiceField = s.ChoiceField
-WHEN NOT MATCHED THEN INSERT (ChoiceField, ApiPath)
-    VALUES (s.ChoiceField, CONCAT('/choice_values/', s.ChoiceField));
-GO
+/* The 35 canonical choice fields are seeded in 003. transport_charges /        */
+/* controlled_goods_type / package_type are NOT /choice_values endpoints per the */
+/* TSS Choice Fields reference - transport_charges is a fixed QAS value, so they  */
+/* are intentionally NOT registered here.                                        */
 
 /* ------------------------------------------------------------------ */
 /* Seed the field -> column map.                                       */
@@ -66,12 +62,12 @@ GO
 MERGE CFG.Choice_Field_Map AS t
 USING (VALUES
     /* --- ENS Declaration Header (PRS.BKD_ENS_Header_Submission) --- */
-    ('mode_of_transport',        'PRS', 'BKD_ENS_Header_Submission', 'movement_type',             'ENS_HEADER',  'NAME',  'Our movement_type resolves against CV mode_of_transport.'),
+    ('movement_type',            'PRS', 'BKD_ENS_Header_Submission', 'movement_type',             'ENS_HEADER',  'NAME',  'Header movement_type resolves against CV movement_type (TSS Choice Fields ref; mode_of_transport is FFD/IMMI only).'),
     ('passive_transport_types',  'PRS', 'BKD_ENS_Header_Submission', 'type_of_passive_transport', 'ENS_HEADER',  'NAME',  NULL),
     ('country',                  'PRS', 'BKD_ENS_Header_Submission', 'nationality_of_transport',  'ENS_HEADER',  'NAME',  'Country name -> alpha-2 code.'),
     ('country',                  'PRS', 'BKD_ENS_Header_Submission', 'carrier_country',           'ENS_HEADER',  'NAME',  NULL),
     ('port',                     'PRS', 'BKD_ENS_Header_Submission', 'arrival_port',              'ENS_HEADER',  'NAME',  'Port name -> location code (e.g. GBAUBELBELBEL).'),
-    ('transport_charges',        'PRS', 'BKD_ENS_Header_Submission', 'transport_charges',         'ENS_HEADER',  'NAME',  'Account holder with carrier -> Y, etc.'),
+    /* transport_charges is a fixed QAS value (BKD=Y), not a /choice_values field - no map row. */
 
     /* --- Consignment (PRS.Consignment) --- */
     ('goods_domestic_status',    'PRS', 'Consignment', 'goods_domestic_status', 'CONSIGNMENT', 'VALUE', 'Single char (e.g. D).'),
@@ -79,7 +75,6 @@ USING (VALUES
     ('sfd_declaration_choice',   'PRS', 'Consignment', 'declaration_choice',    'CONSIGNMENT', 'VALUE', 'H1/H2/H3/H4.'),
 
     /* --- Goods Item (PRS.Goods_Item) --- */
-    ('package_type',             'PRS', 'Goods_Item', 'type_of_packages',         'GOODS_ITEM', 'NAME',  NULL),
     ('procedure_code',           'PRS', 'Goods_Item', 'procedure_code',           'GOODS_ITEM', 'VALUE', NULL),
     ('additional_procedure_code','PRS', 'Goods_Item', 'additional_procedure_code','GOODS_ITEM', 'VALUE', NULL),
     ('preference',               'PRS', 'Goods_Item', 'preference',               'GOODS_ITEM', 'VALUE', NULL),
@@ -87,7 +82,7 @@ USING (VALUES
     ('valuation_method',         'PRS', 'Goods_Item', 'valuation_method',         'GOODS_ITEM', 'VALUE', NULL),
     ('valuation_indicator',      'PRS', 'Goods_Item', 'valuation_indicator',      'GOODS_ITEM', 'VALUE', NULL),
     ('nature_of_transaction',    'PRS', 'Goods_Item', 'nature_of_transaction',    'GOODS_ITEM', 'VALUE', NULL),
-    ('controlled_goods_type',    'PRS', 'Goods_Item', 'controlled_goods_type',    'GOODS_ITEM', 'VALUE', NULL),
+    ('commodity_code',           'PRS', 'Goods_Item', 'commodity_code',           'GOODS_ITEM', 'VALUE', NULL),
     ('country',                  'PRS', 'Goods_Item', 'country_of_origin',        'GOODS_ITEM', 'VALUE', NULL),
     ('country',                  'PRS', 'Goods_Item', 'country_of_preferential_origin', 'GOODS_ITEM', 'VALUE', NULL),
     ('ni_additional_information_code', 'PRS', 'Goods_Item', 'ni_additional_information_codes', 'GOODS_ITEM', 'VALUE', NULL)
@@ -103,8 +98,9 @@ GO
 /* ------------------------------------------------------------------ */
 MERGE CFG.Application_Parameters AS t
 USING (VALUES
-    ('CHOICE_VALUES_ENV',     'TST', 'STRING', 'Choice-values downloader: which TSS environment (CFG.TSS_Environment) to query.'),
-    ('CHOICE_VALUES_CLIENT',  'BKD', 'STRING', 'Choice-values downloader: which client credential (CFG.TSS_Credential) to authenticate with (reference data is client-agnostic).'),
+    ('CHOICE_VALUES_ENV',     'PRD', 'STRING', 'Choice-values downloader: which TSS environment (CFG.TSS_Environment) to query. Use PRD - choice_values is served on production; the TST tenant returns HTTP 400 for it.'),
+    ('CHOICE_VALUES_CLIENT',  'BKD', 'STRING', 'Choice-values downloader: which client credential (CFG.TSS_Credential) to authenticate with (reference data is client-agnostic; must be active for the chosen env).'),
+    ('CHOICE_VALUES_PATH',    '/choice_values', 'STRING', 'Choice-values downloader: resource path prefix; field name is appended (<base>/choice_values/<field>).'),
     ('CHOICE_VALUES_DRY_RUN', '0',   'BOOL',   'Choice-values downloader: 1/true = fetch + report only, write nothing.')
 ) AS s (ParameterKey, ParameterValue, ValueType, Description)
 ON t.ParameterKey = s.ParameterKey
