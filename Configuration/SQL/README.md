@@ -32,6 +32,7 @@ later module phases.
 | 11 | `011_seed_processing_params.sql` | Module 2 run-control parameters in `CFG.Application_Parameters` (`PROCESSING_CLIENT`, `PROCESSING_TRANSACTION_MODE`, `PROCESSING_DRY_RUN`) — the runner has **no CLI** |
 | 12 | `012_cfg_jobs.sql` | `CFG.Job` — canonical registry of scheduled jobs (purpose, module, client/channel, step order, entry point). Seeds the ingestion cycle + steps, the channel-acquire stubs, and the PRS processing job; plus `INGESTION_CLIENT` / `INGESTION_DRY_RUN`. The ingestion runner reads this table to drive the cycle. |
 | 13 | `013_prs_bkd_ens_header.sql` | `PRS.BKD_ENS_Header_Submission` — ENS Declaration Header in exact TSS field shape (27 fields) + `Fusion_Status` (STAGED→VALIDATED→SUBMITTED) + TSS read-only status; and `PRS.BKD_ENS_Header_Tracking` — the parallel control/source spine (ING lineage, status, timeline) — one row per movement. |
+| 14 | `014_cfg_choice_field_map.sql` | `CFG.Choice_Field_Map` — maps each TSS choice-value set (`Choice_Field_Registry`) to the schema column(s) it governs (e.g. CV `mode_of_transport` → `movement_type`), with `MatchOn` (NAME/VALUE). Adds `transport_charges`/`controlled_goods_type`/`package_type` to the registry; seeds downloader controls (`CHOICE_VALUES_*`) and registers the `REF_FETCH_CHOICE_VALUES` job. Fed by `Modules/Global/fetch_choice_values.py`. |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 
