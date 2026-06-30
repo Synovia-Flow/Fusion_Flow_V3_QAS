@@ -1,6 +1,6 @@
 import unittest
 
-from app.tss_profiles import fallback_profile, normalize_portal_code, required_file_index, required_file_ordinal
+from app.tss_profiles import fallback_profile, normalize_portal_code, required_file_index, required_file_ordinal, select_required_file
 
 
 class PortalClientBridgeTests(unittest.TestCase):
@@ -34,6 +34,26 @@ class PortalClientBridgeTests(unittest.TestCase):
         self.assertEqual(required_file_index(bad_profile), 0)
         self.assertEqual(required_file_ordinal(zero_profile), 1)
         self.assertEqual(required_file_index(zero_profile), 0)
+
+    def test_primeline_selects_first_file_from_uploaded_attachments(self):
+        profile = fallback_profile("PLE")
+
+        selected = select_required_file(["primeline.xlsx", "countrywide.xlsx"], profile)
+
+        self.assertEqual(selected, "primeline.xlsx")
+
+    def test_countrywide_selects_second_file_from_uploaded_attachments(self):
+        profile = fallback_profile("CW")
+
+        selected = select_required_file(["primeline.xlsx", "countrywide.xlsx"], profile)
+
+        self.assertEqual(selected, "countrywide.xlsx")
+
+    def test_countrywide_requires_second_uploaded_attachment(self):
+        profile = fallback_profile("CW")
+
+        with self.assertRaisesRegex(ValueError, "requires attached file #2"):
+            select_required_file(["only-one.xlsx"], profile)
 
     def test_countrywide_aliases_normalise_to_cw(self):
         for value in ("Countrywide", "Country Wide", "CWD", "CWF", "CWH"):

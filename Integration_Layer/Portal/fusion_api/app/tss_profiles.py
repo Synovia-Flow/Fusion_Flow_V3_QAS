@@ -75,5 +75,12 @@ def required_file_index(profile: dict[str, object]) -> int:
     return required_file_ordinal(profile) - 1
 
 
+def select_required_file(files: list[object], profile: dict[str, object]) -> object:
+    ordinal = required_file_ordinal(profile)
+    if len(files) < ordinal:
+        code = profile.get("portalClientCode") or profile.get("clientCode") or "Client"
+        raise ValueError(f"{code} requires attached file #{ordinal}; only {len(files)} file(s) were provided.")
+    return files[required_file_index(profile)]
+
 def fallback_profiles() -> list[dict[str, object]]:
     return [deepcopy(profile) for profile in FALLBACK_PORTAL_PROFILES.values()]

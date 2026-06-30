@@ -15,7 +15,7 @@ from .config import allowed_origins
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
 from .file_introspection import inspect_upload, summarise_mapping
 from .mapping_suggestions import suggest_column_mappings
-from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, required_file_index, required_file_ordinal
+from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, required_file_ordinal, select_required_file
 from .tss_submission import build_consignment_submission_plan, post_tss_json
 
 app = FastAPI(
@@ -709,16 +709,10 @@ def upload_consignment_preview(
     profile = load_portal_profile(client_code)
     code = str(profile["clientCode"])
     required_ordinal = selected_file_ordinal(profile)
-    if len(uploaded_files) < required_ordinal:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"{profile['portalClientCode']} requires attached file #{required_ordinal}; "
-                f"only {len(uploaded_files)} file(s) were provided."
-            ),
-        )
-
-    selected_file = uploaded_files[required_file_index(profile)]
+    try:
+        selected_file = select_required_file(uploaded_files, profile)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     selected_content = selected_file.file.read()
     digest = hashlib.sha256(selected_content)
     size = len(selected_content)
