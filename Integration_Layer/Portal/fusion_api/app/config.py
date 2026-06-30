@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import configparser
 import os
@@ -71,6 +71,14 @@ def connection_string(config: dict[str, str]) -> str:
     parts.append(f"Encrypt={'yes' if encrypt else 'no'}")
     parts.append(f"TrustServerCertificate={'yes' if trust else 'no'}")
     return ";".join(parts) + ";"
+
+
+
+def config_value(key: str, default: str = "") -> str:
+    value = os.environ.get(key)
+    if value is not None:
+        return _clean_env_value(value)
+    return _dotenv_values(DEFAULT_DOTENV).get(key, default)
 
 
 def allowed_origins() -> list[str]:

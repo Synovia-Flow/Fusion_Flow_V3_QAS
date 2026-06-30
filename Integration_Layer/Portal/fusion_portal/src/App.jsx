@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getConsignments, getDashboard, getSession, getTssConnections, prepareTssConsignmentSubmit, previewConsignmentUpload } from './api';
+import { getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'PLE',
@@ -26,13 +26,6 @@ function sessionFallback(clientCode = DEFAULT_SESSION.tenantCode) {
   };
 }
 
-function resolveTenantFromCredentials({ username = '' } = {}) {
-  const clean = username.trim().toUpperCase();
-  if (clean.includes('COUNTRY') || clean.includes('CWD') || clean.includes('CWF') || clean === 'CW') {
-    return 'CW';
-  }
-  return 'PLE';
-}
 
 const CONSIGNMENTS = [
   {
@@ -229,10 +222,17 @@ function LoginCard({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [loginState, setLoginState] = useState({ status: 'idle', error: '' });
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
-    onLogin({ username, password });
+    setLoginState({ status: 'loading', error: '' });
+    try {
+      await onLogin({ username, password });
+      setLoginState({ status: 'idle', error: '' });
+    } catch (error) {
+      setLoginState({ status: 'error', error: error.message });
+    }
   }
 
   return (
@@ -248,7 +248,8 @@ function LoginCard({ onLogin }) {
             <MaterialIcon>{showPassword ? 'visibility' : 'visibility_off'}</MaterialIcon>
           </button>
         </label>
-        <button className="submit-button" type="submit">Login</button>
+        {loginState.status === 'error' && <div className="login-error">{loginState.error}</div>}
+        <button className="submit-button" type="submit" disabled={loginState.status === 'loading'}>{loginState.status === 'loading' ? 'Checking' : 'Login'}</button>
         <button className="forgot-button" type="button">Forgot password?</button>
       </form>
     </section>
@@ -674,15 +675,27 @@ export default function App() {
     setDrawerOpen(false);
   }
 
-  function handleLogin(credentials) {
-    const clientCode = resolveTenantFromCredentials(credentials);
-    const fallback = sessionFallback(clientCode);
+  async function handleLogin(credentials) {
+    setApiStatus('loading');
+    setApiError('');
+    let payload;
+    try {
+      payload = await loginPortal(credentials);
+    } catch (error) {
+      setApiStatus('offline');
+      setApiError(error.message);
+      throw error;
+    }
+    const activeSession = payload.session || sessionFallback(DEFAULT_SESSION.tenantCode);
     setSession({
-      ...fallback,
-      username: credentials?.username?.trim() || fallback.username,
+      tenantCode: activeSession.tenantCode || DEFAULT_SESSION.tenantCode,
+      tenantName: activeSession.tenantName || DEFAULT_SESSION.tenantName,
+      username: activeSession.username || credentials?.username?.trim() || DEFAULT_SESSION.username,
+      role: activeSession.role || DEFAULT_SESSION.role,
     });
-    setConnection(null);
+    setConnection(payload.connection || null);
     setIsAuthenticated(true);
+    setApiStatus('online');
     navigate('dashboard');
   }
 

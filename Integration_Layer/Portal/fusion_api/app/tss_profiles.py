@@ -82,5 +82,11 @@ def select_required_file(files: list[object], profile: dict[str, object]) -> obj
         raise ValueError(f"{code} requires attached file #{ordinal}; only {len(files)} file(s) were provided.")
     return files[required_file_index(profile)]
 
+
+def portal_code_for_tss_client(value: str) -> str | None:
+    code = normalize_portal_code(value)
+    return code if code in FALLBACK_PORTAL_PROFILES else None
+
+
 def fallback_profiles() -> list[dict[str, object]]:
     return [deepcopy(profile) for profile in FALLBACK_PORTAL_PROFILES.values()]

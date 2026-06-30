@@ -333,6 +333,18 @@ button:disabled { cursor: default; }
 }
 .visibility-button .material-symbols-outlined { font-size: 24px; color: #616161; }
 
+
+.login-error {
+  min-height: 32px;
+  border-radius: 8px;
+  background: rgba(220, 38, 38, .1);
+  color: var(--danger);
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
 .submit-button {
   height: 30px;
   border: 0;

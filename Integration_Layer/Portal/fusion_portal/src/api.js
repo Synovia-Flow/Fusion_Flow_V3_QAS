@@ -21,6 +21,13 @@ async function request(path, options = {}) {
   return response.json();
 }
 
+export function loginPortal({ username, password }) {
+  return request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+}
 export function getSession(clientCode) {
   return request(`/api/session?client_code=${encodeURIComponent(clientCode)}`);
 }

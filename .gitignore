@@ -47,3 +47,6 @@ Configuration/tss_credentials.json
 
 # Frontend local dev server logs
 Integration_Layer/Portal/fusion_portal/vite-dev.*.log
+
+# Backend local dev server logs
+Integration_Layer/Portal/fusion_api/uvicorn.*.log

@@ -21,7 +21,7 @@ $env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QA
 ## Routes
 
 - `GET /api/health?check_db=true`
-- `GET /api/session?client_code=PLE` or `client_code=CW`
+- `POST /api/auth/login` - resolves the portal tenant from username/password using existing `CFG.TSS_Credential` rows, with `FLOW_V1_USER` fallback for local app login. Secrets are never returned.`r`n- `GET /api/session?client_code=PLE` or `client_code=CW`
 - `GET /api/dashboard?client_code=PLE` or `client_code=CW`
 - `GET /api/consignments?client_code=PLE&status=ALL&q=&limit=100` or `client_code=CW`
 - `GET /api/consignments/{consignment_row_id}`

@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import allowed_origins
+from .config import allowed_origins, config_value
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
 from .file_introspection import inspect_upload, summarise_mapping
 from .mapping_suggestions import suggest_column_mappings
-from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, required_file_ordinal, select_required_file
+from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, portal_code_for_tss_client, required_file_ordinal, select_required_file
 from .tss_submission import build_consignment_submission_plan, post_tss_json
 
 app = FastAPI(
@@ -254,6 +255,41 @@ def log_api_trace(client_code: str, step: dict[str, object], request_payload: di
     )
 
 
+def public_connection_payload(profile: dict[str, object], env_code: str | None = None) -> dict[str, object]:
+    credential = credential_status(profile, env_code=env_code)
+    return {
+        "portalClientCode": profile["portalClientCode"],
+        "clientCode": profile["clientCode"],
+        "clientName": profile["clientName"],
+        "tssCredentialClientCode": profile["tssCredentialClientCode"],
+        "preferredEnvCode": env_code or profile["preferredEnvCode"],
+        "requiresEnsBeforeSubmit": profile["requiresEnsBeforeSubmit"],
+        "fileSelection": profile["fileSelection"],
+        "credential": credential,
+        "route": load_submission_route(profile),
+    }
+
+
+def session_payload(profile: dict[str, object], username: str) -> dict[str, object]:
+    return {
+        "tenantCode": profile["portalClientCode"],
+        "tenantName": profile["clientName"],
+        "username": username,
+        "role": "CentralAdmin",
+    }
+
+
+def env_app_login_matches(username: str, password: str) -> bool:
+    expected_user = config_value("FLOW_V1_USER")
+    expected_password = config_value("FLOW_V1_PASSWORD")
+    return bool(
+        expected_user
+        and expected_password
+        and hmac.compare_digest(username, expected_user)
+        and hmac.compare_digest(password, expected_password)
+    )
+
+
 @app.get("/api/health")
 def health(check_db: bool = Query(False)) -> dict[str, object]:
     payload: dict[str, object] = {"status": "ok", "service": "fusion_portal_api"}
@@ -267,6 +303,56 @@ def health(check_db: bool = Query(False)) -> dict[str, object]:
         return payload
     payload.update({"db_checked": True, "db_available": True})
     return payload
+
+
+@app.post("/api/auth/login")
+def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, object]:
+    username = str(payload.get("username") or "").strip()
+    password = str(payload.get("password") or "")
+    if not username or not password:
+        raise HTTPException(status_code=422, detail="Username and password are required.")
+
+    try:
+        row = query_one(
+            """
+            SELECT TOP 1 ClientCode, EnvCode, TssUsername, TssPassword, CAST(IsActive AS int) AS IsActive
+            FROM CFG.TSS_Credential
+            WHERE UPPER(TssUsername) = UPPER(?)
+              AND IsActive = 1
+              AND ClientCode IN ('PLE', 'CWF')
+            ORDER BY CASE
+                WHEN ClientCode = 'PLE' AND EnvCode = 'PRD' THEN 0
+                WHEN ClientCode = 'CWF' AND EnvCode = 'TST' THEN 0
+                ELSE 1
+            END, EnvCode
+            """,
+            [username],
+        )
+        if row and row.get("TssPassword") and hmac.compare_digest(password, str(row["TssPassword"])):
+            portal_code = portal_code_for_tss_client(str(row["ClientCode"]))
+            if not portal_code:
+                raise HTTPException(status_code=403, detail="This TSS credential is not mapped to a portal client.")
+            profile = load_portal_profile(portal_code)
+            profile["preferredEnvCode"] = row["EnvCode"]
+            return {
+                "authenticated": True,
+                "source": "CFG.TSS_Credential",
+                "session": session_payload(profile, username),
+                "connection": public_connection_payload(profile, env_code=str(row["EnvCode"])),
+            }
+
+        if env_app_login_matches(username, password):
+            profile = load_portal_profile("PLE")
+            return {
+                "authenticated": True,
+                "source": "FLOW_V1_USER",
+                "session": session_payload(profile, username),
+                "connection": public_connection_payload(profile),
+            }
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+    raise HTTPException(status_code=401, detail="Invalid username or password.")
 
 
 @app.get("/api/portal/profiles")

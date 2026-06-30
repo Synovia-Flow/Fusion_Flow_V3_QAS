@@ -1,6 +1,6 @@
 import unittest
 
-from app.tss_profiles import fallback_profile, normalize_portal_code, required_file_index, required_file_ordinal, select_required_file
+from app.tss_profiles import fallback_profile, normalize_portal_code, portal_code_for_tss_client, required_file_index, required_file_ordinal, select_required_file
 
 
 class PortalClientBridgeTests(unittest.TestCase):
@@ -55,6 +55,11 @@ class PortalClientBridgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires attached file #2"):
             select_required_file(["only-one.xlsx"], profile)
 
+
+    def test_tss_credential_clients_map_to_portal_codes(self):
+        self.assertEqual(portal_code_for_tss_client("PLE"), "PLE")
+        self.assertEqual(portal_code_for_tss_client("CWF"), "CW")
+        self.assertEqual(portal_code_for_tss_client("CWD"), "CW")
     def test_countrywide_aliases_normalise_to_cw(self):
         for value in ("Countrywide", "Country Wide", "CWD", "CWF", "CWH"):
             with self.subTest(value=value):
