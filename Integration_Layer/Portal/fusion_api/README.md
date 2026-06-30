@@ -21,11 +21,29 @@ $env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QA
 ## Routes
 
 - `GET /api/health?check_db=true`
-- `GET /api/session?client_code=PLE`
-- `GET /api/dashboard?client_code=PLE`
-- `GET /api/consignments?client_code=PLE&status=ALL&q=&limit=100`
+- `GET /api/session?client_code=PLE` or `client_code=CW`
+- `GET /api/dashboard?client_code=PLE` or `client_code=CW`
+- `GET /api/consignments?client_code=PLE&status=ALL&q=&limit=100` or `client_code=CW`
 - `GET /api/consignments/{consignment_row_id}`
-- `GET /api/ingestion/files?client_code=PLE&limit=50`
+- `GET /api/ingestion/files?client_code=PLE&limit=50` or `client_code=CW`
 - `POST /api/uploads/consignments/preview`
 
 `preview` intentionally does not write to DB yet. It hashes and validates the selected file and returns the target landing path (`ING.Inbound_File` / `ING.Raw_Record`) so the write path can be added deliberately.
+
+## Portal/TSS Prepared Routes
+
+- `GET /api/portal/profiles`
+- `GET /api/file-profiles?client_code=PLE`
+- `GET /api/file-profiles?client_code=CW`
+- `GET /api/tss/connections`
+- `GET /api/tss/route-plan?client_code=PLE`
+- `GET /api/tss/route-plan?client_code=CW`
+- `POST /api/tss/connections/test?client_code=PLE`
+- `POST /api/tss/consignments/{consignment_row_id}/update-ens-plan?client_code=PLE` or `client_code=CW`
+
+Current profile contract:
+
+- `PLE` maps to data client `PLE`, TSS credential client `PLE`, preferred env `PRD`, mandatory file profile `PLE_PRIMELINE_CONSIGNMENT_UPLOAD`.
+- `CW` maps to data client `CWD`, TSS credential client `CWF`, preferred env `TST`, mandatory file profile `CW_COUNTRYWIDE_CONSIGNMENT_UPLOAD`.
+
+Both profiles enforce the route invariant: `UPDATE_CONSIGNMENT_WITH_ENS` must happen before `SUBMIT_CONSIGNMENT`.

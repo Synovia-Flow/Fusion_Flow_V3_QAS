@@ -73,3 +73,10 @@ def execute_scalar(sql: str, params: Iterable[Any] = ()) -> Any:
         cursor.execute(sql, tuple(params))
         row = cursor.fetchone()
         return to_jsonable(row[0]) if row else None
+
+
+def execute(sql: str, params: Iterable[Any] = ()) -> int:
+    with connect() as conn:
+        cursor = conn.cursor()
+        cursor.execute(sql, tuple(params))
+        return int(cursor.rowcount or 0)
