@@ -1,4 +1,4 @@
-﻿const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -39,4 +39,8 @@ export function previewConsignmentUpload({ clientCode, file }) {
   body.append('client_code', clientCode);
   body.append('file', file);
   return request('/api/uploads/consignments/preview', { method: 'POST', body });
+}
+export function prepareTssConsignmentSubmit({ clientCode, consignmentRowId }) {
+  const params = new URLSearchParams({ client_code: clientCode, dry_run: 'true' });
+  return request(`/api/tss/consignments/${encodeURIComponent(consignmentRowId)}/submit?${params.toString()}`, { method: 'POST' });
 }

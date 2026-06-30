@@ -923,6 +923,25 @@ button:disabled { cursor: default; }
 }
 .detail-actions .primary-action,
 .detail-actions .outline-action { min-height: 42px; font-size: 14px; }
+.action-feedback {
+  margin-top: 12px;
+  border: 1px solid #b7e1f1;
+  background: #eefaff;
+  color: #075985;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.action-feedback strong { font-size: 13px; }
+.action-feedback span { overflow-wrap: anywhere; }
+.action-feedback.is-error {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #991b1b;
+}
 
 .scrim {
   position: fixed;

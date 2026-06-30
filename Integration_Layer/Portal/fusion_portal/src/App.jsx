@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getConsignments, getDashboard, getSession, previewConsignmentUpload } from './api';
+import { getConsignments, getDashboard, getSession, prepareTssConsignmentSubmit, previewConsignmentUpload } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'PLE',
@@ -375,11 +375,12 @@ function StatusBadge({ status }) {
   return <span className={`status-badge ${status.toLowerCase().replace('_', '-')}`}>{status.replace('_', ' ')}</span>;
 }
 
-function ViewConsignmentsPage({ onBack, rows, session }) {
+function ViewConsignmentsPage({ onBack, rows, session, onQueueForTss }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
   const sourceRows = rows.length ? rows : CONSIGNMENTS;
   const [selectedId, setSelectedId] = useState(sourceRows[0]?.id || '');
+  const [tssState, setTssState] = useState({ status: 'idle', rowId: '', payload: null, error: '' });
 
   useEffect(() => {
     if (sourceRows.length && !sourceRows.some((row) => row.id === selectedId)) {
@@ -397,6 +398,17 @@ function ViewConsignmentsPage({ onBack, rows, session }) {
   }, [query, status, sourceRows]);
 
   const selected = filtered.find((row) => row.id === selectedId) || filtered[0] || sourceRows[0] || CONSIGNMENTS[0];
+
+  async function handleQueueForTss() {
+    if (!selected?.consignmentRowId || !onQueueForTss) return;
+    setTssState({ status: 'loading', rowId: selected.id, payload: null, error: '' });
+    try {
+      const payload = await onQueueForTss(selected);
+      setTssState({ status: 'ready', rowId: selected.id, payload, error: '' });
+    } catch (error) {
+      setTssState({ status: 'error', rowId: selected.id, payload: null, error: error.message });
+    }
+  }
 
   return (
     <section className="consignments-page" aria-label="View consignments">
@@ -490,8 +502,14 @@ function ViewConsignmentsPage({ onBack, rows, session }) {
           </div>
           <div className="detail-actions">
             <button className="primary-action blue" type="button"><MaterialIcon>visibility</MaterialIcon><span>Open Detail</span></button>
-            <button className="outline-action" type="button"><MaterialIcon>send</MaterialIcon><span>Queue for TSS</span></button>
+            <button className="outline-action" type="button" onClick={handleQueueForTss} disabled={tssState.status === 'loading'}><MaterialIcon>send</MaterialIcon><span>{tssState.status === 'loading' ? 'Checking TSS Route' : 'Queue for TSS'}</span></button>
           </div>
+          {tssState.status !== 'idle' && tssState.rowId === selected.id && (
+            <div className={`action-feedback ${tssState.status === 'error' ? 'is-error' : ''}`}>
+              <strong>{tssState.status === 'ready' ? (tssState.payload?.plan?.ready ? 'Ready for TSS dry-run' : 'TSS blockers found') : 'TSS route check failed'}</strong>
+              <span>{tssState.status === 'ready' ? `ENS step first: ${tssState.payload?.plan?.routeIsEnsFirst ? 'yes' : 'no'} - Missing: ${(tssState.payload?.plan?.missing || []).join(', ') || 'none'}` : tssState.error}</span>
+            </div>
+          )}
         </aside>
       </div>
     </section>
@@ -568,6 +586,10 @@ export default function App() {
     return previewConsignmentUpload({ clientCode: session.tenantCode, file });
   }
 
+  function handleQueueForTss(row) {
+    return prepareTssConsignmentSubmit({ clientCode: session.tenantCode, consignmentRowId: row.consignmentRowId });
+  }
+
   const mainClass = isAuthenticated ? `page-main app-main ${view}-main` : 'page-main login-main';
 
   return (
@@ -577,7 +599,7 @@ export default function App() {
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} />}
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} />}
-        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} session={session} />}
+        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} session={session} onQueueForTss={handleQueueForTss} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
       <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} onNavigate={navigate} onLogout={handleLogout} />

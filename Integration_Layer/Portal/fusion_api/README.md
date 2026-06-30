@@ -40,6 +40,7 @@ $env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QA
 - `GET /api/tss/route-plan?client_code=CW`
 - `POST /api/tss/connections/test?client_code=PLE`
 - `POST /api/tss/consignments/{consignment_row_id}/update-ens-plan?client_code=PLE` or `client_code=CW`
+- `POST /api/tss/consignments/{consignment_row_id}/submit?client_code=PLE&dry_run=true` or `client_code=CW`
 
 Current profile contract:
 
@@ -47,3 +48,5 @@ Current profile contract:
 - `CW` maps to data client `CWD`, TSS credential client `CWF`, preferred env `TST`, mandatory file profile `CW_COUNTRYWIDE_CONSIGNMENT_UPLOAD`.
 
 Both profiles enforce the route invariant: `UPDATE_CONSIGNMENT_WITH_ENS` must happen before `SUBMIT_CONSIGNMENT`.
+
+`submit` returns the payload plan by default (`dry_run=true`). A live TSS write is blocked unless `dry_run=false&confirm_live=true`, the credential is active, the ENS/declaration number is present, the consignment has goods rows, and required TSS fields are mapped.

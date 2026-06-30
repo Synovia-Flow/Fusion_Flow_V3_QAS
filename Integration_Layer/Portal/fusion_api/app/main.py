@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -13,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import allowed_origins
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
 from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code
+from .tss_submission import build_consignment_submission_plan, post_tss_json
 
 app = FastAPI(
     title="Fusion Flow Portal API",
@@ -215,6 +217,57 @@ def classify_tss_status(status: int | None) -> str:
     return "REACHABLE"
 
 
+def load_consignment_submission_data(consignment_row_id: int, profile: dict[str, object]) -> tuple[dict[str, object], list[dict[str, object]]]:
+    row = query_one(
+        """
+        SELECT c.*, h.declaration_number AS HeaderDeclarationNumber,
+               h.arrival_date_time AS HeaderArrivalDateTime, h.MovementKey AS HeaderMovementKey
+        FROM PRS.Consignment c
+        LEFT JOIN PRS.ENS_Header h ON h.EnsHeaderRowID = c.EnsHeaderRowID
+        WHERE c.ConsignmentRowID = ? AND c.ClientCode = ?
+        """,
+        [consignment_row_id, profile["clientCode"]],
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Consignment was not found for this portal/client profile.")
+    goods = query_all(
+        """
+        SELECT TOP 100 *
+        FROM PRS.Goods_Item
+        WHERE ConsignmentRowID = ?
+        ORDER BY GoodsItemOrdinal, GoodsItemRowID
+        """,
+        [consignment_row_id],
+    )
+    return row, goods
+
+
+def public_credential_payload(credential: dict[str, object] | None) -> dict[str, object] | None:
+    if not credential:
+        return None
+    return {key: value for key, value in credential.items() if key != "password"}
+
+
+def log_api_trace(client_code: str, step: dict[str, object], request_payload: dict[str, object], result: dict[str, object]) -> None:
+    execute(
+        """
+        INSERT INTO LOG.API_Trace
+            (ClientCode, ResourceName, Endpoint, HttpMethod, RequestJson, ResponseJson, StatusCode, DurationMs)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            client_code,
+            str(step.get("operationCode") or "TSS"),
+            str(step.get("endpoint") or ""),
+            str(step.get("httpMethod") or "POST"),
+            json.dumps(request_payload, ensure_ascii=False, default=str),
+            str(result.get("responseText") or "")[:8000],
+            result.get("statusCode"),
+            result.get("durationMs"),
+        ],
+    )
+
+
 @app.get("/api/health")
 def health(check_db: bool = Query(False)) -> dict[str, object]:
     payload: dict[str, object] = {"status": "ok", "service": "fusion_portal_api"}
@@ -394,6 +447,75 @@ def update_ens_plan(consignment_row_id: int, client_code: str = Query("PLE")) ->
         "submitAllowed": bool(ens_value),
         "invariant": "Submit is blocked until UPDATE_CONSIGNMENT_WITH_ENS has an ENS/declaration_number value.",
     }
+
+@app.post("/api/tss/consignments/{consignment_row_id}/submit")
+def submit_consignment_to_tss(
+    consignment_row_id: int,
+    client_code: str = Query("PLE"),
+    dry_run: bool = Query(True),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        profile = load_portal_profile(client_code)
+        credential = credential_status(profile, include_secret=not dry_run)
+        route = load_submission_route(profile)
+        consignment, goods = load_consignment_submission_data(consignment_row_id, profile)
+        plan = build_consignment_submission_plan(profile=profile, consignment=consignment, goods_items=goods, route=route)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+    response: dict[str, object] = {
+        "dryRun": dry_run,
+        "profile": profile,
+        "credential": public_credential_payload(credential),
+        "consignmentRowId": consignment_row_id,
+        "plan": plan,
+    }
+    if dry_run:
+        response["execution"] = "preview_only"
+        return response
+
+    if not confirm_live:
+        raise HTTPException(status_code=409, detail="Live TSS submit requires confirm_live=true. Re-run dry_run first and review payloads.")
+    if not plan["ready"]:
+        raise HTTPException(status_code=409, detail={"message": "Consignment is not ready for TSS submit.", "missing": plan["missing"]})
+    if not credential:
+        raise HTTPException(status_code=404, detail="No TSS credential row found for this portal profile/environment.")
+    if not credential.get("isActive"):
+        raise HTTPException(status_code=409, detail="TSS credential is not active for this portal profile/environment.")
+    if not credential.get("hasPassword") or not credential.get("password"):
+        raise HTTPException(status_code=409, detail="TSS credential has no password configured in CFG.TSS_Credential.")
+    if not credential.get("baseUrl"):
+        raise HTTPException(status_code=409, detail="TSS environment has no BaseUrl configured.")
+
+    results = []
+    for step in plan["steps"]:
+        result = post_tss_json(
+            base_url=str(credential["baseUrl"]),
+            username=str(credential["tssUsername"]),
+            password=str(credential["password"]),
+            endpoint=str(step["endpoint"]),
+            payload=step["payload"],
+        )
+        try:
+            log_api_trace(str(profile["clientCode"]), step, step["payload"], result)
+        except DbUnavailable as exc:
+            raise db_error(exc) from exc
+        results.append({
+            "operationCode": step["operationCode"],
+            "endpoint": step["endpoint"],
+            "statusCode": result["statusCode"],
+            "ok": result["ok"],
+            "durationMs": result["durationMs"],
+            "responseText": result["responseText"],
+        })
+        if not result["ok"]:
+            break
+
+    response["execution"] = "sent_to_tss"
+    response["results"] = results
+    response["allOk"] = all(item["ok"] for item in results) and len(results) == len(plan["steps"])
+    return response
 
 @app.get("/api/session")
 def session(client_code: str = Query("PLE")) -> dict[str, object]:
