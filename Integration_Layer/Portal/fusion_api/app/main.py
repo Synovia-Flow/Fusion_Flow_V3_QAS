@@ -311,6 +311,7 @@ def tss_connections(client_code: str | None = Query(None), env_code: str | None 
                 "tssCredentialClientCode": profile["tssCredentialClientCode"],
                 "preferredEnvCode": profile["preferredEnvCode"],
                 "requiresEnsBeforeSubmit": profile["requiresEnsBeforeSubmit"],
+                "fileSelection": profile["fileSelection"],
                 "credential": credential,
                 "route": load_submission_route(profile),
             })

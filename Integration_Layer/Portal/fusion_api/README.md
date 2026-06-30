@@ -35,7 +35,7 @@ $env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QA
 - `GET /api/portal/profiles`
 - `GET /api/file-profiles?client_code=PLE`
 - `GET /api/file-profiles?client_code=CW`
-- `GET /api/tss/connections`
+- `GET /api/tss/connections` — includes TSS credential status, route, and `fileSelection` for PLE/CW
 - `GET /api/tss/route-plan?client_code=PLE`
 - `GET /api/tss/route-plan?client_code=CW`
 - `POST /api/tss/connections/test?client_code=PLE`
