@@ -242,6 +242,15 @@ def deploy(args: argparse.Namespace) -> int:
         dep.finish_deployment(succeeded, failed)
         dep.log(f"Deployment complete: {succeeded} succeeded, {failed} failed.",
                 "OK" if failed == 0 else "ERROR")
+
+        # Regenerate the full schema reference from the live DB (overwritten each run).
+        if not args.no_schema_doc:
+            try:
+                doc = args.schema_doc or (REPO_ROOT / "Documentation" / "DB_Schema.md")
+                written = write_schema_doc(conn, db_cfg, doc, run_stamp)
+                dep.log(f"Schema reference written: {written}")
+            except Exception as error:  # noqa: BLE001 - never fail a deploy on doc-gen
+                dep.log(f"Schema reference generation skipped: {error}", "WARN")
     finally:
         conn.close()
 
@@ -251,6 +260,157 @@ def deploy(args: argparse.Namespace) -> int:
         print(f"Promoted log to (committed) logs/: {promoted}")
 
     return 1 if failed else 0
+
+
+def _fmt_type(type_name: str, max_len: int, prec: int, scale: int) -> str:
+    """Render a column type like the DDL: nvarchar(255), decimal(15,2), char(2)."""
+    t = (type_name or "").lower()
+    if t in ("nvarchar", "nchar"):
+        return f"{t}({'max' if max_len == -1 else max_len // 2})"
+    if t in ("varchar", "char", "varbinary", "binary"):
+        return f"{t}({'max' if max_len == -1 else max_len})"
+    if t in ("decimal", "numeric"):
+        return f"{t}({prec},{scale})"
+    if t in ("datetime2", "time", "datetimeoffset") and scale is not None:
+        return f"{t}({scale})"
+    return t
+
+
+def write_schema_doc(conn: Any, db_cfg: dict[str, str], out_path: Path, run_stamp: str) -> Path:
+    """Generate a full DB schema reference in Markdown (overwritten each deploy):
+    every table with its columns, keys, foreign-key joins, indexes and check
+    constraints, plus all views. The primary human reference for the data model."""
+    cur = conn.cursor()
+
+    def rows(sql: str) -> list[tuple]:
+        cur.execute(sql)
+        return cur.fetchall()
+
+    cols = rows("""
+        SELECT s.name, t.name, c.column_id, c.name, ty.name, c.max_length, c.precision,
+               c.scale, c.is_nullable, dc.definition
+        FROM sys.tables t
+        JOIN sys.schemas s ON s.schema_id = t.schema_id
+        JOIN sys.columns c ON c.object_id = t.object_id
+        JOIN sys.types ty ON ty.user_type_id = c.user_type_id
+        LEFT JOIN sys.default_constraints dc ON dc.object_id = c.default_object_id
+        ORDER BY s.name, t.name, c.column_id""")
+
+    pk_uq = rows("""
+        SELECT s.name, t.name, kc.name, kc.type_desc,
+               STRING_AGG(col.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal)
+        FROM sys.key_constraints kc
+        JOIN sys.tables t ON t.object_id = kc.parent_object_id
+        JOIN sys.schemas s ON s.schema_id = t.schema_id
+        JOIN sys.index_columns ic ON ic.object_id = t.object_id AND ic.index_id = kc.unique_index_id
+        JOIN sys.columns col ON col.object_id = t.object_id AND col.column_id = ic.column_id
+        GROUP BY s.name, t.name, kc.name, kc.type_desc ORDER BY s.name, t.name""")
+
+    fks = rows("""
+        SELECT s.name, t.name, fk.name, rs.name, rt.name,
+               STRING_AGG(pc.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id),
+               STRING_AGG(rc.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id)
+        FROM sys.foreign_keys fk
+        JOIN sys.tables t ON t.object_id = fk.parent_object_id
+        JOIN sys.schemas s ON s.schema_id = t.schema_id
+        JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
+        JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
+        JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+        JOIN sys.columns pc ON pc.object_id = fkc.parent_object_id AND pc.column_id = fkc.parent_column_id
+        JOIN sys.columns rc ON rc.object_id = fkc.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+        GROUP BY s.name, t.name, fk.name, rs.name, rt.name ORDER BY s.name, t.name""")
+
+    checks = rows("""
+        SELECT s.name, t.name, cc.name, cc.definition
+        FROM sys.check_constraints cc
+        JOIN sys.tables t ON t.object_id = cc.parent_object_id
+        JOIN sys.schemas s ON s.schema_id = t.schema_id ORDER BY s.name, t.name""")
+
+    idx = rows("""
+        SELECT s.name, t.name, i.name, i.is_unique,
+               STRING_AGG(col.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal)
+        FROM sys.indexes i
+        JOIN sys.tables t ON t.object_id = i.object_id
+        JOIN sys.schemas s ON s.schema_id = t.schema_id
+        JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+        JOIN sys.columns col ON col.object_id = i.object_id AND col.column_id = ic.column_id
+        WHERE i.type_desc <> 'HEAP' AND i.is_primary_key = 0 AND i.is_unique_constraint = 0
+        GROUP BY s.name, t.name, i.name, i.is_unique ORDER BY s.name, t.name""")
+
+    views = rows("""
+        SELECT s.name, v.name,
+               STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY c.column_id)
+        FROM sys.views v
+        JOIN sys.schemas s ON s.schema_id = v.schema_id
+        JOIN sys.columns c ON c.object_id = v.object_id
+        GROUP BY s.name, v.name ORDER BY s.name, v.name""")
+
+    # index the helper result sets by (schema, table)
+    from collections import defaultdict
+    pk_by, fk_by, ck_by, ix_by = (defaultdict(list) for _ in range(4))
+    for s, t, n, td, c in pk_uq:
+        pk_by[(s, t)].append(("PK" if td == "PRIMARY_KEY_CONSTRAINT" else "UNIQUE", n, c))
+    for s, t, n, rs, rt, pcs, rcs in fks:
+        fk_by[(s, t)].append((n, pcs, rs, rt, rcs))
+    for s, t, n, d in checks:
+        ck_by[(s, t)].append((n, d))
+    for s, t, n, u, c in idx:
+        ix_by[(s, t)].append((n, "UNIQUE " if u else "", c))
+
+    cols_by = defaultdict(list)
+    for r in cols:
+        cols_by[(r[0], r[1])].append(r)
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    out = [f"# Fusion Flow V3 QAS — Database Schema Reference",
+           "",
+           f"**Auto-generated by the deploy tool — do not edit.** Overwritten on every deploy.",
+           "",
+           f"- Database: `{db_cfg.get('database', '?')}`  ·  Server: `{db_cfg.get('server', '?')}`",
+           f"- Generated: {now}  ·  Deploy run: `{run_stamp}`",
+           f"- Tables: {len(cols_by)}  ·  Views: {len(views)}  ·  Foreign keys: {len(fks)}",
+           ""]
+
+    schemas = sorted({s for (s, _t) in cols_by})
+    out.append("## Schemas\n\n" + " · ".join(f"`{s}`" for s in schemas) + "\n")
+
+    # Relationship (FK) map up front
+    out.append("## Relationships (foreign keys)\n")
+    out.append("| From | Column(s) | → | To | Column(s) |")
+    out.append("|------|-----------|---|----|-----------|")
+    for s, t, n, rs, rt, pcs, rcs in fks:
+        out.append(f"| `{s}.{t}` | {pcs} | → | `{rs}.{rt}` | {rcs} |")
+    out.append("")
+
+    for s in schemas:
+        out.append(f"## Schema `{s}`\n")
+        for (cs, ct) in sorted(k for k in cols_by if k[0] == s):
+            out.append(f"### `{cs}.{ct}`\n")
+            out.append("| # | Column | Type | Null | Default |")
+            out.append("|---|--------|------|------|---------|")
+            for (_s, _t, cid, cn, ty, ml, pr, sc, nul, dflt) in cols_by[(cs, ct)]:
+                d = (dflt or "").strip("()") if dflt else ""
+                out.append(f"| {cid} | `{cn}` | {_fmt_type(ty, ml, pr, sc)} | "
+                           f"{'NULL' if nul else 'NOT NULL'} | {d} |")
+            for kind, n, c in pk_by[(cs, ct)]:
+                out.append(f"\n- **{kind}** `{n}` ({c})")
+            for n, pcs, rs, rt, rcs in fk_by[(cs, ct)]:
+                out.append(f"- **FK** `{n}`: ({pcs}) → `{rs}.{rt}` ({rcs})")
+            for n, mode, c in ix_by[(cs, ct)]:
+                out.append(f"- **Index** {mode}`{n}` ({c})")
+            for n, d in ck_by[(cs, ct)]:
+                out.append(f"- **Check** `{n}`: `{d}`")
+            out.append("")
+
+    if views:
+        out.append("## Views\n")
+        for s, v, c in views:
+            out.append(f"- **`{s}.{v}`** — {c}")
+        out.append("")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(out), encoding="utf-8")
+    return out_path
 
 
 _EMBEDDED_CHG_DDL = """
@@ -286,6 +446,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true", help="List only; no DB changes, no archive, no CHG log")
     p.add_argument("--continue-on-error", action="store_true", help="Keep going after a failing script")
     p.add_argument("--promote-log", action="store_true", help="Copy the run summary up to logs/ (committed)")
+    p.add_argument("--schema-doc", type=Path, help="Where to write the schema reference (default Documentation/DB_Schema.md)")
+    p.add_argument("--no-schema-doc", action="store_true", help="Skip regenerating the schema reference")
     return p
 
 
