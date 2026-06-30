@@ -306,7 +306,7 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
     app_keys = [
         "GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET", "GRAPH_MAILBOX",
         "GRAPH_PROCESSED_FOLDER", "GRAPH_FORWARDERS", "PROCESSING_CLIENT", "PROCESSING_DRY_RUN",
-        "PROCESSING_TRANSACTION_MODE", "ARRIVAL_MAX_FUTURE_DAYS", "API_RATE_LIMIT_SECONDS", "DEFAULT_ENV",
+        "PROCESSING_TRANSACTION_MODE", "ARRIVAL_MAX_FUTURE_DAYS", "API_RATE_LIMIT_SECONDS", "DEFAULT_ENV", "SDI_DEADLINE_DAY",
     ]
     params = application_parameter_map(app_keys)
     environments = query_all(
@@ -379,6 +379,10 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
         settings_row("API_RATE_LIMIT_SECONDS", "API rate limit", parameter_value(params, "API_RATE_LIMIT_SECONDS"), "Delay between outbound TSS API calls.", "CFG.Application_Parameters", "number", parameter_updated_at(params, "API_RATE_LIMIT_SECONDS")),
     ]
 
+    sdi_rows = [
+        settings_row("SDI_DEADLINE_DAY", "SDI deadline day", parameter_value(params, "SDI_DEADLINE_DAY"), "Day-of-month control used by SDI deadline automation.", "CFG.Application_Parameters", "number", parameter_updated_at(params, "SDI_DEADLINE_DAY")),
+    ]
+
     notification_rows = [
         settings_row("ENS_RECEIVED_ENABLED", "ENS received", "false", "Sends a notification when an ENS source is received.", "planned_CFG.Notification", "boolean", editable=False),
         settings_row("CONSIGNMENTS_RECEIVED_ENABLED", "Consignments received", "false", "Sends a notification when a consignment pack is received.", "planned_CFG.Notification", "boolean", editable=False),
@@ -397,6 +401,7 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
             settings_section("TSS_API", "TSS Portal API", "sync_alt", "Credentials and endpoints for Trader Support Service.", tss_rows),
             settings_section("GRAPH", "Inbound Email / Microsoft Graph", "mail", "Inbound mailbox pickup using Microsoft Graph application credentials.", graph_rows),
             settings_section("INGEST_AUTO", "Ingestion & Folders", "drive_folder_upload", "Inbound source, attachment-selection and operational folders.", ingestion_rows),
+            settings_section("SDI_AUTO", "SDI / SupDec Automation", "bolt", "Supplementary declaration automation controls currently present in CFG.", sdi_rows),
             settings_section("VALIDATION", "Validation Controls", "shield", "Runtime switches that control local validation before TSS.", validation_rows),
             settings_section("NOTIFY", "Email Automation Notifications", "notifications", "Notification controls prepared for the next automation slice.", notification_rows),
         ],
@@ -414,6 +419,7 @@ APP_PARAMETER_WRITE_MAP = {
     ("VALIDATION", "PROCESSING_TRANSACTION_MODE"): ("PROCESSING_TRANSACTION_MODE", "STRING", "Module 2 transaction selection mode."),
     ("VALIDATION", "ARRIVAL_MAX_FUTURE_DAYS"): ("ARRIVAL_MAX_FUTURE_DAYS", "INTEGER", "Maximum arrival-date future window accepted by validation."),
     ("VALIDATION", "API_RATE_LIMIT_SECONDS"): ("API_RATE_LIMIT_SECONDS", "INTEGER", "Delay between outbound TSS API calls."),
+    ("SDI_AUTO", "SDI_DEADLINE_DAY"): ("SDI_DEADLINE_DAY", "INTEGER", "Day-of-month control used by SDI deadline automation."),
 }
 SOURCE_BOOLEAN_KEYS = {("GRAPH", "ENABLED"), ("INGEST_AUTO", "ENABLED")}
 SOURCE_CONFIG_KEYS = {

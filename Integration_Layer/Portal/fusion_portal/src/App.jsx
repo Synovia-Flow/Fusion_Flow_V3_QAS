@@ -16,6 +16,7 @@ const SETTINGS_NAV_SECTIONS = [
   { id: 'TSS_API', label: 'TSS Portal API', icon: 'sync_alt' },
   { id: 'GRAPH', label: 'Inbound Email / Microsoft Graph', icon: 'mail' },
   { id: 'INGEST_AUTO', label: 'Ingestion & Folders', icon: 'drive_folder_upload' },
+  { id: 'SDI_AUTO', label: 'SDI / SupDec Automation', icon: 'bolt' },
   { id: 'VALIDATION', label: 'Validation Controls', icon: 'shield' },
   { id: 'NOTIFY', label: 'Email Automation Notifications', icon: 'notifications' },
 ];
