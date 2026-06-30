@@ -32,6 +32,18 @@ class TssSubmissionPlanTests(unittest.TestCase):
         self.assertEqual(plan["steps"][0]["operationCode"], "UPDATE_CONSIGNMENT_WITH_ENS")
         self.assertEqual(plan["steps"][0]["payload"]["declaration_number"], "ENS123")
 
+
+    def test_operation_code_route_update_before_submit_is_ready(self):
+        route = [
+            {"operationCode": "UPDATE_CONSIGNMENT_WITH_ENS", "endpoint": "/consignments", "httpMethod": "POST"},
+            {"operationCode": "SUBMIT_CONSIGNMENT", "endpoint": "/consignments", "httpMethod": "POST"},
+        ]
+
+        plan = build_consignment_submission_plan(profile=PROFILE, consignment=CONSIGNMENT, goods_items=GOODS, route=route)
+
+        self.assertTrue(plan["routeIsEnsFirst"])
+        self.assertTrue(plan["ready"])
+        self.assertEqual(plan["steps"][1]["operationCode"], "SUBMIT_CONSIGNMENT")
     def test_submit_before_update_is_blocked(self):
         route = [
             {"ResourceName": "Consignment", "Endpoint": "/consignments", "HttpMethod": "POST", "OpType": "submit"},
