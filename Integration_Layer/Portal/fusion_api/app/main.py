@@ -15,7 +15,7 @@ from .config import allowed_origins
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
 from .file_introspection import inspect_upload, summarise_mapping
 from .mapping_suggestions import suggest_column_mappings
-from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, required_file_ordinal
+from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, required_file_index, required_file_ordinal
 from .tss_submission import build_consignment_submission_plan, post_tss_json
 
 app = FastAPI(
@@ -718,7 +718,7 @@ def upload_consignment_preview(
             ),
         )
 
-    selected_file = uploaded_files[required_ordinal - 1]
+    selected_file = uploaded_files[required_file_index(profile)]
     selected_content = selected_file.file.read()
     digest = hashlib.sha256(selected_content)
     size = len(selected_content)

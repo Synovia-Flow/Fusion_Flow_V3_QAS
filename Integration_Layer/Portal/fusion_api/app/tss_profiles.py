@@ -70,5 +70,10 @@ def required_file_ordinal(profile: dict[str, object]) -> int:
         ordinal = 1
     return max(1, ordinal)
 
+
+def required_file_index(profile: dict[str, object]) -> int:
+    return required_file_ordinal(profile) - 1
+
+
 def fallback_profiles() -> list[dict[str, object]]:
     return [deepcopy(profile) for profile in FALLBACK_PORTAL_PROFILES.values()]
