@@ -111,7 +111,12 @@ USING (VALUES
     ('PRS_PROCESS_BKD', 'Data Processing - Birkdale (PRS)', 'DATA_PROCESSING', 'BKD', NULL, 'TASK', NULL, NULL,
      'Transform INGESTED ING rows into validated canonical PRS objects (normalise -> enrich -> construct -> validate); log every field change to EXC.Data_Processing_Enhancement. No CLI - controls from CFG.Application_Parameters (PROCESSING_*).',
      'process_data:run', 'ING.BKD_Raw_ENS / ING.BKD_Raw_Sales_Orders', 'PRS.ENS_Header / Consignment / Goods_Item (+ nested)',
-     'After each ingestion cycle', 1, 'Module 2 runner - companion to the ingestion jobs.')
+     'After each ingestion cycle', 1, 'Module 2 runner - companion to the ingestion jobs.'),
+
+    ('PRS_STAGE_BKD_ENS', 'Stage - Birkdale ENS Headers', 'DATA_PROCESSING', 'BKD', NULL, 'TASK', NULL, NULL,
+     'Stage raw ING.BKD_Raw_ENS rows into the TSS-shaped PRS.BKD_ENS_Header_Submission (+ parallel PRS.BKD_ENS_Header_Tracking). Each field is normalised / reformatted / replaced by lookup; every change is logged old->new to EXC.Data_Processing_Enhancement. Sets Fusion_Status=STAGED. No CLI - PROCESSING_DRY_RUN from CFG.Application_Parameters.',
+     'stage_bkd_ens_header:run', 'ING.BKD_Raw_ENS', 'PRS.BKD_ENS_Header_Submission / PRS.BKD_ENS_Header_Tracking',
+     'After each ingestion cycle', 1, 'First per-table staging job; ENS Declaration Header.')
 ) AS s (JobCode, JobName, ModuleName, ClientCode, Channel, JobType, StepNo, ParentJobCode,
         Purpose, EntryPoint, InputSource, OutputTarget, Schedule, IsActive, Notes)
 ON t.JobCode = s.JobCode
