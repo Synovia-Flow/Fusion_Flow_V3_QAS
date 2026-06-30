@@ -34,6 +34,12 @@ export function getConsignments({ clientCode, status = 'ALL', q = '', limit = 10
   return request(`/api/consignments?${params.toString()}`);
 }
 
+export function getTssConnections(clientCode) {
+  const params = new URLSearchParams();
+  if (clientCode) params.set('client_code', clientCode);
+  const query = params.toString();
+  return request(`/api/tss/connections${query ? `?${query}` : ''}`);
+}
 export function previewConsignmentUpload({ clientCode, files }) {
   const body = new FormData();
   body.append('client_code', clientCode);

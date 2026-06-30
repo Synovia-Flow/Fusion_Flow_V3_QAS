@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getConsignments, getDashboard, getSession, prepareTssConsignmentSubmit, previewConsignmentUpload } from './api';
+import { getConsignments, getDashboard, getSession, getTssConnections, prepareTssConsignmentSubmit, previewConsignmentUpload } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'PLE',
@@ -7,6 +7,32 @@ const DEFAULT_SESSION = {
   username: 'synovia',
   role: 'CentralAdmin',
 };
+
+const PORTAL_CLIENTS = [
+  { tenantCode: 'PLE', tenantName: 'Primeline Express' },
+  { tenantCode: 'CW', tenantName: 'Countrywide' },
+];
+
+function clientOptionFor(clientCode) {
+  return PORTAL_CLIENTS.find((client) => client.tenantCode === clientCode) || PORTAL_CLIENTS[0];
+}
+
+function sessionFallback(clientCode = DEFAULT_SESSION.tenantCode) {
+  const client = clientOptionFor(clientCode);
+  return {
+    ...DEFAULT_SESSION,
+    tenantCode: client.tenantCode,
+    tenantName: client.tenantName,
+  };
+}
+
+function resolveTenantFromCredentials({ username = '' } = {}) {
+  const clean = username.trim().toUpperCase();
+  if (clean.includes('COUNTRY') || clean.includes('CWD') || clean.includes('CWF') || clean === 'CW') {
+    return 'CW';
+  }
+  return 'PLE';
+}
 
 const CONSIGNMENTS = [
   {
@@ -88,6 +114,25 @@ function formatNumber(value) {
   return Number.isFinite(number) ? number.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '0';
 }
 
+function connectionFileText(connection) {
+  const ordinal = connection?.fileSelection?.requiredFileOrdinal;
+  return ordinal ? `Attached file #${ordinal}` : 'Attachment rule pending';
+}
+
+function credentialText(connection) {
+  const credential = connection?.credential;
+  const client = connection?.tssCredentialClientCode || credential?.credentialClientCode;
+  const env = connection?.preferredEnvCode || credential?.envCode;
+  return client && env ? `${client} / ${env}` : 'Credential pending';
+}
+
+function routeText(connection) {
+  const route = connection?.route || [];
+  const updateIndex = route.findIndex((step) => `${step.operationCode || step.opType || ''}`.toUpperCase().includes('UPDATE'));
+  const submitIndex = route.findIndex((step) => `${step.operationCode || step.opType || ''}`.toUpperCase().includes('SUBMIT'));
+  return updateIndex > -1 && submitIndex > -1 && updateIndex < submitIndex ? 'ENS update before submit' : 'Route needs review';
+}
+
 function normalizeConsignment(row) {
   const consignmentRowId = row.ConsignmentRowID ?? row.consignmentRowID ?? row.consignmentRowId;
   return {
@@ -123,7 +168,7 @@ function DrawerRow({ icon, label, active = false, danger = false, indent = false
   );
 }
 
-function Drawer({ open, view, isAuthenticated, onNavigate, onLogout }) {
+function Drawer({ open, view, isAuthenticated, isDarkTheme, onNavigate, onLogout, onToggleTheme }) {
   return (
     <aside className={`drawer ${open ? 'is-open' : ''}`} aria-label="Navigation">
       <div className="drawer-brand">SynoviaFlow</div>
@@ -136,7 +181,7 @@ function Drawer({ open, view, isAuthenticated, onNavigate, onLogout }) {
           </>
         )}
         <DrawerRow icon="settings" label="Settings" trailing="expand_less" />
-        <DrawerRow icon="dark_mode" label="Dark theme" indent />
+        <DrawerRow icon="dark_mode" label="Dark theme" active={isDarkTheme} indent onClick={onToggleTheme} />
         <DrawerRow icon="frame_reload" label="Reload application" danger indent onClick={() => window.location.reload()} />
         <DrawerRow icon="badge" label="Session" trailing="expand_less" />
         {isAuthenticated ? (
@@ -182,10 +227,12 @@ function AppBar({ session, isAuthenticated, onToggleDrawer, onLogout }) {
 
 function LoginCard({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
 
   function handleSubmit(event) {
     event.preventDefault();
-    onLogin();
+    onLogin({ username, password });
   }
 
   return (
@@ -193,10 +240,10 @@ function LoginCard({ onLogin }) {
       <img className="flow-logo" src="/assets/SynoviaFlowLogo.png" alt="Synovia Flow" />
       <form className="login-form" onSubmit={handleSubmit}>
         <label className="input-shell">
-          <input type="text" placeholder="Username*" autoComplete="username" />
+          <input type="text" placeholder="Username*" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} />
         </label>
         <label className="input-shell password-shell">
-          <input type={showPassword ? 'text' : 'password'} placeholder="Password*" autoComplete="current-password" />
+          <input type={showPassword ? 'text' : 'password'} placeholder="Password*" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
           <button className="visibility-button" type="button" onClick={() => setShowPassword((value) => !value)} aria-label="Toggle password visibility">
             <MaterialIcon>{showPassword ? 'visibility' : 'visibility_off'}</MaterialIcon>
           </button>
@@ -208,7 +255,35 @@ function LoginCard({ onLogin }) {
   );
 }
 
-function DashboardPage({ onNavigate }) {
+function TssConnectionStrip({ connection }) {
+  if (!connection) return null;
+  const credential = connection.credential || {};
+  return (
+    <div className="connection-strip" aria-label="TSS connection">
+      <div>
+        <span>Portal</span>
+        <strong>{connection.portalClientCode} - {connection.clientName}</strong>
+      </div>
+      <div>
+        <span>File to map</span>
+        <strong>{connectionFileText(connection)}</strong>
+      </div>
+      <div>
+        <span>TSS credential</span>
+        <strong>{credentialText(connection)}</strong>
+      </div>
+      <div>
+        <span>Route</span>
+        <strong>{routeText(connection)}</strong>
+      </div>
+      <div>
+        <span>Status</span>
+        <strong>{credential.lastStatus || (credential.hasPassword ? 'READY' : 'CHECK')}</strong>
+      </div>
+    </div>
+  );
+}
+function DashboardPage({ onNavigate, connection }) {
   return (
     <section className="dashboard-page" aria-label="Dashboard">
       <div className="welcome-block">
@@ -218,6 +293,7 @@ function DashboardPage({ onNavigate }) {
         </div>
         <p>Follow the steps below to prepare and send consignments to TSS.</p>
       </div>
+      <TssConnectionStrip connection={connection} />
       <div className="action-panel" aria-label="Workflow actions">
         <div className="action-column">
           <MaterialIcon className="action-icon">upload_file</MaterialIcon>
@@ -249,7 +325,7 @@ function TemplateButton({ icon, children }) {
   );
 }
 
-function UploadConsignmentPage({ onBack, onPreviewUpload }) {
+function UploadConsignmentPage({ onBack, onPreviewUpload, connection }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [previewState, setPreviewState] = useState({ status: 'idle', payload: null, error: '' });
@@ -314,6 +390,13 @@ function UploadConsignmentPage({ onBack, onPreviewUpload }) {
         <MaterialIcon>info</MaterialIcon>
         <span>Ensure all mandatory fields in the template are filled correctly before uploading. Mismatched or additional column headers may lead to rejection of the whole upload. Use the provided template as is and avoid modifying column headers or formats.</span>
       </div>
+
+      {connection && (
+        <div className="connection-note">
+          <MaterialIcon>rule</MaterialIcon>
+          <span>{connection.portalClientCode} maps {connectionFileText(connection)} and uses TSS credential {credentialText(connection)}. {routeText(connection)}.</span>
+        </div>
+      )}
 
       <div className="declaration-area">
         <label>Declaration type:</label>
@@ -387,7 +470,7 @@ function StatusBadge({ status }) {
   return <span className={`status-badge ${status.toLowerCase().replace('_', '-')}`}>{status.replace('_', ' ')}</span>;
 }
 
-function ViewConsignmentsPage({ onBack, rows, session, onQueueForTss }) {
+function ViewConsignmentsPage({ onBack, rows, session, connection, onQueueForTss }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
   const sourceRows = rows.length ? rows : CONSIGNMENTS;
@@ -437,6 +520,9 @@ function ViewConsignmentsPage({ onBack, rows, session, onQueueForTss }) {
 
       <div className="summary-rail" aria-label="Consignment summary">
         <div><span>ClientCode</span><strong>{session.tenantCode}</strong></div>
+        <div><span>File Rule</span><strong>{connectionFileText(connection)}</strong></div>
+        <div><span>TSS</span><strong>{credentialText(connection)}</strong></div>
+        <div><span>Route</span><strong>{routeText(connection)}</strong></div>
         <div><span>PRS.Consignment</span><strong>{sourceRows.length}</strong></div>
         <div><span>Goods Items</span><strong>{sourceRows.reduce((total, row) => total + row.goodsItems, 0)}</strong></div>
         <div><span>Ready / Validated</span><strong>{sourceRows.filter((row) => ['READY', 'VALIDATED'].includes(row.status)).length}</strong></div>
@@ -532,7 +618,9 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [view, setView] = useState('login');
-  const [session, setSession] = useState(DEFAULT_SESSION);
+  const [isDarkTheme, setIsDarkTheme] = useState(false);
+  const [session, setSession] = useState(sessionFallback(DEFAULT_SESSION.tenantCode));
+  const [connection, setConnection] = useState(null);
   const [consignmentRows, setConsignmentRows] = useState(CONSIGNMENTS);
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
@@ -540,29 +628,35 @@ export default function App() {
   useEffect(() => {
     if (!isAuthenticated) return undefined;
     let cancelled = false;
+    const clientCode = session.tenantCode || DEFAULT_SESSION.tenantCode;
 
     async function loadPortalData() {
       setApiStatus('loading');
       setApiError('');
       try {
-        const [sessionPayload, dashboardPayload, consignmentPayload] = await Promise.all([
-          getSession(DEFAULT_SESSION.tenantCode),
-          getDashboard(DEFAULT_SESSION.tenantCode),
-          getConsignments({ clientCode: DEFAULT_SESSION.tenantCode }),
+        const [sessionPayload, dashboardPayload, consignmentPayload, connectionPayload] = await Promise.all([
+          getSession(clientCode),
+          getDashboard(clientCode),
+          getConsignments({ clientCode }),
+          getTssConnections(clientCode),
         ]);
         if (cancelled) return;
+        const activeConnection = (connectionPayload.connections || [])[0] || null;
+        const fallback = sessionFallback(clientCode);
         setSession({
-          tenantCode: sessionPayload.tenantCode || DEFAULT_SESSION.tenantCode,
-          tenantName: sessionPayload.tenantName || DEFAULT_SESSION.tenantName,
+          tenantCode: activeConnection?.portalClientCode || fallback.tenantCode,
+          tenantName: activeConnection?.clientName || sessionPayload.tenantName || fallback.tenantName,
           username: sessionPayload.username || DEFAULT_SESSION.username,
           role: sessionPayload.role || DEFAULT_SESSION.role,
         });
+        setConnection(activeConnection);
         setConsignmentRows((consignmentPayload.consignments || []).map(normalizeConsignment));
         setApiStatus('online');
         setApiError(dashboardPayload?.counts ? '' : 'Dashboard counts unavailable');
       } catch (error) {
         if (cancelled) return;
-        setSession(DEFAULT_SESSION);
+        setSession(sessionFallback(clientCode));
+        setConnection(null);
         setConsignmentRows(CONSIGNMENTS);
         setApiStatus('offline');
         setApiError(error.message);
@@ -573,21 +667,29 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, session.tenantCode]);
 
   function navigate(nextView) {
     setView(nextView);
     setDrawerOpen(false);
   }
 
-  function handleLogin() {
+  function handleLogin(credentials) {
+    const clientCode = resolveTenantFromCredentials(credentials);
+    const fallback = sessionFallback(clientCode);
+    setSession({
+      ...fallback,
+      username: credentials?.username?.trim() || fallback.username,
+    });
+    setConnection(null);
     setIsAuthenticated(true);
     navigate('dashboard');
   }
 
   function handleLogout() {
     setIsAuthenticated(false);
-    setSession(DEFAULT_SESSION);
+    setSession(sessionFallback(DEFAULT_SESSION.tenantCode));
+    setConnection(null);
     setConsignmentRows(CONSIGNMENTS);
     setApiStatus('idle');
     setApiError('');
@@ -605,16 +707,16 @@ export default function App() {
   const mainClass = isAuthenticated ? `page-main app-main ${view}-main` : 'page-main login-main';
 
   return (
-    <div className="app-shell" data-api-status={apiStatus} data-api-error={apiError}>
+    <div className="app-shell" data-theme={isDarkTheme ? 'dark' : 'light'} data-api-status={apiStatus} data-api-error={apiError}>
       <AppBar session={session} isAuthenticated={isAuthenticated} onToggleDrawer={() => setDrawerOpen((value) => !value)} onLogout={handleLogout} />
       <main className={mainClass}>
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
-        {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} />}
-        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} />}
-        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} session={session} onQueueForTss={handleQueueForTss} />}
+        {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} />}
+        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} />}
+        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} session={session} connection={connection} onQueueForTss={handleQueueForTss} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
-      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} onNavigate={navigate} onLogout={handleLogout} />
+      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} onNavigate={navigate} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />
     </div>
   );
 }

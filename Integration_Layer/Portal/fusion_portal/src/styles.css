@@ -999,3 +999,129 @@ button:disabled { cursor: default; }
   .summary-rail { grid-template-columns: 1fr; }
   .consignments-header { grid-template-columns: 1fr; }
 }
+
+
+.connection-strip {
+  width: min(1028px, calc(100vw - 56px));
+  margin: 0 0 20px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid rgba(37, 99, 235, .16);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, .12);
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+}
+.connection-strip div {
+  min-width: 0;
+  padding: 12px 14px;
+  background: rgba(37, 99, 235, .035);
+}
+.connection-strip span,
+.connection-note span:first-of-type {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.connection-strip strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.connection-note {
+  min-height: 48px;
+  border-radius: 10px;
+  background: rgba(37, 99, 235, .08);
+  border: 1px solid rgba(37, 99, 235, .18);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.connection-note span { color: var(--text); }
+.connection-note .material-symbols-outlined { color: var(--mud-primary); }
+
+.app-shell[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #101827;
+  --surface: #172236;
+  --text: #e5edf7;
+  --muted: #9fb0c5;
+  --drawer-text: #e5edf7;
+  --drawer-icon: #aab8ca;
+  --divider: rgba(148, 163, 184, .18);
+  --active-row: rgba(96, 165, 250, .18);
+  --field-border: #41516a;
+  --link-blue: #7db7ff;
+  --teal-link: #62d7ef;
+}
+.app-shell[data-theme="dark"],
+.app-shell[data-theme="dark"] .page-main,
+.app-shell[data-theme="dark"] .login-main,
+.app-shell[data-theme="dark"] .app-main { background: var(--canvas); color: var(--text); }
+.app-shell[data-theme="dark"] .drawer,
+.app-shell[data-theme="dark"] .drawer-row,
+.app-shell[data-theme="dark"] .drawer-brand,
+.app-shell[data-theme="dark"] .login-card,
+.app-shell[data-theme="dark"] .action-panel,
+.app-shell[data-theme="dark"] .page-card,
+.app-shell[data-theme="dark"] .list-panel,
+.app-shell[data-theme="dark"] .detail-panel,
+.app-shell[data-theme="dark"] .connection-strip,
+.app-shell[data-theme="dark"] .summary-rail,
+.app-shell[data-theme="dark"] .upload-preview-card {
+  background: var(--surface);
+  color: var(--text);
+}
+.app-shell[data-theme="dark"] .drawer-row:hover,
+.app-shell[data-theme="dark"] .consignments-table tbody tr:hover { background: rgba(96, 165, 250, .12); }
+.app-shell[data-theme="dark"] .consignments-table tbody tr.selected { background: rgba(96, 165, 250, .18); }
+.app-shell[data-theme="dark"] .input-shell,
+.app-shell[data-theme="dark"] .field-shell,
+.app-shell[data-theme="dark"] .select-shell,
+.app-shell[data-theme="dark"] .search-box,
+.app-shell[data-theme="dark"] .compact-select,
+.app-shell[data-theme="dark"] .drop-zone {
+  background: #101827;
+  border-color: var(--field-border);
+  color: var(--text);
+}
+.app-shell[data-theme="dark"] input,
+.app-shell[data-theme="dark"] select,
+.app-shell[data-theme="dark"] textarea { color: var(--text); }
+.app-shell[data-theme="dark"] input::placeholder { color: #bac8d9; }
+.app-shell[data-theme="dark"] .welcome-title,
+.app-shell[data-theme="dark"] .upload-heading h1,
+.app-shell[data-theme="dark"] .consignments-header h1,
+.app-shell[data-theme="dark"] .detail-title-row h2,
+.app-shell[data-theme="dark"] .action-column h2,
+.app-shell[data-theme="dark"] .consignments-table td strong { color: var(--text); }
+.app-shell[data-theme="dark"] .welcome-block p,
+.app-shell[data-theme="dark"] .upload-heading p,
+.app-shell[data-theme="dark"] .consignments-header p,
+.app-shell[data-theme="dark"] .consignments-table td span,
+.app-shell[data-theme="dark"] .detail-grid dt,
+.app-shell[data-theme="dark"] .summary-rail span { color: var(--muted); }
+.app-shell[data-theme="dark"] .info-banner,
+.app-shell[data-theme="dark"] .connection-note,
+.app-shell[data-theme="dark"] .hierarchy-box {
+  background: rgba(56, 189, 248, .11);
+  border-color: rgba(125, 211, 252, .22);
+  color: var(--text);
+}
+.app-shell[data-theme="dark"] .consignments-table th,
+.app-shell[data-theme="dark"] .consignments-table td { border-color: rgba(148, 163, 184, .18); }
+
+@media (max-width: 900px) {
+  .connection-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
