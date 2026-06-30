@@ -153,10 +153,17 @@ this map for BKD; the next build generalises it to read `CFG.Processing_Field_Ma
 
 ## 6. Lookup / CV reference sets used (header)
 
-`CV_mode_of_transport` · `CV_passive_transport_types` · `CV_country` · `CV_port` ·
-`CV_transport_charges`. Cached in `CFG.Choice_Value_Cache` via the choice-value
-bootstrap (`GET /choice_values/<field>`); column names vary per set, so the engine
-introspects `INFORMATION_SCHEMA` before each lookup (Rule 9).
+The choice sets are downloaded from `<base>/x_fhmrc_tss_api/v1/choice_values/<field>`
+into `CFG.Choice_Value_Cache` by `Modules/Global/fetch_choice_values.py` (34 sets;
+initial load + recurring refresh with NEW/CHANGED/UNCHANGED/REMOVED change
+detection, logged to the EXC spine). `CFG.Choice_Field_Map` maps each set to the
+schema column it governs (e.g. CV `movement_type` → header `movement_type`).
+
+> **commodity_code is separate.** At ~35k codes (with effective dates) it has its
+> own table `CFG.Commodity_Code_Cache` and its own downloader
+> `Modules/Global/fetch_commodity_codes.py` (`REF_FETCH_COMMODITY_CODES`), so the
+> general choice refresh stays fast. The engine resolves goods `commodity_code`
+> against that table, not the shared cache.
 
 Master/reference (enrichment): **carrier master** (keyed by `carrier_eori`), and
 per-client party/importer masters as principals require.
