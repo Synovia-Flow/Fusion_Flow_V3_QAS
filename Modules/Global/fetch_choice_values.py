@@ -87,6 +87,20 @@ def param(cur, key: str, default: str = "") -> str:
     return rows[0]["ParameterValue"] if rows and rows[0]["ParameterValue"] is not None else default
 
 
+def col_len(cur, table: str, column: str) -> int | None:
+    """Max char length of a CFG column: an int, -1 for nvarchar(max), None if absent."""
+    rows = q(cur, "SELECT CHARACTER_MAXIMUM_LENGTH AS n FROM INFORMATION_SCHEMA.COLUMNS "
+                  "WHERE TABLE_SCHEMA = 'CFG' AND TABLE_NAME = ? AND COLUMN_NAME = ?", table, column)
+    return rows[0]["n"] if rows else None
+
+
+def _fit(value: str | None, maxlen: int | None) -> str | None:
+    """Truncate to the column's char limit (maxlen<=0 means nvarchar(max) - no cap)."""
+    if value is None or not maxlen or maxlen <= 0:
+        return value
+    return value if len(value) <= maxlen else value[:maxlen]
+
+
 # --------------------------------------------------------------------------- #
 # Credentials: prefer the DB; fall back to the gitignored JSON for the password
 # --------------------------------------------------------------------------- #
@@ -185,13 +199,16 @@ def exc_error(cur, eid: int, txn: str, code: str, message: str, context: str = "
 # --------------------------------------------------------------------------- #
 # Per-field sync with NEW / CHANGED / UNCHANGED / REMOVED classification
 # --------------------------------------------------------------------------- #
-def sync_field(cur, field: str, items: list[tuple[str, str | None, dict]], eid: int) -> dict[str, int]:
+def sync_field(cur, field: str, items: list[tuple[str, str | None, dict]], eid: int,
+               val_max: int | None = None, name_max: int | None = None) -> dict[str, int]:
     existing = {r["ChoiceValue"]: r for r in q(
         cur, "SELECT ChoiceValue, RowHash, IsActive FROM CFG.Choice_Value_Cache WHERE ChoiceField = ?", field)}
     counts = {"new": 0, "changed": 0, "unchanged": 0, "removed": 0}
     seen: set[str] = set()
 
     for value, name, raw in items:
+        value = _fit(value, val_max)     # never exceed the column width
+        name = _fit(name, name_max)
         if value in seen:
             continue                     # TSS can return a value twice; first wins
         seen.add(value)
@@ -243,6 +260,8 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
     dry_run = (param(cur, "CHOICE_VALUES_DRY_RUN", "0") or "0").strip().lower() in ("1", "true", "yes", "on")
 
     base_url, user, pwd = resolve_endpoint(cur, env_code, client_code)
+    val_max = col_len(cur, "Choice_Value_Cache", "ChoiceValue")   # truncate to actual column widths
+    name_max = col_len(cur, "Choice_Value_Cache", "ChoiceName")
     fields = [r["ChoiceField"] for r in q(cur,
               "SELECT ChoiceField FROM CFG.Choice_Field_Registry WHERE IsActive = 1 ORDER BY ChoiceField")]
 
@@ -286,7 +305,7 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                 ok_fields += 1
                 print(f"  [dry]  {field}: {len(items)} value(s) (no write)")
                 continue
-            c = sync_field(cur, field, items, eid)
+            c = sync_field(cur, field, items, eid, val_max, name_max)
             for k in tot:
                 tot[k] += c[k]
             ok_fields += 1
