@@ -47,36 +47,56 @@ ARRIVAL_MAX_FUTURE_DAYS = 14
 # --------------------------------------------------------------------------- #
 # Choice-value resolver (name/value -> TSS code), built from the cache.
 # --------------------------------------------------------------------------- #
+def _norm_name(s: str) -> str:
+    """Normalise a choice name/value for matching: lower-case, treat brackets as
+    spaces (so 'RoRo Accompanied [ICS2]' == 'RoRo Accompanied ICS2' and
+    'Belfast Port (GBAUBELBELBEL)' starts with 'Belfast Port'), collapse whitespace."""
+    s = (s or "").lower()
+    s = re.sub(r"[()\[\]{}]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 class ChoiceResolver:
     def __init__(self, db: ProcessingDb, fields: set[str]):
         self.by_value: dict[str, set[str]] = {}
-        self.by_name: dict[str, dict[str, str]] = {}
-        self.names: dict[str, list[tuple[str, str]]] = {}   # (name_lower, value) longest-first
+        self.norm_name: dict[str, dict[str, str]] = {}            # norm(name) -> value
+        self.norm_list: dict[str, list[tuple[str, str]]] = {}     # longest-first for prefix match
         for cf in fields:
             rows = db._query(
                 "SELECT ChoiceValue, ChoiceName FROM CFG.Choice_Value_Cache "
                 "WHERE ChoiceField = ? AND IsActive = 1", cf)
             self.by_value[cf] = {(r["ChoiceValue"] or "").strip() for r in rows}
-            nm = {}
+            nm: dict[str, str] = {}
             for r in rows:
                 if r["ChoiceName"]:
-                    nm[r["ChoiceName"].strip().lower()] = (r["ChoiceValue"] or "").strip()
-            self.by_name[cf] = nm
-            self.names[cf] = sorted(nm.items(), key=lambda kv: len(kv[0]), reverse=True)
+                    nm[_norm_name(r["ChoiceName"])] = (r["ChoiceValue"] or "").strip()
+            self.norm_name[cf] = nm
+            self.norm_list[cf] = sorted(nm.items(), key=lambda kv: len(kv[0]), reverse=True)
 
     def resolve(self, cf: str, incoming: str) -> tuple[str, bool]:
-        """Return (resolved_code, matched). If unmatched, returns the input unchanged."""
+        """Return (resolved_code, matched). Unmatched -> input unchanged.
+
+        Matching cascade: exact code -> exact normalised name -> token-boundary
+        prefix in either direction (handles the cache's bracketed annotations,
+        e.g. incoming 'Belfast Port' vs cached 'Belfast Port (GBAUBELBELBEL)')."""
         s = (incoming or "").strip()
         if not s:
             return s, False
         if s in self.by_value.get(cf, set()):
-            return s, True                                   # already a code
-        low = s.lower()
-        if low in self.by_name.get(cf, {}):
-            return self.by_name[cf][low], True               # exact name
-        for nm_low, val in self.names.get(cf, []):           # name is a prefix of the input
-            if low.startswith(nm_low) and len(nm_low) >= 3:
-                return val, True
+            return s, True                                       # already a code
+        ni = _norm_name(s)
+        if not ni:
+            return s, False
+        nm = self.norm_name.get(cf, {})
+        if ni in nm:
+            return nm[ni], True                                  # exact (bracket-insensitive) name
+        for nname, val in self.norm_list.get(cf, []):            # longest names first
+            if len(ni) < 3 or len(nname) < 3:
+                continue
+            if nname.startswith(ni) and (len(nname) == len(ni) or nname[len(ni)] == " "):
+                return val, True                                 # cache name begins with the input
+            if ni.startswith(nname) and (len(ni) == len(nname) or ni[len(nname)] == " "):
+                return val, True                                 # input begins with cache name
         return s, False
 
     def is_member(self, cf: str, value: str) -> bool:
