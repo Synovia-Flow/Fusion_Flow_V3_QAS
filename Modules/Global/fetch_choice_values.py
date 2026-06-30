@@ -1,32 +1,39 @@
 #!/usr/bin/env python3
-"""Fusion Flow V3 QAS - download TSS choice-value reference sets into CFG.
+"""Fusion Flow V3 QAS - refresh TSS choice-value reference sets into CFG.
 
 For every active field in CFG.Choice_Field_Registry, calls
     GET <base_url>/choice_values/<field>
-and caches the returned {name, value} pairs into CFG.Choice_Value_Cache. The
-companion CFG.Choice_Field_Map (file 014) maps each reference set to the schema
-columns it governs (e.g. CV 'mode_of_transport' -> our column movement_type).
+and refreshes CFG.Choice_Value_Cache. Designed for an initial load AND regular
+refreshes: every value is classified relative to what is already cached -
 
-Config-driven, NO CLI (the scheduler just runs it). Controls come from
-CFG.Application_Parameters:
-    CHOICE_VALUES_ENV     TSS environment to query   (CFG.TSS_Environment) - default TST
-    CHOICE_VALUES_CLIENT  credential to authenticate (CFG.TSS_Credential)  - default BKD
-    CHOICE_VALUES_DRY_RUN 1/true = fetch + report only, write nothing
-Reference data is client-agnostic; any active credential authenticates the read.
+    NEW       - first time we have seen this value
+    CHANGED   - the value's name/metadata changed
+    UNCHANGED - identical to the cached row
+    REMOVED   - cached + active, but no longer returned by TSS (deactivated)
 
-The DB connection comes from Configuration/Fusion_Flow_QAS.ini ([database]).
-TSS passwords live in CFG.TSS_Credential (by design); if the stored password is
-the placeholder, the gitignored Configuration/tss_credentials.json is used.
+So changes are trivial to find: filter ChangeStatus, or query
+CFG.vw_Choice_Value_Changes / CFG.vw_Choice_Sync_Summary.
 
-Every run opens one EXC.Execution and logs progress / errors to LOG.
+Logging (per the EXC spine): each run is one EXC.Execution (SYNCING -> COMPLETED),
+each field is one EXC.Transaction, and any failure is an EXC.Error.
+
+Config-driven, NO CLI. Controls from CFG.Application_Parameters:
+    CHOICE_VALUES_ENV     TSS environment (CFG.TSS_Environment)         - default TST
+    CHOICE_VALUES_CLIENT  credential to authenticate (CFG.TSS_Credential) - default BKD
+    CHOICE_VALUES_DRY_RUN 1/true = fetch + classify + report, write nothing
+
+DB connection from Configuration/Fusion_Flow_QAS.ini ([database]); TSS password
+from CFG.TSS_Credential (falls back to the gitignored tss_credentials.json if the
+stored value is the placeholder).
 """
 
 from __future__ import annotations
 
 import configparser
+import hashlib
 import json
+import os
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -39,14 +46,14 @@ DEFAULT_INI = REPO_ROOT / "Configuration" / "Fusion_Flow_QAS.ini"
 CRED_FILE = REPO_ROOT / "Configuration" / "tss_credentials.json"
 
 MODULE = "REFERENCE_DATA"
-PROCESS = "CHOICE_VALUES_BOOTSTRAP"
+PROCESS = "SYNCING"
 PLACEHOLDER_PWD = "<SET_IN_DB>"
 RATE_LIMIT_SECONDS = 0.25                    # Rule 14
 TIMEOUT = 60
 
 
 # --------------------------------------------------------------------------- #
-# Connection (same shape as the other Global scripts)
+# Connection
 # --------------------------------------------------------------------------- #
 def load_db_config(ini_path: Path) -> dict[str, str]:
     if not ini_path.exists():
@@ -88,14 +95,11 @@ def resolve_endpoint(cur, env_code: str, client_code: str) -> tuple[str, str, st
     if not envs:
         raise SystemExit(f"No CFG.TSS_Environment row for EnvCode={env_code}")
     base_url = (envs[0]["BaseUrl"] or "").rstrip("/")
-
     creds = q(cur, "SELECT TssUsername, TssPassword FROM CFG.TSS_Credential "
                    "WHERE ClientCode = ? AND EnvCode = ?", client_code, env_code)
     if not creds:
         raise SystemExit(f"No CFG.TSS_Credential row for {client_code}/{env_code}")
-    user = creds[0]["TssUsername"]
-    pwd = creds[0]["TssPassword"]
-
+    user, pwd = creds[0]["TssUsername"], creds[0]["TssPassword"]
     if not pwd or pwd == PLACEHOLDER_PWD:
         pwd = _password_from_json(client_code, env_code)
     if not pwd:
@@ -120,7 +124,6 @@ def _password_from_json(client_code: str, env_code: str) -> str | None:
 # Response parsing - tolerant of TSS shape variations
 # --------------------------------------------------------------------------- #
 def parse_items(payload: Any, field: str) -> list[tuple[str, str | None, dict]]:
-    """Return [(value, name, raw_item), ...] from a /choice_values response."""
     if isinstance(payload, dict):
         items = (payload.get("result") or payload.get("data") or payload.get("values")
                  or payload.get("items") or payload.get(field) or [])
@@ -142,39 +145,89 @@ def parse_items(payload: Any, field: str) -> list[tuple[str, str | None, dict]]:
     return out
 
 
-def upsert_value(cur, field: str, value: str, name: str | None, raw: dict) -> None:
-    extra = json.dumps(raw, default=str)[:8000]
-    cur.execute(
-        "UPDATE CFG.Choice_Value_Cache SET ChoiceName = ?, ExtraJson = ?, IsActive = 1, "
-        "RetrievedAt = SYSUTCDATETIME() WHERE ChoiceField = ? AND ChoiceValue = ?",
-        name, extra, field, value)
-    if cur.rowcount == 0:
-        cur.execute(
-            "INSERT INTO CFG.Choice_Value_Cache (ChoiceField, ChoiceValue, ChoiceName, ExtraJson) "
-            "VALUES (?, ?, ?, ?)", field, value, name, extra)
+def row_hash(value: str, name: str | None, extra: str) -> str:
+    return hashlib.sha256(f"{value}|{name or ''}|{extra}".encode("utf-8")).hexdigest()
 
 
 # --------------------------------------------------------------------------- #
-# EXC spine (minimal, matches 004 columns)
+# EXC spine (Execution / Transaction / Error) - columns per file 004
 # --------------------------------------------------------------------------- #
 def open_execution(cur, env_code: str, client_code: str) -> tuple[int, str]:
     cur.execute(
         "INSERT INTO EXC.Execution (EnvCode, ClientCode, ModuleName, ProcessName, RunMode, Status) "
         "OUTPUT INSERTED.ExecutionID, INSERTED.TransactionID VALUES (?, ?, ?, ?, ?, ?)",
-        env_code, client_code, MODULE, PROCESS, "scheduled", "RUNNING")
+        env_code, client_code, MODULE, PROCESS, "scheduled", "SYNCING")
     row = cur.fetchone()
     return int(row[0]), str(row[1])
 
 
-def log(cur, execution_id: int, txn: str, client: str, step: str, msg: str, level: str = "INFO") -> None:
+def finish_execution(cur, eid: int, status: str, found: int, processed: int, failed: int, err: str = "") -> None:
     cur.execute(
-        "INSERT INTO LOG.Process_Log (ExecutionID, TransactionID, ClientCode, ModuleName, "
-        "StepName, LogLevel, Message) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        execution_id, txn, client, MODULE, step[:100], level[:20], msg[:2000])
+        "UPDATE EXC.Execution SET EndedAt = SYSUTCDATETIME(), Status = ?, "
+        "ItemsFound = ?, ItemsProcessed = ?, ItemsFailed = ?, ErrorMessage = ? WHERE ExecutionID = ?",
+        status[:30], found, processed, failed, (err or None), eid)
+
+
+def transaction(cur, eid: int, txn: str, entity_ref: str, status: str) -> None:
+    cur.execute(
+        "INSERT INTO EXC.[Transaction] (ExecutionID, TransactionID, ClientCode, "
+        "EntityType, EntityRef, ProcessName, Status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        eid, txn, None, "CHOICE_FIELD", entity_ref[:100], PROCESS, status[:30])
+
+
+def exc_error(cur, eid: int, txn: str, code: str, message: str, context: str = "") -> None:
+    cur.execute(
+        "INSERT INTO EXC.Error (ExecutionID, TransactionID, ClientCode, Severity, ErrorCode, Message, Context) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        eid, txn, None, "ERROR", code[:50], message[:2000], (context or None))
 
 
 # --------------------------------------------------------------------------- #
-# Main run
+# Per-field sync with NEW / CHANGED / UNCHANGED / REMOVED classification
+# --------------------------------------------------------------------------- #
+def sync_field(cur, field: str, items: list[tuple[str, str | None, dict]], eid: int) -> dict[str, int]:
+    existing = {r["ChoiceValue"]: r for r in q(
+        cur, "SELECT ChoiceValue, RowHash, IsActive FROM CFG.Choice_Value_Cache WHERE ChoiceField = ?", field)}
+    counts = {"new": 0, "changed": 0, "unchanged": 0, "removed": 0}
+    seen: set[str] = set()
+
+    for value, name, raw in items:
+        seen.add(value)
+        extra = json.dumps(raw, default=str)[:8000]
+        h = row_hash(value, name, extra)
+        ex = existing.get(value)
+        if ex is None:
+            counts["new"] += 1
+            cur.execute(
+                "INSERT INTO CFG.Choice_Value_Cache (ChoiceField, ChoiceValue, ChoiceName, ExtraJson, "
+                "RowHash, ChangeStatus, IsActive, FirstSeenAt, LastSyncedAt, LastSyncExecutionID, RetrievedAt) "
+                "VALUES (?, ?, ?, ?, ?, 'NEW', 1, SYSUTCDATETIME(), SYSUTCDATETIME(), ?, SYSUTCDATETIME())",
+                field, value, name, extra, h, eid)
+        elif ex["RowHash"] != h or not ex["IsActive"]:
+            counts["changed"] += 1
+            cur.execute(
+                "UPDATE CFG.Choice_Value_Cache SET ChoiceName = ?, ExtraJson = ?, RowHash = ?, "
+                "ChangeStatus = 'CHANGED', IsActive = 1, LastSyncedAt = SYSUTCDATETIME(), "
+                "LastSyncExecutionID = ?, RetrievedAt = SYSUTCDATETIME() "
+                "WHERE ChoiceField = ? AND ChoiceValue = ?",
+                name, extra, h, eid, field, value)
+        else:
+            counts["unchanged"] += 1
+            cur.execute(
+                "UPDATE CFG.Choice_Value_Cache SET ChangeStatus = 'UNCHANGED', "
+                "LastSyncedAt = SYSUTCDATETIME(), LastSyncExecutionID = ? "
+                "WHERE ChoiceField = ? AND ChoiceValue = ?", eid, field, value)
+
+    for value, ex in existing.items():
+        if value not in seen and ex["IsActive"]:
+            counts["removed"] += 1
+            cur.execute(
+                "UPDATE CFG.Choice_Value_Cache SET IsActive = 0, ChangeStatus = 'REMOVED', "
+                "LastSyncedAt = SYSUTCDATETIME(), LastSyncExecutionID = ? "
+                "WHERE ChoiceField = ? AND ChoiceValue = ?", eid, field, value)
+    return counts
+
+
 # --------------------------------------------------------------------------- #
 def run(ini_path: Path = DEFAULT_INI) -> int:
     import pyodbc
@@ -189,21 +242,19 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
     fields = [r["ChoiceField"] for r in q(cur,
               "SELECT ChoiceField FROM CFG.Choice_Field_Registry WHERE IsActive = 1 ORDER BY ChoiceField")]
 
-    execution_id, txn = (None, "00000000-0000-0000-0000-000000000000")
+    eid, txn = (None, None)
     if not dry_run:
-        execution_id, txn = open_execution(cur, env_code, client_code); conn.commit()
+        eid, txn = open_execution(cur, env_code, client_code); conn.commit()
 
-    print(f"Choice-values download: env={env_code} via {client_code} creds; {len(fields)} field(s); "
-          f"base={base_url}{' [dry-run]' if dry_run else ''}")
-    if not dry_run:
-        log(cur, execution_id, txn, client_code, "START",
-            f"Downloading {len(fields)} choice fields from {base_url} ({env_code})"); conn.commit()
+    print(f"Choice-values sync: env={env_code} via {client_code}; {len(fields)} field(s); "
+          f"base={base_url}{' [dry-run]' if dry_run else ''}  exec={eid}")
 
     session = requests.Session()
     session.auth = HTTPBasicAuth(user, pwd)
     session.headers.update({"Accept": "application/json"})
 
-    total_values = ok_fields = failed_fields = 0
+    tot = {"new": 0, "changed": 0, "unchanged": 0, "removed": 0}
+    ok_fields = failed_fields = 0
     for i, field in enumerate(fields):
         if i:
             time.sleep(RATE_LIMIT_SECONDS)
@@ -212,41 +263,46 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
             resp = session.get(url, timeout=TIMEOUT)
             if resp.status_code != 200:
                 failed_fields += 1
-                msg = f"{field}: HTTP {resp.status_code} {resp.text[:120].replace(chr(10), ' ')}"
-                print(f"  [FAIL] {msg}")
+                msg = f"HTTP {resp.status_code} {resp.text[:140].replace(chr(10), ' ')}"
+                print(f"  [FAIL] {field}: {msg}")
                 if not dry_run:
-                    log(cur, execution_id, txn, client_code, "FETCH", msg, "WARN"); conn.commit()
+                    exc_error(cur, eid, txn, "CHOICE_HTTP", f"{field}: {msg}", url)
+                    transaction(cur, eid, txn, field, "SYNC_FAILED"); conn.commit()
                 continue
             items = parse_items(resp.json(), field)
-            if not dry_run:
-                for value, name, raw in items:
-                    upsert_value(cur, field, value, name, raw)
-                conn.commit()
-            total_values += len(items); ok_fields += 1
-            print(f"  [ok]   {field}: {len(items)} value(s)")
+            if dry_run:
+                ok_fields += 1
+                print(f"  [dry]  {field}: {len(items)} value(s) (no write)")
+                continue
+            c = sync_field(cur, field, items, eid)
+            for k in tot:
+                tot[k] += c[k]
+            ok_fields += 1
+            transaction(cur, eid, txn, field, "SYNCED"); conn.commit()
+            print(f"  [ok]   {field}: {len(items)} value(s)  new={c['new']} changed={c['changed']} "
+                  f"removed={c['removed']} unchanged={c['unchanged']}")
         except (requests.RequestException, ValueError) as error:
             failed_fields += 1
-            msg = f"{field}: {type(error).__name__}: {str(error)[:140]}"
-            print(f"  [FAIL] {msg}")
+            msg = f"{type(error).__name__}: {str(error)[:160]}"
+            print(f"  [FAIL] {field}: {msg}")
             if not dry_run:
-                log(cur, execution_id, txn, client_code, "FETCH", msg, "ERROR"); conn.commit()
+                exc_error(cur, eid, txn, "CHOICE_FETCH", f"{field}: {msg}", url)
+                transaction(cur, eid, txn, field, "SYNC_FAILED"); conn.commit()
 
-    summary = (f"fields ok={ok_fields} failed={failed_fields}; values cached={total_values}")
+    summary = (f"fields ok={ok_fields} failed={failed_fields}; "
+               f"values new={tot['new']} changed={tot['changed']} removed={tot['removed']} "
+               f"unchanged={tot['unchanged']}")
     print(f"\n{summary}")
     if not dry_run:
         status = "COMPLETED" if failed_fields == 0 else "COMPLETED_WITH_WARNINGS"
-        cur.execute(
-            "UPDATE EXC.Execution SET EndedAt = SYSUTCDATETIME(), Status = ?, "
-            "ItemsFound = ?, ItemsProcessed = ?, ItemsFailed = ? WHERE ExecutionID = ?",
-            status[:30], len(fields), ok_fields, failed_fields, execution_id)
-        log(cur, execution_id, txn, client_code, "FINISH", summary, "OK")
+        finish_execution(cur, eid, status, len(fields), ok_fields, failed_fields,
+                         "" if failed_fields == 0 else summary)
         conn.commit()
     conn.close()
     return 1 if failed_fields and ok_fields == 0 else 0
 
 
 def main() -> int:
-    import os
     return run(Path(os.environ.get("FUSION_FLOW_INI", str(DEFAULT_INI))))
 
 
