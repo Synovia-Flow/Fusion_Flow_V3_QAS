@@ -241,13 +241,16 @@ def process_row(db: ProcessingDb, raw: dict, profile: dict, fmap: list[dict],
     # 4) update tracking; on reprocess bump the count and CLOSE OFF resolved errors
     if not db.dry_run and db.execution_id and tracking_id:
         resolved = reprocess and status == "VALIDATED"
+        trk_cols = set(db.introspect_columns(sch, ttab))   # only set columns that exist (021 may not be deployed)
         sets = ["SubmissionID = ?", "Fusion_Status = ?", "RejectReason = ?",
                 "ValidatedAt = SYSUTCDATETIME()", "LastExecutionID = ?", "UpdatedAt = SYSUTCDATETIME()"]
         vals: list[Any] = [submission_id, status, reason_text, db.execution_id]
-        if reprocess:
+        if reprocess and "ReprocessCount" in trk_cols:
             sets.append("ReprocessCount = ISNULL(ReprocessCount, 0) + 1")
-        if resolved:
-            sets += ["ResolvedAt = SYSUTCDATETIME()", "ResolvedByExecutionID = ?"]
+        if resolved and "ResolvedAt" in trk_cols:
+            sets.append("ResolvedAt = SYSUTCDATETIME()")
+        if resolved and "ResolvedByExecutionID" in trk_cols:
+            sets.append("ResolvedByExecutionID = ?")
             vals.append(db.execution_id)
         db.conn.cursor().execute(
             f"UPDATE {sch}.{ttab} SET {', '.join(sets)} WHERE TrackingID = ?", *vals, tracking_id)
