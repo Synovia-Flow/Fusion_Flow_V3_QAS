@@ -289,8 +289,8 @@ def file_profiles(client_code: str | None = Query(None)) -> dict[str, object]:
                 "portalClientCode": profile["portalClientCode"],
                 "clientCode": profile["clientCode"],
                 "clientName": profile["clientName"],
-                "uploadProfileCode": profile["uploadProfileCode"],
-                "fileProfile": profile["fileProfile"],
+                "fileSelection": profile["fileSelection"],
+                "source": "portal_bridge",
             }
             for profile in profiles
         ]
@@ -687,7 +687,7 @@ def consignment_detail(consignment_row_id: int) -> dict[str, object]:
 
 
 def selected_file_ordinal(profile: dict[str, object]) -> int:
-    raw = (profile.get("fileProfile") or {}).get("requiredFileOrdinal")
+    raw = (profile.get("fileSelection") or {}).get("requiredFileOrdinal")
     try:
         ordinal = int(raw or 1)
     except (TypeError, ValueError):
@@ -746,7 +746,7 @@ def upload_consignment_preview(
         "portalClientCode": profile["portalClientCode"],
         "clientCode": code,
         "tssCredentialClientCode": profile["tssCredentialClientCode"],
-        "uploadProfile": profile["fileProfile"],
+        "fileSelection": profile["fileSelection"],
         "requiredFileOrdinal": required_ordinal,
         "selectedFileOrdinal": required_ordinal,
         "selectionRule": f"Map attached file #{required_ordinal} for {profile['portalClientCode']}.",
@@ -767,5 +767,5 @@ def upload_consignment_preview(
             "sourceChannel": "MANUAL",
             "status": "INGESTED",
         },
-        "nextStep": "Wire this preview route to the Module 1 landing/parser before enabling DB writes.",
+        "nextStep": "Use Module 1 ingestion/processing logic to land and transform rows before enabling DB writes from the portal.",
     }

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+# Portal bridge only: these are UI/client aliases from the screenshot, not DB tables.
+# Data ownership and TSS credential state are verified from CFG.Clients and
+# CFG.TSS_Credential at request time.
 FALLBACK_PORTAL_PROFILES: dict[str, dict[str, object]] = {
     "PLE": {
         "portalClientCode": "PLE",
@@ -9,18 +12,13 @@ FALLBACK_PORTAL_PROFILES: dict[str, dict[str, object]] = {
         "clientName": "Primeline Express",
         "tssCredentialClientCode": "PLE",
         "preferredEnvCode": "PRD",
-        "uploadProfileCode": "PLE_PRIMELINE_CONSIGNMENT_UPLOAD",
         "requiresEnsBeforeSubmit": True,
-        "fileProfile": {
-            "profileCode": "PLE_PRIMELINE_CONSIGNMENT_UPLOAD",
-            "fileRole": "CONSIGNMENT_UPLOAD",
+        "fileSelection": {
             "requiredFileOrdinal": 1,
-            "fileDisplayName": "Primeline mandatory consignment file",
             "acceptedExtensions": ".xlsx,.xls,.csv",
             "targetLandingTable": "ING.Inbound_File / ING.Raw_Record",
             "targetCanonicalRoot": "PRS.Consignment / PRS.Goods_Item",
-            "mappingStatus": "AWAITING_SAMPLE_COLUMNS",
-            "notes": "Map only the first attached file for Primeline.",
+            "notes": "Primeline maps the first attached file.",
         },
     },
     "CW": {
@@ -29,18 +27,13 @@ FALLBACK_PORTAL_PROFILES: dict[str, dict[str, object]] = {
         "clientName": "CountryWide",
         "tssCredentialClientCode": "CWF",
         "preferredEnvCode": "TST",
-        "uploadProfileCode": "CW_COUNTRYWIDE_CONSIGNMENT_UPLOAD",
         "requiresEnsBeforeSubmit": True,
-        "fileProfile": {
-            "profileCode": "CW_COUNTRYWIDE_CONSIGNMENT_UPLOAD",
-            "fileRole": "CONSIGNMENT_UPLOAD",
+        "fileSelection": {
             "requiredFileOrdinal": 2,
-            "fileDisplayName": "Countrywide mandatory consignment file",
             "acceptedExtensions": ".xlsx,.xls,.csv",
             "targetLandingTable": "ING.Inbound_File / ING.Raw_Record",
             "targetCanonicalRoot": "PRS.Consignment / PRS.Goods_Item",
-            "mappingStatus": "AWAITING_SAMPLE_COLUMNS",
-            "notes": "Map only the second attached file for Countrywide.",
+            "notes": "Countrywide maps the second attached file.",
         },
     },
 }

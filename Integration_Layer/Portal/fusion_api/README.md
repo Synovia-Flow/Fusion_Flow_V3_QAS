@@ -42,11 +42,11 @@ $env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QA
 - `POST /api/tss/consignments/{consignment_row_id}/update-ens-plan?client_code=PLE` or `client_code=CW`
 - `POST /api/tss/consignments/{consignment_row_id}/submit?client_code=PLE&dry_run=true` or `client_code=CW`
 
-Current profile contract:
+Current portal bridge contract:
 
-- `PLE` maps to data client `PLE`, TSS credential client `PLE`, preferred env `PRD`, mandatory file profile `PLE_PRIMELINE_CONSIGNMENT_UPLOAD`.
-- `CW` maps to data client `CWD`, TSS credential client `CWF`, preferred env `TST`, mandatory file profile `CW_COUNTRYWIDE_CONSIGNMENT_UPLOAD`.
+- `PLE` maps to data client `PLE`, TSS credential client `PLE`, preferred env `PRD`, and selects attached file #1.
+- `CW` maps to data client `CWD`, TSS credential client `CWF`, preferred env `TST`, and selects attached file #2.
 
-Both profiles enforce the route invariant: `UPDATE_CONSIGNMENT_WITH_ENS` must happen before `SUBMIT_CONSIGNMENT`.
+The bridge does not create CFG tables; client rows and credential state are read from the existing `CFG.Clients`, `CFG.TSS_Credential`, and `CFG.TSS_Environment` tables. TSS submission keeps the route invariant: `UPDATE_CONSIGNMENT_WITH_ENS` must happen before `SUBMIT_CONSIGNMENT`.
 
 `submit` returns the payload plan by default (`dry_run=true`). A live TSS write is blocked unless `dry_run=false&confirm_live=true`, the credential is active, the ENS/declaration number is present, the consignment has goods rows, and required TSS fields are mapped.
