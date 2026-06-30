@@ -2,6 +2,12 @@
 
 A simple, auditable deployment pipeline for SQL DDL.
 
+> **Schema reference (auto).** After every non-dry-run deploy the tool regenerates
+> `Documentation/DB_Schema.md` from the live database — all tables, columns, keys,
+> foreign-key joins, indexes, check constraints and views — overwritten each run as
+> the primary, always-current data-model reference. Commit it to see the schema
+> diff per deploy. Skip with `--no-schema-doc`; relocate with `--schema-doc <path>`.
+
 ## Two runners
 
 - **`deploy.py`** (recommended) — Python + `pyodbc`. Applies DDL directly
