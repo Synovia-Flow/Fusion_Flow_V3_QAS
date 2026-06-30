@@ -711,31 +711,71 @@ def consignment_detail(consignment_row_id: int) -> dict[str, object]:
     return {"consignment": row, "goodsItems": goods}
 
 
+def selected_file_ordinal(profile: dict[str, object]) -> int:
+    raw = (profile.get("fileProfile") or {}).get("requiredFileOrdinal")
+    try:
+        ordinal = int(raw or 1)
+    except (TypeError, ValueError):
+        ordinal = 1
+    return max(1, ordinal)
+
+
 @app.post("/api/uploads/consignments/preview")
 def upload_consignment_preview(
     client_code: Annotated[str, Form()] = "PLE",
-    file: Annotated[UploadFile, File()] = None,
+    files: Annotated[list[UploadFile] | None, File()] = None,
+    file: Annotated[UploadFile | None, File()] = None,
 ) -> dict[str, object]:
-    if file is None:
-        raise HTTPException(status_code=422, detail="file is required.")
+    uploaded_files = list(files or [])
+    if file is not None:
+        uploaded_files.append(file)
+    if not uploaded_files:
+        raise HTTPException(status_code=422, detail="at least one file is required.")
+
     profile = load_portal_profile(client_code)
     code = str(profile["clientCode"])
+    required_ordinal = selected_file_ordinal(profile)
+    if len(uploaded_files) < required_ordinal:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{profile['portalClientCode']} requires attached file #{required_ordinal}; "
+                f"only {len(uploaded_files)} file(s) were provided."
+            ),
+        )
+
+    selected_file = uploaded_files[required_ordinal - 1]
     digest = hashlib.sha256()
     size = 0
     while True:
-        chunk = file.file.read(1024 * 1024)
+        chunk = selected_file.file.read(1024 * 1024)
         if not chunk:
             break
         size += len(chunk)
         digest.update(chunk)
+
+    received_files = [
+        {
+            "ordinal": index + 1,
+            "filename": item.filename,
+            "contentType": item.content_type,
+            "selected": index + 1 == required_ordinal,
+        }
+        for index, item in enumerate(uploaded_files)
+    ]
 
     return {
         "portalClientCode": profile["portalClientCode"],
         "clientCode": code,
         "tssCredentialClientCode": profile["tssCredentialClientCode"],
         "uploadProfile": profile["fileProfile"],
-        "filename": file.filename,
-        "contentType": file.content_type,
+        "requiredFileOrdinal": required_ordinal,
+        "selectedFileOrdinal": required_ordinal,
+        "selectionRule": f"Map attached file #{required_ordinal} for {profile['portalClientCode']}.",
+        "receivedFiles": received_files,
+        "ignoredFiles": [item for item in received_files if not item["selected"]],
+        "filename": selected_file.filename,
+        "contentType": selected_file.content_type,
         "sizeBytes": size,
         "sha256": digest.hexdigest(),
         "writeMode": "preview_only",

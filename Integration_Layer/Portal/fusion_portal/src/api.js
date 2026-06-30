@@ -34,10 +34,10 @@ export function getConsignments({ clientCode, status = 'ALL', q = '', limit = 10
   return request(`/api/consignments?${params.toString()}`);
 }
 
-export function previewConsignmentUpload({ clientCode, file }) {
+export function previewConsignmentUpload({ clientCode, files }) {
   const body = new FormData();
   body.append('client_code', clientCode);
-  body.append('file', file);
+  Array.from(files || []).forEach((file) => body.append('files', file));
   return request('/api/uploads/consignments/preview', { method: 'POST', body });
 }
 export function prepareTssConsignmentSubmit({ clientCode, consignmentRowId }) {

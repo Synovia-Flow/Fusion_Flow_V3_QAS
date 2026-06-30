@@ -250,28 +250,28 @@ function TemplateButton({ icon, children }) {
 }
 
 function UploadConsignmentPage({ onBack, onPreviewUpload }) {
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [previewState, setPreviewState] = useState({ status: 'idle', payload: null, error: '' });
 
   function handleFiles(files) {
-    const nextFile = files?.[0];
-    if (nextFile) {
-      setSelectedFile(nextFile);
+    const nextFiles = Array.from(files || []);
+    if (nextFiles.length) {
+      setSelectedFiles(nextFiles);
       setPreviewState({ status: 'idle', payload: null, error: '' });
     }
   }
 
   function clearFile() {
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setPreviewState({ status: 'idle', payload: null, error: '' });
   }
 
   async function handlePreview() {
-    if (!selectedFile) return;
+    if (!selectedFiles.length) return;
     setPreviewState({ status: 'loading', payload: null, error: '' });
     try {
-      const payload = await onPreviewUpload(selectedFile);
+      const payload = await onPreviewUpload(selectedFiles);
       setPreviewState({ status: 'ready', payload, error: '' });
     } catch (error) {
       setPreviewState({ status: 'error', payload: null, error: error.message });
@@ -339,10 +339,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload }) {
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
       >
-        <input type="file" accept=".xlsx,.xls,.csv" onChange={(event) => handleFiles(event.target.files)} />
+        <input type="file" accept=".xlsx,.xls,.csv" multiple onChange={(event) => handleFiles(event.target.files)} />
         <MaterialIcon>cloud_upload</MaterialIcon>
-        <strong>{selectedFile ? selectedFile.name : 'Drag and drop files here or click'}</strong>
-        <span>Supported formats: .xlsx, .xls, .csv</span>
+        <strong>{selectedFiles.length ? `${selectedFiles.length} file${selectedFiles.length === 1 ? '' : 's'} selected` : 'Drag and drop files here or click'}</strong>
+        <span>{selectedFiles.length ? selectedFiles.map((file) => file.name).join(' | ') : 'Supported formats: .xlsx, .xls, .csv'}</span>
         <span>Max file size: 50 MB</span>
       </label>
 
@@ -353,6 +353,9 @@ function UploadConsignmentPage({ onBack, onPreviewUpload }) {
           {previewState.status === 'ready' && (
             <>
               <strong>{previewState.payload.filename}</strong>
+              <span>{previewState.payload.selectionRule}</span>
+              <span>Selected ordinal: {previewState.payload.selectedFileOrdinal} / received: {(previewState.payload.receivedFiles || []).length}</span>
+              <span>Ignored: {(previewState.payload.ignoredFiles || []).map((item) => item.filename).join(', ') || 'none'}</span>
               <span>Target: {previewState.payload.wouldLand.fileTable} / {previewState.payload.wouldLand.rowTable}</span>
               <span>SHA256: {previewState.payload.sha256.slice(0, 16)}...</span>
             </>
@@ -362,10 +365,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload }) {
 
       <div className="upload-actions">
         <button className="file-picker-button" type="button" onClick={() => document.querySelector('.drop-zone input')?.click()}>Open file picker</button>
-        <button className="clear-button" type="button" disabled={!selectedFile} onClick={clearFile}>Clear</button>
+        <button className="clear-button" type="button" disabled={!selectedFiles.length} onClick={clearFile}>Clear</button>
       </div>
 
-      <button className="preview-button" type="button" disabled={!selectedFile || previewState.status === 'loading'} onClick={handlePreview}>
+      <button className="preview-button" type="button" disabled={!selectedFiles.length || previewState.status === 'loading'} onClick={handlePreview}>
         {previewState.status === 'loading' ? 'Preparing Preview' : 'Upload & Preview'}
       </button>
     </section>
@@ -582,8 +585,8 @@ export default function App() {
     navigate('login');
   }
 
-  function handlePreviewUpload(file) {
-    return previewConsignmentUpload({ clientCode: session.tenantCode, file });
+  function handlePreviewUpload(files) {
+    return previewConsignmentUpload({ clientCode: session.tenantCode, files });
   }
 
   function handleQueueForTss(row) {
