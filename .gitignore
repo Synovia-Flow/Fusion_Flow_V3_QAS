@@ -14,6 +14,9 @@
 # Build output
 bin/
 obj/
+dist/
+node_modules/
+.codex_tmp/
 
 # Python artifacts
 __pycache__/
@@ -41,3 +44,6 @@ Development/Deploy/Queue/*.sql
 # TSS connectivity test credentials (live passwords) - never commit.
 Development/Connectivity/tss_credentials.json
 Configuration/tss_credentials.json
+
+# Frontend local dev server logs
+Integration_Layer/Portal/fusion_portal/vite-dev.*.log
