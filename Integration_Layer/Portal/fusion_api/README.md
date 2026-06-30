@@ -28,7 +28,7 @@ $env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QA
 - `GET /api/ingestion/files?client_code=PLE&limit=50` or `client_code=CW`
 - `POST /api/uploads/consignments/preview`
 
-`preview` intentionally does not write to DB yet. It accepts one or more `files`, selects the configured `CFG.File_Profile.RequiredFileOrdinal` file, hashes only that selected file, and returns the target landing path (`ING.Inbound_File` / `ING.Raw_Record`) so the write path can be added deliberately.
+`preview` intentionally does not write to DB yet. It accepts one or more `files`, selects the configured `CFG.File_Profile.RequiredFileOrdinal` file, hashes only that selected file, inspects CSV/XLSX headers, compares detected columns with `CFG.File_Profile_Column_Map`, and returns the target landing path (`ING.Inbound_File` / `ING.Raw_Record`) so the write path can be added deliberately.
 
 ## Portal/TSS Prepared Routes
 

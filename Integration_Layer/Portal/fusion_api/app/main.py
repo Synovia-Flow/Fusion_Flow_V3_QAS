@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import allowed_origins
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
+from .file_introspection import inspect_upload, summarise_mapping
 from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code
 from .tss_submission import build_consignment_submission_plan, post_tss_json
 
@@ -720,6 +721,29 @@ def selected_file_ordinal(profile: dict[str, object]) -> int:
     return max(1, ordinal)
 
 
+def load_file_profile_column_map(profile: dict[str, object]) -> list[dict[str, object]]:
+    file_profile = profile.get("fileProfile") or {}
+    profile_code = file_profile.get("profileCode")
+    if not profile_code:
+        return []
+    try:
+        if table_exists("CFG.File_Profile_Column_Map"):
+            return query_all(
+                """
+                SELECT SourceColumn, TargetTable, TargetColumn, IsRequired, TransformName, DefaultValue, Ordinal, IsActive
+                FROM CFG.File_Profile_Column_Map
+                WHERE ProfileCode = ? AND IsActive = 1
+                ORDER BY COALESCE(Ordinal, 9999), SourceColumn
+                """,
+                [profile_code],
+            )
+    except DbUnavailable:
+        raise
+    except Exception:
+        pass
+    return []
+
+
 @app.post("/api/uploads/consignments/preview")
 def upload_consignment_preview(
     client_code: Annotated[str, Form()] = "PLE",
@@ -745,14 +769,12 @@ def upload_consignment_preview(
         )
 
     selected_file = uploaded_files[required_ordinal - 1]
-    digest = hashlib.sha256()
-    size = 0
-    while True:
-        chunk = selected_file.file.read(1024 * 1024)
-        if not chunk:
-            break
-        size += len(chunk)
-        digest.update(chunk)
+    selected_content = selected_file.file.read()
+    digest = hashlib.sha256(selected_content)
+    size = len(selected_content)
+    structure = inspect_upload(selected_file.filename, selected_content)
+    column_mappings = load_file_profile_column_map(profile)
+    mapping_summary = summarise_mapping(structure.get("columns", []), column_mappings)
 
     received_files = [
         {
@@ -778,6 +800,9 @@ def upload_consignment_preview(
         "contentType": selected_file.content_type,
         "sizeBytes": size,
         "sha256": digest.hexdigest(),
+        "detectedStructure": structure,
+        "columnMappings": column_mappings,
+        "mappingSummary": mapping_summary,
         "writeMode": "preview_only",
         "wouldLand": {
             "fileTable": "ING.Inbound_File",
