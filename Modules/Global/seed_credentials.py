@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -29,16 +30,31 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
 DEFAULT_INI = REPO_ROOT / "Configuration" / "Fusion_Flow_QAS.ini"
 CRED_FILE = REPO_ROOT / "Configuration" / "tss_credentials.json"
+ENV_FILE = REPO_ROOT / ".env"
 
-# Environments (non-secret base URLs) - mirrors 009 seed.
-ENVIRONMENTS = [
-    {"EnvCode": "PRD", "EnvName": "Production", "BaseUrl": "https://api.tradersupportservice.co.uk/api",
-     "Description": "Live HMRC submissions. Use only after go-live approval. Outbound email active.",
-     "DatabaseName": "Fusion_TSS_PRD", "Notes": "Live HMRC submissions", "IsActive": 1},
-    {"EnvCode": "TST", "EnvName": "Test", "BaseUrl": "https://api.tsstestenv.co.uk/api",
-     "Description": "Integrated to HMRC CDS Trader Dress Rehearsal. Outbound email disabled.",
-     "DatabaseName": "Fusion_TSS", "Notes": "CDS Trader Dress Rehearsal", "IsActive": 1},
-]
+
+def _read_env_db_name() -> str:
+    """Parse DATABASE=<name> from DB_CONN_STR in .env. Falls back to 'Fusion_Flow_V3_QAS'."""
+    if not ENV_FILE.exists():
+        return "Fusion_Flow_V3_QAS"
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        if line.startswith("DB_CONN_STR"):
+            m = re.search(r"DATABASE=([^;\"]+)", line, re.IGNORECASE)
+            if m:
+                return m.group(1).strip()
+    return "Fusion_Flow_V3_QAS"
+
+
+def _build_environments() -> list[dict]:
+    db_name = _read_env_db_name()
+    return [
+        {"EnvCode": "PRD", "EnvName": "Production", "BaseUrl": "https://api.tradersupportservice.co.uk/api",
+         "Description": "Live HMRC submissions. Use only after go-live approval. Outbound email active.",
+         "DatabaseName": "Fusion_TSS_PRD", "Notes": "Live HMRC submissions", "IsActive": 1},
+        {"EnvCode": "TST", "EnvName": "Test", "BaseUrl": "https://api.tsstestenv.co.uk/api",
+         "Description": "Integrated to HMRC CDS Trader Dress Rehearsal. Outbound email disabled.",
+         "DatabaseName": db_name, "Notes": "CDS Trader Dress Rehearsal", "IsActive": 1},
+    ]
 
 ENSURE_DDL = """
 IF SCHEMA_ID('CFG') IS NULL EXEC('CREATE SCHEMA CFG');
@@ -103,8 +119,9 @@ def main() -> int:
     p.add_argument("--dry-run", action="store_true")
     args = p.parse_args()
 
+    environments = _build_environments()
     creds = load_creds()
-    print(f"Environments: {len(ENVIRONMENTS)}; Credentials from JSON: {len(creds)}")
+    print(f"Environments: {len(environments)}; Credentials from JSON: {len(creds)}")
     if args.dry_run:
         for c in creds:
             print(f"  would upsert {c.get('client_code')}/{c.get('env_code')} user={c.get('username')} "
@@ -119,7 +136,7 @@ def main() -> int:
             cur.execute(stmt)
         conn.commit()
 
-        for env in ENVIRONMENTS:
+        for env in environments:
             upsert(cur, "CFG.TSS_Environment", ["EnvCode"], dict(env))
         for c in creds:
             upsert(cur, "CFG.TSS_Credential", ["ClientCode", "EnvCode"], {
@@ -127,7 +144,7 @@ def main() -> int:
                 "TssUsername": c.get("username"), "TssPassword": c.get("password"),
                 "IsActive": 1 if str(c.get("active")).lower() in ("1", "true", "yes") else 0}, touch="UpdatedAt")
         conn.commit()
-        print(f"Seeded {len(ENVIRONMENTS)} environment(s) and {len(creds)} credential(s) into CFG.")
+        print(f"Seeded {len(environments)} environment(s) and {len(creds)} credential(s) into CFG.")
         return 0
     finally:
         conn.close()
