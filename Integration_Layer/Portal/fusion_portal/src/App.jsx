@@ -358,6 +358,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload }) {
               <span>Ignored: {(previewState.payload.ignoredFiles || []).map((item) => item.filename).join(', ') || 'none'}</span>
               <span>Target: {previewState.payload.wouldLand.fileTable} / {previewState.payload.wouldLand.rowTable}</span>
               <span>Mapping: {previewState.payload.mappingSummary?.status || 'UNKNOWN'} - {previewState.payload.mappingSummary?.mappedColumns || 0}/{previewState.payload.mappingSummary?.detectedColumns || 0} columns mapped</span>
+              <span>Suggested: {previewState.payload.mappingSuggestions?.suggestedCount || 0} matched / {previewState.payload.mappingSuggestions?.unmatchedCount || 0} unmatched</span>
+              {(previewState.payload.mappingSuggestions?.missingRequiredTargets || []).length > 0 && (
+                <span>Missing required: {(previewState.payload.mappingSuggestions.missingRequiredTargets || []).slice(0, 5).map((item) => item.targetColumn).join(', ')}{(previewState.payload.mappingSuggestions.missingRequiredTargets || []).length > 5 ? '...' : ''}</span>
+              )}
               {previewState.payload.detectedStructure?.warning && <span>{previewState.payload.detectedStructure.warning}</span>}
               {(previewState.payload.detectedStructure?.columns || []).length > 0 && (
                 <span>Columns: {(previewState.payload.detectedStructure.columns || []).slice(0, 8).map((column) => column.name).join(', ')}{(previewState.payload.detectedStructure.columns || []).length > 8 ? '...' : ''}</span>

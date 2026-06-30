@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import allowed_origins
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
 from .file_introspection import inspect_upload, summarise_mapping
+from .mapping_suggestions import suggest_column_mappings
 from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code
 from .tss_submission import build_consignment_submission_plan, post_tss_json
 
@@ -775,6 +776,7 @@ def upload_consignment_preview(
     structure = inspect_upload(selected_file.filename, selected_content)
     column_mappings = load_file_profile_column_map(profile)
     mapping_summary = summarise_mapping(structure.get("columns", []), column_mappings)
+    mapping_suggestions = suggest_column_mappings(structure.get("columns", []))
 
     received_files = [
         {
@@ -803,6 +805,7 @@ def upload_consignment_preview(
         "detectedStructure": structure,
         "columnMappings": column_mappings,
         "mappingSummary": mapping_summary,
+        "mappingSuggestions": mapping_suggestions,
         "writeMode": "preview_only",
         "wouldLand": {
             "fileTable": "ING.Inbound_File",
