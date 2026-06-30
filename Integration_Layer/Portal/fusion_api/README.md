@@ -55,7 +55,10 @@ The bridge does not create CFG tables; client rows and credential state are read
 
 ```powershell
 cd Integration_Layer\Portal\fusion_api
-python tools\check_portal_bridge.py
+python tools\check_portal_bridge.py`r`npython tools\check_portal_end_to_end_readiness.py`r`npython tools\check_portal_end_to_end_readiness.py --strict
 ```
 
 This check verifies the PLE/CW portal bridge against the live database without printing secrets: data client, TSS credential client/env, active password presence, required file ordinal, and absence of the removed portal CFG profile tables.
+
+
+The readiness check validates login-to-tenant mapping, TSS credential selection, required attachment ordinal, and reports whether real PRS.Consignment data exists for a dry-run ENS update plus submit plan. Use --strict when missing PRS data should fail the check.
