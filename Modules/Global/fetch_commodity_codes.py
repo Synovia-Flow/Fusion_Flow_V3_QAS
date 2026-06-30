@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, date
 from pathlib import Path
 from typing import Any
 
@@ -49,11 +50,24 @@ DATE_FROM_KEYS = ("effective_from", "valid_from", "start_date", "validity_start_
 DATE_TO_KEYS = ("effective_to", "valid_to", "end_date", "validity_end_date", "date_to")
 
 
-def _pick(raw: dict, keys) -> str | None:
+def _date_from(raw: dict, keys) -> date | None:
+    """First parseable date among `keys` as a real date (pyodbc-bindable), else None.
+    Returns None for non-date / unparseable values so a bad string can never cause a
+    SQL date-conversion error."""
     for k in keys:
         v = raw.get(k)
-        if v:
-            return str(v)[:10]
+        if v in (None, ""):
+            continue
+        s = str(v).strip()
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
+        except ValueError:
+            pass
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
     return None
 
 
@@ -145,8 +159,8 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
         if not value or value in seen:
             continue
         seen.add(value)
-        eff_from = _pick(raw, DATE_FROM_KEYS)
-        eff_to = _pick(raw, DATE_TO_KEYS)
+        eff_from = _date_from(raw, DATE_FROM_KEYS)
+        eff_to = _date_from(raw, DATE_TO_KEYS)
         extra = json.dumps(raw, default=str)[:8000]
         h = row_hash(value, name, extra)
         ex = existing.get(value)
