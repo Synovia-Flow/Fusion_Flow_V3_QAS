@@ -39,6 +39,7 @@ later module phases.
 | 18 | `018_cfg_commodity_code.sql` | Gives `commodity_code` (~35k codes) its own table `CFG.Commodity_Code_Cache` (+ `vw_Commodity_Code_Changes`); removes it from the general choice flow (deactivates in registry, clears its cache + map rows); registers `REF_FETCH_COMMODITY_CODES`. Fed by `Modules/Global/fetch_commodity_codes.py`. |
 | 19 | `019_cfg_processing_map.sql` | Config-driven processing: `CFG.Processing_Profile` (per client+entity: source ING table → target PRS tables), `CFG.Processing_Field_Map` (per field: source, transform type, choice set, mandatory/condition, max len), `CFG.Carrier_Master` (MASTER_ENRICH). Seeds the BKD ENS_HEADER profile + field map; registers `PRS_ENGINE_BKD_ENS`. Driven by `Modules/Processing/process_engine.py`. |
 | 20 | `020_prs_error_views.sql` | Error/rejection views: `SRV.vw_Processing_Errors` (all clients, from `LOG.Error_Log`+`EXC`), `PRS.vw_BKD_ENS_Header_Status` / `_Rejected` (per movement + offending values), `PRS.vw_BKD_ENS_Header_Reasons` (one row per reason — `GROUP BY` to rank failures). |
+| 21 | `021_prs_reprocess.sql` | Reprocess support: adds `ReprocessCount` / `ResolvedAt` / `ResolvedByExecutionID` to the tracking table + `PRS.vw_BKD_ENS_Header_Resolved`; seeds `PROCESSING_MODE` / `_REPROCESS_SCOPE` / `_MOVEMENT_KEY`; registers `PRS_REPROCESS_BKD_ENS`. Driven by `Modules/Processing/reprocess_engine.py`. |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 

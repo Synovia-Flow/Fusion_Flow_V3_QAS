@@ -157,12 +157,28 @@ def _transform(fm: dict, raw: dict, rec: dict, resolver: ChoiceResolver,
     return mapping.normalise_text(incoming), False
 
 
-def _insert(db: ProcessingDb, schema: str, table: str, obj: dict, pk_col: str) -> int | None:
+def _upsert(db: ProcessingDb, schema: str, table: str, obj: dict,
+            key_cols: list[str], pk_col: str) -> int | None:
+    """UPDATE the row matching key_cols (in place) else INSERT. Returns the pk.
+    Binds only real columns (Rule 9). NULLs in obj are written (clears stale data)."""
     if db.dry_run or not db.execution_id:
         return None
     real = set(db.introspect_columns(schema, table))
-    cols = [c for c in obj if c in real and c != pk_col]
     cur = db.conn.cursor()
+    where = " AND ".join(f"[{k}] = ?" for k in key_cols)
+    existing = db._query(f"SELECT {pk_col} AS pk FROM {schema}.{table} WHERE {where}",
+                         *[obj.get(k) for k in key_cols])
+    if existing:
+        pk = existing[0]["pk"]
+        setc = [c for c in obj if c in real and c != pk_col and c not in key_cols]
+        if setc:
+            assign = ", ".join(f"[{c}] = ?" for c in setc)
+            if "UpdatedAt" in real:
+                assign += ", [UpdatedAt] = SYSUTCDATETIME()"
+            cur.execute(f"UPDATE {schema}.{table} SET {assign} WHERE {pk_col} = ?",
+                        *[obj[c] for c in setc], pk)
+        return int(pk)
+    cols = [c for c in obj if c in real and c != pk_col]
     cur.execute(f"INSERT INTO {schema}.{table} ({', '.join('['+c+']' for c in cols)}) "
                 f"OUTPUT INSERTED.{pk_col} VALUES ({', '.join('?' for _ in cols)})",
                 *[obj[c] for c in cols])
@@ -170,14 +186,17 @@ def _insert(db: ProcessingDb, schema: str, table: str, obj: dict, pk_col: str) -
 
 
 def process_row(db: ProcessingDb, raw: dict, profile: dict, fmap: list[dict],
-                resolver: ChoiceResolver, carrier_for, run_date: datetime) -> str:
+                resolver: ChoiceResolver, carrier_for, run_date: datetime,
+                reprocess: bool = False) -> str:
     client = profile["ClientCode"]
     mk = (raw.get(profile["SourceKeyColumn"]) or "").strip()
     eref = f"MK={mk}"
     details_date = (raw.get("DetailsDate") or "").strip() or None
     icr = mk.split("|", 1)[1] if "|" in mk else None
+    proc = "REPROCESSING" if reprocess else "STAGING"
+    sch, ttab, stab = profile["TargetSchema"], profile["TrackingTable"], profile["TargetTable"]
 
-    # 1) tracking row (control/source spine)
+    # 1) tracking row (control/source spine) - upsert so reprocess updates in place
     tracking = {
         "ClientCode": client, "MovementKey": mk, "EntityType": profile["EntityKind"],
         "SourceChannel": "EMAIL", "SourceEnsLoadID": raw.get(profile["SourceIdColumn"]),
@@ -186,8 +205,8 @@ def process_row(db: ProcessingDb, raw: dict, profile: dict, fmap: list[dict],
         "Fusion_Status": "STAGED", "StagedAt": datetime.now(timezone.utc),
         "LastExecutionID": db.execution_id, "LastTransactionID": db.transaction_id,
     }
-    tracking_id = _insert(db, profile["TargetSchema"], profile["TrackingTable"], tracking, "TrackingID")
-    db.log_transition(profile["EntityKind"], eref, "STAGING", "STAGED")
+    tracking_id = _upsert(db, sch, ttab, tracking, ["ClientCode", "MovementKey"], "TrackingID")
+    db.log_transition(profile["EntityKind"], eref, proc, "STAGED")
 
     # 2) transform every mapped field, logging old -> new to EXC.DPE
     rec: dict[str, Any] = {"ClientCode": client, "MovementKey": mk,
@@ -201,38 +220,43 @@ def process_row(db: ProcessingDb, raw: dict, profile: dict, fmap: list[dict],
         if bad_choice:
             unmatched.append(fm["TargetField"])
         rule = f"{fm['TransformType']}" + (f" ({fm['RuleRef']})" if fm.get("RuleRef") else "")
-        db.log_enhancement(profile["TargetSchema"], profile["TargetTable"], fm["TargetField"],
-                           eref, old, new, rule)
+        db.log_enhancement(sch, stab, fm["TargetField"], eref, old, new, rule)
         if new is not None:
             rec[fm["TargetField"]] = new
 
-    # derived UTC for the arrival bounds check
     arr_utc = mapping.parse_arrival_to_utc(rec.get("arrival_date_time"), now_utc=run_date)
-    if arr_utc is not None:
-        rec["arrival_date_time_utc"] = arr_utc.replace(tzinfo=None)
+    rec["arrival_date_time_utc"] = arr_utc.replace(tzinfo=None) if arr_utc is not None else None
     db.log_transition(profile["EntityKind"], eref, "ENRICHING", "ENRICHED")
 
     # 3) validate
     reasons = validate(rec, fmap, resolver, arr_utc, run_date)
-    status = "VALIDATED" if not reasons else "REJECTED"
     if unmatched:
         reasons.append("unresolved choice value(s): " + ", ".join(unmatched))
-        status = "REJECTED"
+    status = "VALIDATED" if not reasons else "REJECTED"
+    reason_text = "; ".join(reasons)[:2000] or None
     rec["Fusion_Status"] = status
-    if reasons:
-        rec["Fusion_Status_Reason"] = "; ".join(reasons)[:2000]
+    rec["Fusion_Status_Reason"] = reason_text          # None clears a prior rejection
+    submission_id = _upsert(db, sch, stab, rec, ["ClientCode", "MovementKey"], "SubmissionID")
 
-    submission_id = _insert(db, profile["TargetSchema"], profile["TargetTable"], rec, "SubmissionID")
-    if not db.dry_run and db.execution_id and tracking_id and submission_id:
-        cur = db.conn.cursor()
-        cur.execute(f"UPDATE {profile['TargetSchema']}.{profile['TrackingTable']} "
-                    f"SET SubmissionID = ?, Fusion_Status = ?, RejectReason = ?, "
-                    f"ValidatedAt = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME() WHERE TrackingID = ?",
-                    submission_id, status, ("; ".join(reasons)[:2000] or None), tracking_id)
+    # 4) update tracking; on reprocess bump the count and CLOSE OFF resolved errors
+    if not db.dry_run and db.execution_id and tracking_id:
+        resolved = reprocess and status == "VALIDATED"
+        sets = ["SubmissionID = ?", "Fusion_Status = ?", "RejectReason = ?",
+                "ValidatedAt = SYSUTCDATETIME()", "LastExecutionID = ?", "UpdatedAt = SYSUTCDATETIME()"]
+        vals: list[Any] = [submission_id, status, reason_text, db.execution_id]
+        if reprocess:
+            sets.append("ReprocessCount = ISNULL(ReprocessCount, 0) + 1")
+        if resolved:
+            sets += ["ResolvedAt = SYSUTCDATETIME()", "ResolvedByExecutionID = ?"]
+            vals.append(db.execution_id)
+        db.conn.cursor().execute(
+            f"UPDATE {sch}.{ttab} SET {', '.join(sets)} WHERE TrackingID = ?", *vals, tracking_id)
 
     db.log_transition(profile["EntityKind"], eref, "VALIDATING", status)
     if status == "REJECTED":
         db.log_error("VALIDATE", f"{eref} REJECTED: {'; '.join(reasons)}", "VALIDATION")
+    elif reprocess:
+        db.log("REPROCESS", f"{eref} resolved -> VALIDATED (prior errors closed)", "OK")
     if not db.dry_run:
         db.conn.commit()
     return status
@@ -264,11 +288,16 @@ def validate(rec: dict, fmap: list[dict], resolver: ChoiceResolver,
     return reasons
 
 
-def run(ini_path: Path = DEFAULT_INI) -> int:
+def run(ini_path: Path = DEFAULT_INI, mode: str | None = None) -> int:
     db = ProcessingDb.connect(load_db_config(ini_path), dry_run=False)
     client = (db.fetch_parameter("PROCESSING_CLIENT", "BKD") or "BKD").strip().upper()
     entity = (db.fetch_parameter("PROCESSING_ENTITY", "ENS_HEADER") or "ENS_HEADER").strip().upper()
     db.dry_run = (db.fetch_parameter("PROCESSING_DRY_RUN", "0") or "0").strip().lower() in ("1", "true", "yes", "on")
+    # NEW (default) processes untracked rows; REPROCESS re-runs already-tracked rows.
+    mode = (mode or db.fetch_parameter("PROCESSING_MODE", "NEW") or "NEW").strip().upper()
+    reprocess = mode == "REPROCESS"
+    scope = (db.fetch_parameter("PROCESSING_REPROCESS_SCOPE", "REJECTED") or "REJECTED").strip().upper()
+    target_mk = (db.fetch_parameter("PROCESSING_MOVEMENT_KEY", "") or "").strip()
     db._client_code = client
 
     found = done = failed = 0
@@ -296,28 +325,45 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                 carrier_cache[eori] = rows[0] if rows else None
             return carrier_cache[eori]
 
-        db.open_execution(MODULE, "PROCESSING", client, "dry-run" if db.dry_run else "scheduled")
+        proc_name = "REPROCESSING" if reprocess else "PROCESSING"
+        db.open_execution(MODULE, proc_name, client, "dry-run" if db.dry_run else "scheduled")
         db._client_code = client
-        db.advance_execution("PROCESSING", "RUNNING")
-        db.log("START", f"Processing {client}/{entity} via {profile['SourceSchema']}.{profile['SourceTable']} "
-               f"(dry_run={db.dry_run})")
-
+        db.advance_execution(proc_name, "RUNNING")
         run_date = datetime.now(timezone.utc)
-        staged = ({r["SourceEnsLoadID"] for r in db._query(
-            f"SELECT SourceEnsLoadID FROM {profile['TargetSchema']}.{profile['TrackingTable']} "
-            f"WHERE ClientCode = ? AND SourceEnsLoadID IS NOT NULL", client)} if not db.dry_run else set())
 
         raw_rows = db._query(f"SELECT * FROM {profile['SourceSchema']}.{profile['SourceTable']} "
                              f"ORDER BY {profile['SourceIdColumn']}")
-        pending = [r for r in raw_rows if r.get(profile["SourceIdColumn"]) not in staged]
+        idcol = profile["SourceIdColumn"]
+        if reprocess:
+            # Re-run rows already tracked, selected by scope (REJECTED|ALL) and optional MovementKey.
+            tsql = (f"SELECT SourceEnsLoadID, MovementKey FROM {profile['TargetSchema']}.{profile['TrackingTable']} "
+                    f"WHERE ClientCode = ?")
+            tparams: list[Any] = [client]
+            if scope != "ALL":
+                tsql += " AND Fusion_Status = 'REJECTED'"
+            if target_mk:
+                tsql += " AND MovementKey = ?"; tparams.append(target_mk)
+            trk = db._query(tsql, *tparams)
+            load_ids = {r["SourceEnsLoadID"] for r in trk if r["SourceEnsLoadID"] is not None}
+            pending = [r for r in raw_rows if r.get(idcol) in load_ids]
+            db.log("START", f"Reprocessing {client}/{entity} scope={scope}"
+                   + (f" MK={target_mk}" if target_mk else "") + f" (dry_run={db.dry_run})")
+            db.log("SOURCE", f"{len(trk)} tracked match(es); {len(pending)} source rows to reprocess.")
+        else:
+            staged = ({r["SourceEnsLoadID"] for r in db._query(
+                f"SELECT SourceEnsLoadID FROM {profile['TargetSchema']}.{profile['TrackingTable']} "
+                f"WHERE ClientCode = ? AND SourceEnsLoadID IS NOT NULL", client)} if not db.dry_run else set())
+            pending = [r for r in raw_rows if r.get(idcol) not in staged]
+            db.log("START", f"Processing {client}/{entity} via {profile['SourceSchema']}.{profile['SourceTable']} "
+                   f"(dry_run={db.dry_run})")
+            db.log("SOURCE", f"{len(raw_rows)} source rows; {len(pending)} to process.")
         found = len(pending)
-        db.log("SOURCE", f"{len(raw_rows)} source rows; {found} to process.")
 
         validated = rejected = 0
         for raw in pending:
             mk = (raw.get(profile["SourceKeyColumn"]) or "").strip()
             try:
-                st = process_row(db, raw, profile, fmap, resolver, carrier_for, run_date)
+                st = process_row(db, raw, profile, fmap, resolver, carrier_for, run_date, reprocess=reprocess)
                 done += 1
                 validated += (st == "VALIDATED"); rejected += (st == "REJECTED")
             except Exception as error:  # noqa: BLE001
@@ -332,8 +378,9 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
         db.finish_execution(final, found, done, failed)
         db.log("FINISH", f"found={found} processed={done} validated={validated} rejected={rejected} "
                f"failed={failed} enhancements={db.enhancement_count}", "OK")
-        print(f"Process {client}/{entity}: found={found} validated={validated} rejected={rejected} "
-              f"failed={failed} enhancements={db.enhancement_count}")
+        print(f"{'Reprocess' if reprocess else 'Process'} {client}/{entity}: found={found} "
+              f"validated={validated} rejected={rejected} failed={failed} "
+              f"resolved={validated if reprocess else 0} enhancements={db.enhancement_count}")
         return 0 if failed == 0 else 1
     except Exception as error:  # noqa: BLE001
         db.log_error("RUN", str(error), type(error).__name__, traceback.format_exc())
