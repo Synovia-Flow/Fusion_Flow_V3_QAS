@@ -406,6 +406,71 @@ def tss_connections(client_code: str | None = Query(None), env_code: str | None 
     return {"connections": connections}
 
 
+def tss_readiness_payload(profile: dict[str, object]) -> dict[str, object]:
+    connection = public_connection_payload(profile)
+    route = connection["route"]
+    candidate = query_one(
+        """
+        SELECT TOP 1 c.ConsignmentRowID,
+               COALESCE(c.declaration_number, h.declaration_number) AS DeclarationNumber,
+               g.GoodsCount
+        FROM PRS.Consignment c
+        LEFT JOIN PRS.ENS_Header h ON h.EnsHeaderRowID = c.EnsHeaderRowID
+        OUTER APPLY (
+            SELECT COUNT(*) AS GoodsCount
+            FROM PRS.Goods_Item gi
+            WHERE gi.ConsignmentRowID = c.ConsignmentRowID
+        ) g
+        WHERE c.ClientCode = ?
+        ORDER BY
+            CASE WHEN COALESCE(c.declaration_number, h.declaration_number) IS NOT NULL THEN 0 ELSE 1 END,
+            CASE WHEN g.GoodsCount > 0 THEN 0 ELSE 1 END,
+            c.ConsignmentRowID
+        """,
+        [profile["clientCode"]],
+    )
+    if not candidate:
+        return {
+            "portalClientCode": profile["portalClientCode"],
+            "clientCode": profile["clientCode"],
+            "connection": connection,
+            "ready": False,
+            "dataReady": False,
+            "candidate": None,
+            "plan": None,
+            "blockers": [f"No PRS.Consignment rows for data client {profile['clientCode']}"],
+            "invariant": "UPDATE_CONSIGNMENT_WITH_ENS must run before SUBMIT_CONSIGNMENT.",
+        }
+
+    consignment, goods = load_consignment_submission_data(int(candidate["ConsignmentRowID"]), profile)
+    plan = build_consignment_submission_plan(profile=profile, consignment=consignment, goods_items=goods, route=route)
+    blockers = list(plan.get("routeBlockers") or [])
+    if plan.get("missing"):
+        blockers.append("Missing required TSS fields: " + ", ".join(plan["missing"]))
+    return {
+        "portalClientCode": profile["portalClientCode"],
+        "clientCode": profile["clientCode"],
+        "connection": connection,
+        "ready": bool(plan["ready"]),
+        "dataReady": True,
+        "candidate": {
+            "consignmentRowId": candidate["ConsignmentRowID"],
+            "hasEnsDeclarationNumber": bool(plan["ensDeclarationNumber"]),
+            "goodsItemCount": plan["goodsItemCount"],
+        },
+        "plan": plan,
+        "blockers": blockers,
+        "invariant": "UPDATE_CONSIGNMENT_WITH_ENS must run before SUBMIT_CONSIGNMENT.",
+    }
+
+@app.get("/api/tss/readiness")
+def tss_readiness(client_code: str | None = Query(None)) -> dict[str, object]:
+    try:
+        profiles = [load_portal_profile(client_code)] if client_code else portal_profiles()["profiles"]
+        return {"readiness": [tss_readiness_payload(profile) for profile in profiles]}
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
 @app.get("/api/tss/route-plan")
 def tss_route_plan(client_code: str = Query("PLE")) -> dict[str, object]:
     try:
