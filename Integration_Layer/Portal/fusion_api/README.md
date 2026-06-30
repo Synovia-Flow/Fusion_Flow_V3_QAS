@@ -50,3 +50,12 @@ Current portal bridge contract:
 The bridge does not create CFG tables; client rows and credential state are read from the existing `CFG.Clients`, `CFG.TSS_Credential`, and `CFG.TSS_Environment` tables. TSS submission keeps the route invariant: `UPDATE_CONSIGNMENT_WITH_ENS` must happen before `SUBMIT_CONSIGNMENT`.
 
 `submit` returns the payload plan by default (`dry_run=true`). A live TSS write is blocked unless `dry_run=false&confirm_live=true`, the credential is active, the ENS/declaration number is present, the consignment has goods rows, and required TSS fields are mapped.
+
+## Operational Checks
+
+```powershell
+cd Integration_Layer\Portal\fusion_api
+python tools\check_portal_bridge.py
+```
+
+This check verifies the PLE/CW portal bridge against the live database without printing secrets: data client, TSS credential client/env, active password presence, required file ordinal, and absence of the removed portal CFG profile tables.
