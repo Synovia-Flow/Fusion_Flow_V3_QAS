@@ -236,7 +236,8 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
 
     env_code = (param(cur, "CHOICE_VALUES_ENV", "PRD") or "PRD").strip().upper()
     client_code = (param(cur, "CHOICE_VALUES_CLIENT", "BKD") or "BKD").strip().upper()
-    path_prefix = "/" + (param(cur, "CHOICE_VALUES_PATH", "/choice_values") or "/choice_values").strip().strip("/")
+    default_path = "/x_fhmrc_tss_api/v1/choice_values"   # per TSS API Reference v2.9.5
+    path_prefix = "/" + (param(cur, "CHOICE_VALUES_PATH", default_path) or default_path).strip().strip("/")
     dry_run = (param(cur, "CHOICE_VALUES_DRY_RUN", "0") or "0").strip().lower() in ("1", "true", "yes", "on")
 
     base_url, user, pwd = resolve_endpoint(cur, env_code, client_code)
@@ -255,8 +256,14 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
     session.headers.update({"Accept": "application/json"})
 
     tot = {"new": 0, "changed": 0, "unchanged": 0, "removed": 0}
-    ok_fields = failed_fields = 0
+    ok_fields = failed_fields = routing_400 = 0
     for i, field in enumerate(fields):
+        # Early abort: a routing 400 means the path is wrong for every field -
+        # don't grind through 35 calls (and 35 rate-limit sleeps).
+        if ok_fields == 0 and routing_400 >= 3:
+            print(f"  [ABORT] {routing_400} consecutive routing 400s - path '{path_prefix}' is wrong; stopping.")
+            failed_fields += (len(fields) - i)
+            break
         if i:
             time.sleep(RATE_LIMIT_SECONDS)
         url = f"{base_url}{path_prefix}/{field}"
@@ -264,6 +271,8 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
             resp = session.get(url, timeout=TIMEOUT)
             if resp.status_code != 200:
                 failed_fields += 1
+                if resp.status_code == 400 and "does not represent any resource" in resp.text:
+                    routing_400 += 1
                 msg = f"HTTP {resp.status_code} {resp.text[:140].replace(chr(10), ' ')}"
                 print(f"  [FAIL] {field}: {msg}")
                 if not dry_run:
@@ -295,12 +304,12 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                f"unchanged={tot['unchanged']}")
     print(f"\n{summary}")
     if ok_fields == 0 and failed_fields:
-        print("[HINT] Every field failed. choice_values is served on PRODUCTION - the TST tenant\n"
-              "       returns HTTP 400 'URI does not represent any resource'. Point the downloader at\n"
-              "       production with an active production credential:\n"
-              "         UPDATE CFG.Application_Parameters SET ParameterValue='PRD' WHERE ParameterKey='CHOICE_VALUES_ENV';\n"
-              "         UPDATE CFG.Application_Parameters SET ParameterValue='BKD' WHERE ParameterKey='CHOICE_VALUES_CLIENT';\n"
-              "       (ensure CFG.TSS_Credential has an active, valid password for that client/PRD).")
+        print("[HINT] Every field failed with a routing 400. The TSS choice_values resource is at\n"
+              "         <base>/x_fhmrc_tss_api/v1/choice_values/<field>   (API Reference v2.9.5)\n"
+              f"       Current path prefix is '{path_prefix}'. Set it correctly:\n"
+              "         UPDATE CFG.Application_Parameters SET ParameterValue='/x_fhmrc_tss_api/v1/choice_values'\n"
+              "          WHERE ParameterKey='CHOICE_VALUES_PATH';\n"
+              "       (CFG.TSS_Environment.BaseUrl already ends in /api; TST and PRD both serve it.)")
     if not dry_run:
         status = "COMPLETED" if failed_fields == 0 else "COMPLETED_WITH_WARNINGS"
         finish_execution(cur, eid, status, len(fields), ok_fields, failed_fields,
