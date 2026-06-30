@@ -98,9 +98,9 @@ GO
 /* ------------------------------------------------------------------ */
 MERGE CFG.Application_Parameters AS t
 USING (VALUES
-    ('CHOICE_VALUES_ENV',     'PRD', 'STRING', 'Choice-values downloader: which TSS environment (CFG.TSS_Environment) to query. Use PRD - choice_values is served on production; the TST tenant returns HTTP 400 for it.'),
+    ('CHOICE_VALUES_ENV',     'PRD', 'STRING', 'Choice-values downloader: which TSS environment (CFG.TSS_Environment) to query. TST and PRD both serve choice_values; PRD is the authoritative reference set.'),
     ('CHOICE_VALUES_CLIENT',  'BKD', 'STRING', 'Choice-values downloader: which client credential (CFG.TSS_Credential) to authenticate with (reference data is client-agnostic; must be active for the chosen env).'),
-    ('CHOICE_VALUES_PATH',    '/choice_values', 'STRING', 'Choice-values downloader: resource path prefix; field name is appended (<base>/choice_values/<field>).'),
+    ('CHOICE_VALUES_PATH',    '/x_fhmrc_tss_api/v1/choice_values', 'STRING', 'Choice-values resource path appended to BaseUrl (which ends in /api). Per TSS API Reference v2.9.5: <base>/x_fhmrc_tss_api/v1/choice_values/<field>.'),
     ('CHOICE_VALUES_DRY_RUN', '0',   'BOOL',   'Choice-values downloader: 1/true = fetch + report only, write nothing.')
 ) AS s (ParameterKey, ParameterValue, ValueType, Description)
 ON t.ParameterKey = s.ParameterKey

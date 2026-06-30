@@ -38,16 +38,6 @@ UPDATE CFG.Choice_Field_Map
 GO
 
 /* ------------------------------------------------------------------ */
-/* Correct the choice-values resource path (was /choice_values).       */
-/* TSS API Reference v2.9.5: <base>/x_fhmrc_tss_api/v1/choice_values.   */
-/* ------------------------------------------------------------------ */
-UPDATE CFG.Application_Parameters
-   SET ParameterValue = '/x_fhmrc_tss_api/v1/choice_values', UpdatedAt = SYSUTCDATETIME()
- WHERE ParameterKey = 'CHOICE_VALUES_PATH'
-   AND ParameterValue IN ('/choice_values', 'choice_values');
-GO
-
-/* ------------------------------------------------------------------ */
 /* Registry: the authoritative 35 fields - descriptions + UsedBy.      */
 /* ------------------------------------------------------------------ */
 MERGE CFG.Choice_Field_Registry AS t
