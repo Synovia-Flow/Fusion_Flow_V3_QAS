@@ -41,6 +41,7 @@ later module phases.
 | 20 | `020_prs_error_views.sql` | Error/rejection views: `SRV.vw_Processing_Errors` (all clients, from `LOG.Error_Log`+`EXC`), `PRS.vw_BKD_ENS_Header_Status` / `_Rejected` (per movement + offending values), `PRS.vw_BKD_ENS_Header_Reasons` (one row per reason — `GROUP BY` to rank failures). |
 | 21 | `021_prs_reprocess.sql` | Reprocess support: adds `ReprocessCount` / `ResolvedAt` / `ResolvedByExecutionID` to the tracking table + `PRS.vw_BKD_ENS_Header_Resolved`; seeds `PROCESSING_MODE` / `_REPROCESS_SCOPE` / `_MOVEMENT_KEY`; registers `PRS_REPROCESS_BKD_ENS`. Driven by `Modules/Processing/reprocess_engine.py`. |
 | 22 | `022_cfg_value_translation.sql` | Local value translation: `CFG.Value_Translation` lets a **specific file** (or a whole client/field) DEFINE the output code for an incoming value, consulted before the choice-value resolver (most-specific `SourceFile` wins over `'*'`; `MatchMode` CI/EXACT/NORM). Seeds BKD ENS `arrival_port 'Belfast Port'→GBAUBELBELBEL` and `movement_type 'RoRo Accompanied ICS2'→3a`. Applied in `process_engine.py` (`TranslationResolver`). |
+| 23 | `023_cfg_db_snapshot_job.sql` | Registers the full-DB snapshot report: seeds `DB_SNAPSHOT_OUTPUT_DIR` and the `REP_DB_SNAPSHOT_XLSX` job. Fed by `Modules/Global/export_db_snapshot.py` — every base table to one `.xlsx` (a tab per populated table, one "Zero Records" tab, a Summary tab, and a Column Analysis tab). |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 
