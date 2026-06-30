@@ -51,6 +51,14 @@ export function getTssConnections(clientCode) {
 export function getAdminSettings(clientCode) {
   return request(`/api/admin/settings?client_code=${encodeURIComponent(clientCode)}`);
 }
+
+export function saveAdminSettings({ clientCode, updates }) {
+  return request('/api/admin/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientCode, updates }),
+  });
+}
 export function previewConsignmentUpload({ clientCode, files }) {
   const body = new FormData();
   body.append('client_code', clientCode);

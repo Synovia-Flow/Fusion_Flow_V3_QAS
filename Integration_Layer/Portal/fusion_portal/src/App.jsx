@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getAdminSettings, getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload } from './api';
+import { getAdminSettings, getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'PLE',
@@ -14,10 +14,10 @@ const PORTAL_CLIENTS = [
 ];
 const SETTINGS_NAV_SECTIONS = [
   { id: 'TSS_API', label: 'TSS Portal API', icon: 'sync_alt' },
-  { id: 'GRAPH', label: 'Inbound Graph', icon: 'mail' },
+  { id: 'GRAPH', label: 'Inbound Email / Microsoft Graph', icon: 'mail' },
   { id: 'INGEST_AUTO', label: 'Ingestion & Folders', icon: 'drive_folder_upload' },
   { id: 'VALIDATION', label: 'Validation Controls', icon: 'shield' },
-  { id: 'NOTIFY', label: 'Notifications', icon: 'notifications' },
+  { id: 'NOTIFY', label: 'Email Automation Notifications', icon: 'notifications' },
 ];
 
 function clientOptionFor(clientCode) {
@@ -365,13 +365,15 @@ function SettingsInput({ row, value, onChange }) {
   );
 }
 
-function SettingsPage({ settings, activeSection, onSectionChange, onBack }) {
+function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSaveSettings }) {
+  const isSettingsLoading = !settings;
   const sections = useMemo(() => (
     settings?.sections?.length ? settings.sections : SETTINGS_NAV_SECTIONS.map((section) => ({ ...section, rows: [] }))
   ), [settings]);
   const selectedSection = sections.find((section) => section.id === activeSection) || sections[0];
   const [draft, setDraft] = useState({});
   const [saveState, setSaveState] = useState('idle');
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     const nextDraft = {};
@@ -382,6 +384,7 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack }) {
     });
     setDraft(nextDraft);
     setSaveState('idle');
+    setSaveError('');
   }, [settings]);
 
   function draftKey(row) {
@@ -393,8 +396,34 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack }) {
     setSaveState('changed');
   }
 
-  function saveDraft() {
-    setSaveState('saved');
+  async function saveSettings() {
+    if (!onSaveSettings || !settings) return;
+    const updates = [];
+    sections.forEach((section) => {
+      (section.rows || []).forEach((row) => {
+        if (row.editable === false) return;
+        const key = `${section.id}.${row.key}`;
+        const nextValue = draft[key] ?? '';
+        const originalValue = row.value ?? '';
+        if (row.isSecret && !nextValue) return;
+        if (String(nextValue) === String(originalValue)) return;
+        updates.push({ sectionId: section.id, key: row.key, value: nextValue });
+      });
+    });
+    if (!updates.length) {
+      setSaveState('saved');
+      setSaveError('');
+      return;
+    }
+    setSaveState('saving');
+    setSaveError('');
+    try {
+      await onSaveSettings({ clientCode: settings.portalClientCode || settings.clientCode, updates });
+      setSaveState('saved');
+    } catch (error) {
+      setSaveState('changed');
+      setSaveError(error.message);
+    }
   }
 
   return (
@@ -410,9 +439,9 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack }) {
             <p>{settings?.clientCode || 'Tenant'} values from {settings?.source || 'CFG'}.</p>
           </div>
         </div>
-        <button className="settings-save" type="button" onClick={saveDraft} disabled={saveState !== 'changed'}>
+        <button className="settings-save" type="button" onClick={saveSettings} disabled={isSettingsLoading || saveState !== 'changed'}>
           <MaterialIcon>save</MaterialIcon>
-          <span>{saveState === 'saved' ? 'Draft saved' : 'Save draft'}</span>
+          <span>{saveState === 'saving' ? 'Saving' : saveState === 'saved' ? 'Saved' : 'Save settings'}</span>
         </button>
       </div>
 
@@ -432,11 +461,13 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack }) {
               <h2>{selectedSection.label}</h2>
               <p>{selectedSection.description || 'Settings prepared for this tenant.'}</p>
             </div>
-            <span className="settings-mode-chip">{settings?.writeMode === 'draft_only' ? 'Draft only' : 'Ready'}</span>
+            <span className="settings-mode-chip">{settings?.writeMode === 'db_write_existing_cfg' ? 'DB backed' : settings?.writeMode === 'draft_only' ? 'Draft only' : 'Ready'}</span>
           </div>
 
+          {saveError && <div className="settings-save-error">{saveError}</div>}
           <div className="settings-grid">
-            {(selectedSection.rows || []).map((row) => (
+            {isSettingsLoading && <div className="settings-empty">Loading configuration from CFG...</div>}
+            {!isSettingsLoading && (selectedSection.rows || []).map((row) => (
               <div className="settings-config-row" key={row.key}>
                 <div className="settings-key-cell">
                   <strong>{row.label}</strong>
@@ -452,7 +483,7 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack }) {
                 </div>
               </div>
             ))}
-            {!(selectedSection.rows || []).length && <div className="settings-empty">No settings loaded for this section.</div>}
+            {!isSettingsLoading && !(selectedSection.rows || []).length && <div className="settings-empty">No settings loaded for this section.</div>}
           </div>
         </div>
       </div>
@@ -868,6 +899,12 @@ export default function App() {
     return previewConsignmentUpload({ clientCode: session.tenantCode, files });
   }
 
+  async function handleSaveSettings(payload) {
+    const nextSettings = await saveAdminSettings(payload);
+    setSettingsPayload(nextSettings);
+    return nextSettings;
+  }
+
   function handleQueueForTss(row) {
     return prepareTssConsignmentSubmit({ clientCode: session.tenantCode, consignmentRowId: row.consignmentRowId });
   }
@@ -882,7 +919,7 @@ export default function App() {
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} />}
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} />}
         {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} session={session} connection={connection} onQueueForTss={handleQueueForTss} />}
-        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} />}
+        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
       <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || SETTINGS_NAV_SECTIONS} settingsSection={settingsSection} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />

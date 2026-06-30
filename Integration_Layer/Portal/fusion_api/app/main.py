@@ -342,7 +342,7 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
     tss_rows = [
         settings_row("BASE_URL", "Production URL", env_by_code.get("PRD", {}).get("BaseUrl"), "Production TSS API base URL.", "CFG.TSS_Environment", "url"),
         settings_row("TEST_URL", "Test URL", env_by_code.get("TST", {}).get("BaseUrl"), "Test/QAS TSS API base URL.", "CFG.TSS_Environment", "url"),
-        settings_row("ENVIRONMENT", "Environment", profile.get("preferredEnvCode"), "Active TSS target for this tenant.", "CFG.TSS_Credential", "select", choices=[{"value": "PRD", "label": "Production"}, {"value": "TST", "label": "Test/QAS"}]),
+        settings_row("ENVIRONMENT", "Environment", profile.get("preferredEnvCode"), "Active TSS target for this tenant. Login credentials currently select the tenant/environment.", "CFG.TSS_Credential", "select", choices=[{"value": "PRD", "label": "Production"}, {"value": "TST", "label": "Test/QAS"}], editable=False),
         settings_row("USERNAME", "User", (credential or {}).get("tssUsername"), "TSS API username for this tenant.", "CFG.TSS_Credential"),
         settings_row("PASSWORD", "Password", "", "TSS API password for this tenant.", "CFG.TSS_Credential", "password", is_secret=True, placeholder="Configured" if (credential or {}).get("hasPassword") else "Not configured"),
         settings_row("ACT_AS", "Act as", profile.get("actAsSysId"), "Optional customer_account_sys_id for delegated TSS calls.", "CFG.Clients"),
@@ -362,7 +362,7 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
     ingestion_rows = [
         settings_row("ENABLED", "Email source enabled", "true" if source_email.get("IsActive") else "false", "Enables the EMAIL ingestion source for this tenant.", "CFG.Ingestion_Source", "boolean", source_email.get("UpdatedAt")),
         settings_row("PROCESSED_SUBFOLDER", "Processed subfolder", source_email.get("ProcessedSubfolder"), "Subfolder label used after processing.", "CFG.Ingestion_Source"),
-        settings_row("ATTACHMENT_TO_MAP", "Attachment to map", file_selection.get("requiredFileOrdinal"), "Attached file ordinal that becomes the consignment input.", "portal_bridge", "number"),
+        settings_row("ATTACHMENT_TO_MAP", "Attachment to map", file_selection.get("requiredFileOrdinal"), "Attached file ordinal that becomes the consignment input. Currently owned by portal bridge code.", "portal_bridge", "number", editable=False),
         settings_row("TARGET_RAW", "Raw target", file_selection.get("targetLandingTable"), "Landing tables used by upload preview.", "portal_bridge", editable=False),
         *[
             settings_row(path_type, path_type.replace("_", " ").title(), folders.get(path_type, {}).get("PathValue"), f"Operational {path_type.lower()} folder.", "CFG.Folder_Paths", "text", folders.get(path_type, {}).get("UpdatedAt"))
@@ -392,7 +392,7 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
         "clientCode": profile["clientCode"],
         "clientName": profile["clientName"],
         "source": "CFG.Application_Parameters + CFG.Folder_Paths + CFG.Ingestion_Source + CFG.TSS_*",
-        "writeMode": "draft_only",
+        "writeMode": "db_write_existing_cfg",
         "sections": [
             settings_section("TSS_API", "TSS Portal API", "sync_alt", "Credentials and endpoints for Trader Support Service.", tss_rows),
             settings_section("GRAPH", "Inbound Email / Microsoft Graph", "mail", "Inbound mailbox pickup using Microsoft Graph application credentials.", graph_rows),
@@ -401,6 +401,239 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
             settings_section("NOTIFY", "Email Automation Notifications", "notifications", "Notification controls prepared for the next automation slice.", notification_rows),
         ],
     }
+
+
+APP_PARAMETER_WRITE_MAP = {
+    ("GRAPH", "TENANT_ID"): ("GRAPH_TENANT_ID", "SECRET", "Microsoft Entra tenant id used by Graph."),
+    ("GRAPH", "CLIENT_ID"): ("GRAPH_CLIENT_ID", "SECRET", "Microsoft Graph application client id."),
+    ("GRAPH", "CLIENT_SECRET"): ("GRAPH_CLIENT_SECRET", "SECRET", "Microsoft Graph application client secret."),
+    ("GRAPH", "MAILBOX"): ("GRAPH_MAILBOX", "STRING", "Mailbox UPN or email address to poll."),
+    ("GRAPH", "PROCESSED_FOLDER"): ("GRAPH_PROCESSED_FOLDER", "STRING", "Folder used after successful processing."),
+    ("VALIDATION", "PROCESSING_CLIENT"): ("PROCESSING_CLIENT", "STRING", "Client selected for Module 2 processing."),
+    ("VALIDATION", "PROCESSING_DRY_RUN"): ("PROCESSING_DRY_RUN", "BOOLEAN", "When true, processing avoids final mutations."),
+    ("VALIDATION", "PROCESSING_TRANSACTION_MODE"): ("PROCESSING_TRANSACTION_MODE", "STRING", "Module 2 transaction selection mode."),
+    ("VALIDATION", "ARRIVAL_MAX_FUTURE_DAYS"): ("ARRIVAL_MAX_FUTURE_DAYS", "INTEGER", "Maximum arrival-date future window accepted by validation."),
+    ("VALIDATION", "API_RATE_LIMIT_SECONDS"): ("API_RATE_LIMIT_SECONDS", "INTEGER", "Delay between outbound TSS API calls."),
+}
+SOURCE_BOOLEAN_KEYS = {("GRAPH", "ENABLED"), ("INGEST_AUTO", "ENABLED")}
+SOURCE_CONFIG_KEYS = {
+    ("GRAPH", "FOLDER"): "folder",
+    ("GRAPH", "ALLOWED_SENDER_DOMAINS"): "sender_domain",
+}
+FOLDER_PATH_KEYS = {"INBOUND", "PROCESS", "FAIL", "ARCHIVE", "ENS_SOURCE"}
+SECRET_UPDATE_KEYS = {("TSS_API", "PASSWORD"), ("GRAPH", "TENANT_ID"), ("GRAPH", "CLIENT_ID"), ("GRAPH", "CLIENT_SECRET")}
+READ_ONLY_SETTING_KEYS = {
+    ("TSS_API", "ENVIRONMENT"),
+    ("INGEST_AUTO", "ATTACHMENT_TO_MAP"),
+    ("INGEST_AUTO", "TARGET_RAW"),
+    ("NOTIFY", "ENS_RECEIVED_ENABLED"),
+    ("NOTIFY", "CONSIGNMENTS_RECEIVED_ENABLED"),
+    ("NOTIFY", "STAGING_FAILURES_ENABLED"),
+    ("NOTIFY", "MOVEMENT_AUTHORISED_ENABLED"),
+    ("NOTIFY", "ENS_PACK_AUTO_TO"),
+}
+
+
+def normalize_bool_value(value: object) -> bool:
+    text = str(value or "").strip().lower()
+    if text in {"1", "true", "yes", "y", "on", "enabled"}:
+        return True
+    if text in {"0", "false", "no", "n", "off", "disabled"}:
+        return False
+    raise HTTPException(status_code=422, detail=f"Boolean setting value is invalid: {value}")
+
+
+def clean_setting_value(value: object) -> str:
+    return str(value or "").strip()
+
+
+def upsert_application_parameter(key: str, value: str, value_type: str, description: str) -> int:
+    return execute(
+        """
+        MERGE CFG.Application_Parameters AS target
+        USING (SELECT ? AS ParameterKey) AS source
+           ON target.ParameterKey = source.ParameterKey
+        WHEN MATCHED THEN
+            UPDATE SET ParameterValue = ?, ValueType = ?, Description = COALESCE(NULLIF(?, ''), Description), IsActive = 1, UpdatedAt = SYSUTCDATETIME()
+        WHEN NOT MATCHED THEN
+            INSERT (ParameterKey, ParameterValue, ValueType, Description, IsActive)
+            VALUES (?, ?, ?, NULLIF(?, ''), 1);
+        """,
+        [key, value, value_type, description, key, value, value_type, description],
+    )
+
+
+def ensure_email_source(profile: dict[str, object]) -> None:
+    execute(
+        """
+        MERGE CFG.Ingestion_Source AS target
+        USING (SELECT ? AS ClientCode, 'EMAIL' AS Channel) AS source
+           ON target.ClientCode = source.ClientCode AND target.Channel = source.Channel
+        WHEN NOT MATCHED THEN
+            INSERT (ClientCode, Channel, IsActive, ProcessedSubfolder, ConfigJson, Notes)
+            VALUES (?, 'EMAIL', 0, 'Processed', '{}', 'Created by Fusion Portal settings');
+        """,
+        [profile["clientCode"], profile["clientCode"]],
+    )
+
+
+def update_email_source_config(profile: dict[str, object], key: str, value: str) -> int:
+    ensure_email_source(profile)
+    row = query_one(
+        """
+        SELECT ConfigJson
+        FROM CFG.Ingestion_Source
+        WHERE ClientCode = ? AND Channel = 'EMAIL'
+        """,
+        [profile["clientCode"]],
+    ) or {}
+    config = parse_config_json(row.get("ConfigJson"))
+    config[key] = value
+    return execute(
+        """
+        UPDATE CFG.Ingestion_Source
+        SET ConfigJson = ?, UpdatedAt = SYSUTCDATETIME()
+        WHERE ClientCode = ? AND Channel = 'EMAIL'
+        """,
+        [json.dumps(config, ensure_ascii=False, sort_keys=True), profile["clientCode"]],
+    )
+
+
+def upsert_folder_path(profile: dict[str, object], path_type: str, value: str) -> int:
+    if not value:
+        raise HTTPException(status_code=422, detail=f"{path_type} folder path cannot be blank.")
+    return execute(
+        """
+        MERGE CFG.Folder_Paths AS target
+        USING (SELECT ? AS ClientCode, ? AS PathType) AS source
+           ON target.ClientCode = source.ClientCode AND target.PathType = source.PathType
+        WHEN MATCHED THEN
+            UPDATE SET PathValue = ?, IsActive = 1, UpdatedAt = SYSUTCDATETIME()
+        WHEN NOT MATCHED THEN
+            INSERT (ClientCode, PathType, PathValue, IsActive)
+            VALUES (?, ?, ?, 1);
+        """,
+        [profile["clientCode"], path_type, value, profile["clientCode"], path_type, value],
+    )
+
+
+def save_admin_settings_payload(profile: dict[str, object], updates: object) -> dict[str, object]:
+    if not isinstance(updates, list):
+        raise HTTPException(status_code=422, detail="updates must be a list.")
+
+    saved: list[str] = []
+    ignored: list[str] = []
+    tss_client = str(profile.get("tssCredentialClientCode") or profile["clientCode"])
+    preferred_env = str(profile.get("preferredEnvCode") or "PRD")
+
+    for item in updates:
+        if not isinstance(item, dict):
+            ignored.append("invalid")
+            continue
+        section = clean_setting_value(item.get("sectionId") or item.get("section") or item.get("category")).upper()
+        key = clean_setting_value(item.get("key")).upper()
+        value = clean_setting_value(item.get("value"))
+        setting_id = f"{section}.{key}"
+
+        if not section or not key:
+            ignored.append("missing-key")
+            continue
+        if (section, key) in READ_ONLY_SETTING_KEYS:
+            ignored.append(setting_id)
+            continue
+        if (section, key) in SECRET_UPDATE_KEYS and not value:
+            ignored.append(setting_id)
+            continue
+
+        if (section, key) in APP_PARAMETER_WRITE_MAP:
+            param_key, value_type, description = APP_PARAMETER_WRITE_MAP[(section, key)]
+            if value_type == "BOOLEAN":
+                value = "true" if normalize_bool_value(value) else "false"
+            if (section, key) == ("VALIDATION", "PROCESSING_TRANSACTION_MODE") and value not in {"latest", "all"}:
+                raise HTTPException(status_code=422, detail="PROCESSING_TRANSACTION_MODE must be latest or all.")
+            upsert_application_parameter(param_key, value, value_type, description)
+            saved.append(setting_id)
+        elif (section, key) == ("TSS_API", "BASE_URL"):
+            if not value:
+                raise HTTPException(status_code=422, detail="TSS production URL cannot be blank.")
+            execute("UPDATE CFG.TSS_Environment SET BaseUrl = ? WHERE EnvCode = 'PRD'", [value])
+            saved.append(setting_id)
+        elif (section, key) == ("TSS_API", "TEST_URL"):
+            if not value:
+                raise HTTPException(status_code=422, detail="TSS test URL cannot be blank.")
+            execute("UPDATE CFG.TSS_Environment SET BaseUrl = ? WHERE EnvCode = 'TST'", [value])
+            saved.append(setting_id)
+        elif (section, key) == ("TSS_API", "USERNAME"):
+            if not value:
+                raise HTTPException(status_code=422, detail="TSS username cannot be blank.")
+            count = execute(
+                """
+                UPDATE CFG.TSS_Credential
+                SET TssUsername = ?, UpdatedAt = SYSUTCDATETIME()
+                WHERE ClientCode = ? AND EnvCode = ?
+                """,
+                [value, tss_client, preferred_env],
+            )
+            if count <= 0:
+                raise HTTPException(status_code=409, detail="No CFG.TSS_Credential row exists for this tenant/environment.")
+            saved.append(setting_id)
+        elif (section, key) == ("TSS_API", "PASSWORD"):
+            count = execute(
+                """
+                UPDATE CFG.TSS_Credential
+                SET TssPassword = ?, UpdatedAt = SYSUTCDATETIME()
+                WHERE ClientCode = ? AND EnvCode = ?
+                """,
+                [value, tss_client, preferred_env],
+            )
+            if count <= 0:
+                raise HTTPException(status_code=409, detail="No CFG.TSS_Credential row exists for this tenant/environment.")
+            saved.append(setting_id)
+        elif (section, key) == ("TSS_API", "ACT_AS"):
+            execute(
+                "UPDATE CFG.Clients SET ActAsSysId = NULLIF(?, ''), UpdatedAt = SYSUTCDATETIME() WHERE ClientCode = ?",
+                [value, profile["clientCode"]],
+            )
+            saved.append(setting_id)
+        elif (section, key) in SOURCE_BOOLEAN_KEYS:
+            ensure_email_source(profile)
+            execute(
+                """
+                UPDATE CFG.Ingestion_Source
+                SET IsActive = ?, UpdatedAt = SYSUTCDATETIME()
+                WHERE ClientCode = ? AND Channel = 'EMAIL'
+                """,
+                [1 if normalize_bool_value(value) else 0, profile["clientCode"]],
+            )
+            saved.append(setting_id)
+        elif (section, key) == ("INGEST_AUTO", "PROCESSED_SUBFOLDER"):
+            ensure_email_source(profile)
+            execute(
+                """
+                UPDATE CFG.Ingestion_Source
+                SET ProcessedSubfolder = NULLIF(?, ''), UpdatedAt = SYSUTCDATETIME()
+                WHERE ClientCode = ? AND Channel = 'EMAIL'
+                """,
+                [value, profile["clientCode"]],
+            )
+            saved.append(setting_id)
+        elif (section, key) in SOURCE_CONFIG_KEYS:
+            update_email_source_config(profile, SOURCE_CONFIG_KEYS[(section, key)], value)
+            saved.append(setting_id)
+        elif section == "INGEST_AUTO" and key in FOLDER_PATH_KEYS:
+            upsert_folder_path(profile, key, value)
+            saved.append(setting_id)
+        else:
+            ignored.append(setting_id)
+
+    result = admin_settings_payload(profile)
+    result.update({
+        "savedCount": len(saved),
+        "savedSettings": saved,
+        "ignoredSettings": ignored,
+        "savedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    })
+    return result
 
 def log_api_trace(client_code: str, step: dict[str, object], request_payload: dict[str, object], result: dict[str, object]) -> None:
     execute(
@@ -555,6 +788,16 @@ def admin_settings(client_code: str = Query("PLE")) -> dict[str, object]:
     try:
         profile = load_portal_profile(client_code)
         return admin_settings_payload(profile)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.post("/api/admin/settings")
+def admin_settings_save(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, object]:
+    client_code = str(payload.get("clientCode") or payload.get("client_code") or "PLE")
+    try:
+        profile = load_portal_profile(client_code)
+        return save_admin_settings_payload(profile, payload.get("updates") or [])
     except DbUnavailable as exc:
         raise db_error(exc) from exc
 
