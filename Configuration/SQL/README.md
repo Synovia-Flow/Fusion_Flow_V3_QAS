@@ -31,6 +31,7 @@ later module phases.
 | 10 | `010_prs_tables.sql` | PRS canonical-object tables: `ENS_Header`, `Consignment`, `Goods_Item` + 10 nested child tables (Module 2 Data Processing output; 1 header → many consignments → ≤99 goods + nested arrays) |
 | 11 | `011_seed_processing_params.sql` | Module 2 run-control parameters in `CFG.Application_Parameters` (`PROCESSING_CLIENT`, `PROCESSING_TRANSACTION_MODE`, `PROCESSING_DRY_RUN`) — the runner has **no CLI** |
 | 12 | `012_cfg_jobs.sql` | `CFG.Job` — canonical registry of scheduled jobs (purpose, module, client/channel, step order, entry point). Seeds the ingestion cycle + steps, the channel-acquire stubs, and the PRS processing job; plus `INGESTION_CLIENT` / `INGESTION_DRY_RUN`. The ingestion runner reads this table to drive the cycle. |
+| 13 | `013_prs_bkd_ens_header.sql` | `PRS.BKD_ENS_Header_Submission` — ENS Declaration Header in exact TSS field shape (27 fields) + `Fusion_Status` (STAGED→VALIDATED→SUBMITTED) + TSS read-only status; and `PRS.BKD_ENS_Header_Tracking` — the parallel control/source spine (ING lineage, status, timeline) — one row per movement. |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 
