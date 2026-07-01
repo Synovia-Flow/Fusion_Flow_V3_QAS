@@ -419,6 +419,7 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
             required_fields=CONSIGNMENT_REQUIRED_FIELDS,
         )
         goods_payload: list[dict[str, Any]] = []
+        goods_has_blockers = False
         for goods_index, raw_goods in enumerate(group.get("goods") or [], 1):
             goods_values = dict(raw_goods.get("values") or {})
             goods_sources = dict(raw_goods.get("sources") or {})
@@ -430,6 +431,9 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
                 display_fields=GOODS_DISPLAY_FIELDS,
                 required_fields=GOODS_REQUIRED_FIELDS,
             )
+            goods_status = "READY" if not goods_missing and not any(issue.get("severity") == "error" for issue in goods_issues) else "NEEDS_REVIEW"
+            if goods_status != "READY":
+                goods_has_blockers = True
             goods_payload.append({
                 "ordinal": goods_index,
                 "sourceRowNumber": raw_goods.get("sourceRowNumber"),
@@ -437,7 +441,7 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
                 "fields": goods_fields,
                 "missingRequired": goods_missing,
                 "issues": goods_issues,
-                "status": "READY" if not goods_missing and not any(issue.get("severity") == "error" for issue in goods_issues) else "NEEDS_REVIEW",
+                "status": goods_status,
             })
             issue_count += len(goods_issues)
             missing_count += len(goods_missing)
@@ -449,7 +453,7 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
         consignments.append({
             "previewId": f"PREVIEW-{index:03d}",
             "ordinal": index,
-            "status": "READY" if not cons_missing and not any(issue.get("severity") == "error" for issue in cons_issues) and goods_payload else "NEEDS_REVIEW",
+            "status": "READY" if not cons_missing and not any(issue.get("severity") == "error" for issue in cons_issues) and goods_payload and not goods_has_blockers else "NEEDS_REVIEW",
             "values": values,
             "fields": cons_fields,
             "missingRequired": cons_missing,

@@ -212,6 +212,39 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(consignment["goodsItems"][1]["values"]["goods_description"], "Lisburn goods item 2")
         self.assertEqual(consignment["goodsItems"][1]["missingRequired"], [])
 
+    def test_demo_mode_marks_consignment_needs_review_when_goods_weight_missing(self):
+        content = xlsx_content([
+            ["api_field", "source_value"],
+            ["PRS.Consignment.consignment_number", "CON-LISBURN-MISSING-WEIGHT"],
+            ["PRS.Consignment.goods_description", "Lisburn consignment"],
+            ["PRS.Consignment.transport_document_number", "TDN-LISBURN-002"],
+            ["PRS.Consignment.controlled_goods", "no"],
+            ["PRS.Consignment.consignor_eori", "XI111111111000"],
+            ["PRS.Consignment.consignee_eori", "GB222222222000"],
+            ["PRS.Consignment.importer_eori", "XI333333333000"],
+            ["PRS.Consignment.exporter_eori", "XI444444444000"],
+            ["PRS.Goods_Item[1].goods_description", "Lisburn goods missing gross"],
+            ["PRS.Goods_Item[1].type_of_packages", "PK"],
+            ["PRS.Goods_Item[1].number_of_packages", "2"],
+            ["PRS.Goods_Item[1].package_marks", "ADDR"],
+            ["PRS.Goods_Item[1].net_mass_kg", "40.0"],
+        ])
+
+        payload = portal_main.upload_consignment_preview(
+            client_code="PLE",
+            files=[upload_file("PLE FILE -LISBURN MANIFEST 01.05.2026 .xlsx", content)],
+            demo_mode=True,
+        )
+
+        preview = payload["processingPreview"]
+        consignment = preview["consignments"][0]
+        goods = consignment["goodsItems"][0]
+        self.assertEqual(consignment["status"], "NEEDS_REVIEW")
+        self.assertEqual(goods["status"], "NEEDS_REVIEW")
+        self.assertIn("gross_mass_kg", goods["missingRequired"])
+        self.assertEqual(preview["summary"]["missingRequiredCount"], 1)
+        self.assertTrue(any("Gross mass kg is required" in issue["message"] for issue in goods["issues"]))
+
     def test_demo_mode_splits_more_than_99_goods_into_multiple_consignments(self):
         header = (
             "consignment_number,goods_description,transport_document_number,controlled_goods,"
