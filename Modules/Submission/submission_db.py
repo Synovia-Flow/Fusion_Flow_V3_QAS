@@ -34,6 +34,20 @@ ENS_PAYLOAD_FIELDS = [
     "haulier_eori",
 ]
 
+# TSS Declaration Header (ENS) GET read-back - the header GET REQUIRES a fields=
+# list (min one). We request status/error_message/route + every field we send, so
+# the mirror reflects what's live in TSS. 'reference' is always returned.
+ENS_READBACK_FIELDS = [
+    "status", "error_message", "route",
+    "movement_type", "type_of_passive_transport", "identity_no_of_transport",
+    "nationality_of_transport", "conveyance_ref", "arrival_date_time", "arrival_port",
+    "place_of_loading", "place_of_unloading", "place_of_acceptance_same_as_loading",
+    "place_of_acceptance", "place_of_delivery_same_as_unloading", "place_of_delivery",
+    "seal_number", "transport_charges", "carrier_eori", "carrier_name",
+    "carrier_street_number", "carrier_city", "carrier_postcode", "carrier_country",
+    "haulier_eori",
+]
+
 
 def load_db_config(ini_path: Path) -> dict[str, str]:
     if not ini_path.exists():
