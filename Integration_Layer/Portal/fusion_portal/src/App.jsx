@@ -754,6 +754,11 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
     window.open(getApiDocsUrl(), '_blank', 'noopener,noreferrer');
   }
 
+  const processingPreview = previewState.payload?.processingPreview;
+  const processingSummary = processingPreview?.summary || {};
+  const isFieldValuePreview = processingPreview?.rowMode === 'api_field_value';
+  const previewMissingRequiredCount = processingSummary.missingRequiredCount || 0;
+
   return (
     <section className="upload-page page-card" aria-label="Upload consignments">
       <div className="page-card-topline">
@@ -853,10 +858,19 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
               {(previewState.payload.validationContext?.demoSatisfiedTargets || []).length > 0 && (
                 <span>Demo supplied: {(previewState.payload.validationContext.demoSatisfiedTargets || []).map((item) => item.targetColumn).join(', ')}</span>
               )}
-              <span>Mapping: {previewState.payload.mappingSummary?.status || 'UNKNOWN'} - {previewState.payload.mappingSummary?.mappedColumns || 0}/{previewState.payload.mappingSummary?.detectedColumns || 0} columns mapped</span>
-              <span>Suggested: {previewState.payload.mappingSuggestions?.suggestedCount || 0} matched / {previewState.payload.mappingSuggestions?.unmatchedCount || 0} unmatched</span>
-              {(previewState.payload.mappingSuggestions?.missingRequiredTargets || []).length > 0 && (
-                <span>Missing required: {(previewState.payload.mappingSuggestions.missingRequiredTargets || []).slice(0, 5).map((item) => item.targetColumn).join(', ')}{(previewState.payload.mappingSuggestions.missingRequiredTargets || []).length > 5 ? '...' : ''}</span>
+              {isFieldValuePreview ? (
+                <>
+                  <span>Field/value rows: {processingSummary.mappedFieldCount || 0} matched / {processingSummary.unmatchedFieldCount || 0} unmatched into PRS/TSS preview</span>
+                  <span>Preview required: {previewMissingRequiredCount ? `${previewMissingRequiredCount} missing across PRS/TSS details` : 'ready - no required fields missing'}</span>
+                </>
+              ) : (
+                <>
+                  <span>Mapping: {previewState.payload.mappingSummary?.status || 'UNKNOWN'} - {previewState.payload.mappingSummary?.mappedColumns || 0}/{previewState.payload.mappingSummary?.detectedColumns || 0} columns mapped</span>
+                  <span>Suggested: {previewState.payload.mappingSuggestions?.suggestedCount || 0} matched / {previewState.payload.mappingSuggestions?.unmatchedCount || 0} unmatched</span>
+                  {(previewState.payload.mappingSuggestions?.missingRequiredTargets || []).length > 0 && (
+                    <span>Missing required: {(previewState.payload.mappingSuggestions.missingRequiredTargets || []).slice(0, 5).map((item) => item.targetColumn).join(', ')}{(previewState.payload.mappingSuggestions.missingRequiredTargets || []).length > 5 ? '...' : ''}</span>
+                  )}
+                </>
               )}
               {previewState.payload.detectedStructure?.warning && <span>{previewState.payload.detectedStructure.warning}</span>}
               {(previewState.payload.detectedStructure?.columns || []).length > 0 && (

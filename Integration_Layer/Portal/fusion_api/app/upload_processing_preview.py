@@ -471,6 +471,7 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
         "summary": {
             "sourceRows": len(rows),
             "mappedFieldCount": matched_count,
+            "unmatchedFieldCount": len(unmatched),
             "consignmentCount": len(consignments),
             "goodsItemCount": total_goods,
             "splitConsignmentCount": split_count,

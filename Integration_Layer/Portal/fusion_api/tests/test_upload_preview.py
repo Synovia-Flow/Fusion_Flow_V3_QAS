@@ -202,6 +202,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(preview["rowMode"], "api_field_value")
         self.assertEqual(preview["summary"]["consignmentCount"], 1)
         self.assertEqual(preview["summary"]["goodsItemCount"], 2)
+        self.assertEqual(preview["summary"]["unmatchedFieldCount"], 0)
         self.assertFalse(preview["summary"]["databaseWrite"])
         self.assertFalse(preview["summary"]["tssWrite"])
         consignment = preview["consignments"][0]
