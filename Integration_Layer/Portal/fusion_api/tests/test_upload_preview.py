@@ -213,6 +213,42 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(consignment["goodsItems"][1]["values"]["goods_description"], "Lisburn goods item 2")
         self.assertEqual(consignment["goodsItems"][1]["missingRequired"], [])
 
+    def test_demo_mode_maps_tss_style_api_paths_to_consignment_and_goods(self):
+        content = xlsx_content([
+            ["api_field", "source_value"],
+            ["request.consignment.consignmentNumber", "CON-TSS-PATH-001"],
+            ["request.consignment.goodsDescription", "TSS path consignment"],
+            ["request.consignment.transportDocumentNumber", "TDN-TSS-PATH-001"],
+            ["request.consignment.controlledGoods", "no"],
+            ["request.consignment.consignorEori", "XI111111111000"],
+            ["request.consignment.consigneeEori", "GB222222222000"],
+            ["request.consignment.importerEori", "XI333333333000"],
+            ["request.consignment.exporterEori", "XI444444444000"],
+            ["request.goodsItems[1].goodsDescription", "TSS path goods item"],
+            ["request.goodsItems[1].typeOfPackages", "PK"],
+            ["request.goodsItems[1].numberOfPackages", "4"],
+            ["request.goodsItems[1].packageMarks", "ADDR"],
+            ["request.goodsItems[1].grossMassKg", "99.5"],
+            ["request.goodsItems[1].netMassKg", "95.0"],
+        ])
+
+        payload = portal_main.upload_consignment_preview(
+            client_code="PLE",
+            files=[upload_file("PLE FILE -LISBURN MANIFEST 01.05.2026 .xlsx", content)],
+            demo_mode=True,
+        )
+
+        preview = payload["processingPreview"]
+        consignment = preview["consignments"][0]
+        goods = consignment["goodsItems"][0]
+        self.assertEqual(preview["rowMode"], "api_field_value")
+        self.assertEqual(preview["summary"]["mappedFieldCount"], 14)
+        self.assertEqual(preview["summary"]["unmatchedFieldCount"], 0)
+        self.assertEqual(consignment["status"], "READY")
+        self.assertEqual(consignment["values"]["consignment_number"], "CON-TSS-PATH-001")
+        self.assertEqual(goods["values"]["goods_description"], "TSS path goods item")
+        self.assertEqual(goods["values"]["gross_mass_kg"], "99.5")
+
     def test_demo_mode_marks_consignment_needs_review_when_goods_weight_missing(self):
         content = xlsx_content([
             ["api_field", "source_value"],

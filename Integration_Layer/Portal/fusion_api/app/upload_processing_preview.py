@@ -150,6 +150,22 @@ def _target_tail(value: str) -> str:
     return tail
 
 
+def _path_candidates(value: str) -> list[str]:
+    clean = clean_cell(value)
+    if not clean:
+        return []
+    stripped = re.sub(r"\[[0-9]+\]", "", clean)
+    stripped = re.sub(r"(?:^|[._\-\s:])\d+(?=$|[._\-\s:])", ".", stripped)
+    stripped = re.sub(r"^(payload|body|data|request|response|api|tss)[._\-\s:]+", "", stripped, flags=re.I)
+    parts = [part for part in re.split(r"[._\-\s:]+", stripped) if part]
+    candidates: list[str] = []
+    for index in range(len(parts)):
+        candidates.append(".".join(parts[index:]))
+    if parts:
+        candidates.append(parts[-1])
+    return candidates
+
+
 def _target_for(raw_field: str) -> tuple[str, str] | None:
     clean = clean_cell(raw_field)
     if not clean:
@@ -166,6 +182,7 @@ def _target_for(raw_field: str) -> tuple[str, str] | None:
     candidates.append(re.sub(r"\[[0-9]+\]", "", clean))
     candidates.append(re.sub(r"[._\-\s]+[0-9]+$", "", clean))
     candidates.append(_target_tail(clean))
+    candidates.extend(_path_candidates(clean))
 
     if forced_table:
         for candidate in candidates:
