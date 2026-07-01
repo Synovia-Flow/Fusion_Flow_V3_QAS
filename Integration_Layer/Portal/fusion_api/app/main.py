@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from typing import Annotated
@@ -676,6 +677,276 @@ def public_connection_payload(profile: dict[str, object], env_code: str | None =
     }
 
 
+
+
+def cfg_parameter_value(key: str, default: str = "") -> str:
+    row = query_one(
+        """
+        SELECT ParameterValue
+        FROM CFG.Application_Parameters
+        WHERE ParameterKey = ? AND IsActive = 1
+        """,
+        [key],
+    )
+    return str((row or {}).get("ParameterValue") or default).strip()
+
+
+def default_submission_env() -> str:
+    return (cfg_parameter_value("SUBMISSION_ENV") or cfg_parameter_value("DEFAULT_ENV") or "TST").upper()
+
+def tss_api_base_path() -> str:
+    return cfg_parameter_value("SUBMISSION_API_BASE_PATH", "/x_fhmrc_tss_api/v1/tss_api")
+
+
+def normalize_tss_endpoint(endpoint: str) -> str:
+    return "/" + str(endpoint or "").strip("/")
+
+
+def join_tss_url(base_url: object, base_path: str, endpoint: str, query: dict[str, object] | None = None) -> str:
+    url = str(base_url or "").rstrip("/") + normalize_tss_endpoint(base_path) + normalize_tss_endpoint(endpoint)
+    clean_query = {
+        key: value
+        for key, value in (query or {}).items()
+        if value is not None and str(value).strip() != ""
+    }
+    if clean_query:
+        url += "?" + urllib.parse.urlencode(clean_query)
+    return url
+
+
+def api_operation_code(step: dict[str, object]) -> str:
+    resource = str(step.get("ResourceName") or "TSS").upper().replace(" ", "_").replace(".", "")
+    return f"{resource}_{str(step.get('OpType') or '').upper()}"
+
+
+def tss_public_endpoint(step: dict[str, object]) -> str:
+    endpoint = normalize_tss_endpoint(str(step.get("Endpoint") or ""))
+    op_type = str(step.get("OpType") or "").lower()
+    if endpoint == "/permission_grant":
+        return "/api/tss/permission-grant"
+    if endpoint == "/headers":
+        return "/api/tss/headers"
+    if endpoint == "/consignments" and op_type == "submit":
+        return "/api/tss/consignments/submit"
+    if endpoint == "/consignments":
+        return "/api/tss/consignments"
+    if endpoint == "/goods" and op_type == "update":
+        return "/api/tss/goods/update"
+    if endpoint == "/goods":
+        return "/api/tss/goods"
+    if endpoint == "/simplified_frontier_declarations":
+        return "/api/tss/simplified-frontier-declarations"
+    if endpoint == "/gvms_gmr" and op_type == "submit":
+        return "/api/tss/gvms-gmr/submit"
+    if endpoint == "/gvms_gmr":
+        return "/api/tss/gvms-gmr"
+    if endpoint == "/supplementary_declarations" and op_type == "submit":
+        return "/api/tss/supplementary-declarations/submit"
+    if endpoint == "/supplementary_declarations":
+        return "/api/tss/supplementary-declarations"
+    return "/api/tss/resource"
+
+
+def load_tss_api_map(client_code: str = "BKD", route_code: str | None = None) -> list[dict[str, object]]:
+    code = client_code_param(client_code)
+    params: list[object] = [code]
+    where = ["ClientCode = ?", "IsActive = 1"]
+    if route_code:
+        where.append("RouteCode = ?")
+        params.append(route_code)
+    rows = query_all(
+        f"""
+        SELECT MapID, ClientCode, RouteCode, StepNo, ResourceName, Endpoint, HttpMethod,
+               OpType, WaitSeconds, Notes, UpdatedAt
+        FROM CFG.API_Process_Map
+        WHERE {' AND '.join(where)}
+        ORDER BY RouteCode, StepNo, MapID
+        """,
+        params,
+    )
+    return [
+        {
+            **row,
+            "operationCode": api_operation_code(row),
+            "publicEndpoint": tss_public_endpoint(row),
+        }
+        for row in rows
+    ]
+
+
+def resolve_tss_step(
+    client_code: str,
+    endpoint: str,
+    method: str,
+    op_type: str | None = None,
+    route_code: str | None = None,
+) -> dict[str, object]:
+    endpoint = normalize_tss_endpoint(endpoint)
+    candidates = [
+        step
+        for step in load_tss_api_map(client_code, route_code=route_code)
+        if normalize_tss_endpoint(str(step.get("Endpoint") or "")) == endpoint
+        and str(step.get("HttpMethod") or "").upper() == method.upper()
+    ]
+    if op_type:
+        candidates = [step for step in candidates if str(step.get("OpType") or "").lower() == op_type.lower()]
+    if not candidates:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No active CFG.API_Process_Map step for {method.upper()} {endpoint}"
+            + (f" op_type={op_type}" if op_type else ""),
+        )
+    return candidates[0]
+
+
+
+def load_tss_client_profile(value: str, env_code: str | None = None) -> dict[str, object]:
+    requested_env = env_code.upper() if env_code else default_submission_env()
+    portal_profile = fallback_profile(value)
+    if portal_profile:
+        profile = load_portal_profile(value)
+        profile["preferredEnvCode"] = requested_env
+        return profile
+
+    code = client_code_param(value)
+    client = query_one(
+        """
+        SELECT ClientCode, ClientName, SchemaName, DefaultRoute, IsAgent, ActAsSysId, IsActive, Notes
+        FROM CFG.Clients
+        WHERE ClientCode = ?
+        """,
+        [code],
+    )
+    if not client:
+        raise HTTPException(status_code=404, detail=f"No CFG.Clients row found for {code}.")
+    credential = query_one(
+        """
+        SELECT TOP 1 ClientCode, EnvCode
+        FROM CFG.TSS_Credential
+        WHERE ClientCode = ?
+        ORDER BY IsActive DESC, CASE WHEN EnvCode = ? THEN 0 ELSE 1 END, EnvCode
+        """,
+        [code, requested_env],
+    ) or {}
+    return {
+        "portalClientCode": client["ClientCode"],
+        "clientCode": client["ClientCode"],
+        "clientName": client.get("ClientName") or client["ClientCode"],
+        "schemaName": client.get("SchemaName"),
+        "defaultRoute": client.get("DefaultRoute") or "A",
+        "isAgent": bool(client.get("IsAgent")),
+        "actAsSysId": client.get("ActAsSysId"),
+        "isActive": bool(client.get("IsActive")),
+        "notes": client.get("Notes"),
+        "tssCredentialClientCode": credential.get("ClientCode") or client["ClientCode"],
+        "preferredEnvCode": requested_env or credential.get("EnvCode") or "TST",
+        "requiresEnsBeforeSubmit": True,
+        "fileSelection": {},
+    }
+
+def tss_operation_payload(
+    *,
+    client_code: str,
+    endpoint: str,
+    method: str,
+    op_type: str | None,
+    route_code: str | None,
+    env_code: str | None,
+    query: dict[str, object] | None = None,
+    payload: dict[str, object] | None = None,
+    send: bool = False,
+    confirm_live: bool = False,
+) -> dict[str, object]:
+    profile = load_tss_client_profile(client_code, env_code=env_code)
+    step = resolve_tss_step(
+        str(profile["clientCode"]),
+        endpoint,
+        method,
+        op_type=op_type,
+        route_code=route_code or str(profile.get("defaultRoute") or "A"),
+    )
+    credential = credential_status(profile, env_code=env_code, include_secret=send and confirm_live)
+    if not credential:
+        raise HTTPException(status_code=404, detail="No TSS credential row found for this portal profile/environment.")
+
+    base_path = tss_api_base_path()
+    destination_url = join_tss_url(credential.get("baseUrl"), base_path, endpoint, query)
+    request_payload = dict(payload or {})
+    if method.upper() == "POST" and op_type and "op_type" not in request_payload:
+        request_payload["op_type"] = op_type
+
+    response: dict[str, object] = {
+        "dryRun": not send,
+        "sendRequested": send,
+        "confirmLive": confirm_live,
+        "profile": profile,
+        "credential": public_credential_payload(credential),
+        "routeStep": step,
+        "target": {
+            "baseUrl": credential.get("baseUrl"),
+            "apiBasePath": base_path,
+            "endpoint": normalize_tss_endpoint(endpoint),
+            "url": destination_url,
+        },
+        "request": {
+            "method": method.upper(),
+            "query": query or {},
+            "payload": request_payload if method.upper() != "GET" else None,
+        },
+        "mappingSource": "CFG.API_Process_Map + CFG.TSS_Environment + CFG.Application_Parameters.SUBMISSION_API_BASE_PATH",
+    }
+    if not send:
+        response["execution"] = "preview_only"
+        return response
+    if not confirm_live:
+        raise HTTPException(status_code=409, detail="Live TSS relay requires confirm_live=true. Run preview first and review target/payload.")
+    if not credential.get("isActive"):
+        raise HTTPException(status_code=409, detail="TSS credential is not active for this portal profile/environment.")
+    if not credential.get("hasPassword") or not credential.get("password"):
+        raise HTTPException(status_code=409, detail="TSS credential has no password configured in CFG.TSS_Credential.")
+
+    result = call_tss_http(
+        method=method,
+        url=destination_url,
+        username=str(credential["tssUsername"]),
+        password=str(credential["password"]),
+        payload=request_payload if method.upper() != "GET" else None,
+    )
+    response["execution"] = "sent_to_tss"
+    response["result"] = result
+    return response
+
+
+def call_tss_http(method: str, url: str, username: str, password: str, payload: dict[str, object] | None = None) -> dict[str, object]:
+    body = None
+    headers = {"Accept": "application/json"}
+    if method.upper() != "GET":
+        body = json.dumps(payload or {}, ensure_ascii=False, default=str).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    headers["Authorization"] = f"Basic {token}"
+    request = urllib.request.Request(url, data=body, method=method.upper(), headers=headers)
+    started = datetime.now(timezone.utc)
+    status_code: int | None = None
+    response_text = ""
+    ok = False
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 - target comes from trusted CFG.
+            status_code = int(response.status)
+            response_text = response.read(1_000_000).decode("utf-8", errors="replace")
+            ok = 200 <= status_code < 300
+    except urllib.error.HTTPError as error:
+        status_code = int(error.code)
+        response_text = error.read(1_000_000).decode("utf-8", errors="replace")
+    except urllib.error.URLError as error:
+        response_text = str(error.reason)
+    duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+    return {
+        "statusCode": status_code,
+        "ok": ok,
+        "durationMs": duration_ms,
+        "responseText": response_text,
+    }
 def session_payload(profile: dict[str, object], username: str) -> dict[str, object]:
     return {
         "tenantCode": profile["portalClientCode"],
@@ -896,9 +1167,9 @@ def tss_readiness(client_code: str | None = Query(None)) -> dict[str, object]:
         raise db_error(exc) from exc
 
 @app.get("/api/tss/route-plan")
-def tss_route_plan(client_code: str = Query("PLE")) -> dict[str, object]:
+def tss_route_plan(client_code: str = Query("PLE"), env_code: str | None = Query(None)) -> dict[str, object]:
     try:
-        profile = load_portal_profile(client_code)
+        profile = load_tss_client_profile(client_code, env_code=env_code)
         credential = credential_status(profile)
         return {
             "profile": profile,
@@ -913,7 +1184,7 @@ def tss_route_plan(client_code: str = Query("PLE")) -> dict[str, object]:
 @app.post("/api/tss/connections/test")
 def test_tss_connection(client_code: str = Query("PLE"), env_code: str | None = Query(None)) -> dict[str, object]:
     try:
-        profile = load_portal_profile(client_code)
+        profile = load_tss_client_profile(client_code, env_code=env_code)
         credential = credential_status(profile, env_code=env_code, include_secret=True)
     except DbUnavailable as exc:
         raise db_error(exc) from exc
@@ -1067,6 +1338,268 @@ def submit_consignment_to_tss(
     response["results"] = results
     response["allOk"] = all(item["ok"] for item in results) and len(results) == len(plan["steps"])
     return response
+
+
+@app.get("/api/tss/api-map")
+def tss_api_map(client_code: str = Query("BKD"), route_code: str | None = Query(None)) -> dict[str, object]:
+    try:
+        route = load_tss_api_map(client_code, route_code=route_code)
+        return {
+            "clientCode": client_code_param(client_code),
+            "routeCode": route_code,
+            "steps": route,
+            "coveredPublicEndpoints": sorted({str(step["publicEndpoint"]) for step in route}),
+            "source": "CFG.API_Process_Map",
+        }
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.get("/api/tss/api-map/{step_no}")
+def tss_api_map_step(step_no: int, client_code: str = Query("BKD"), route_code: str | None = Query("A")) -> dict[str, object]:
+    try:
+        matches = [step for step in load_tss_api_map(client_code, route_code=route_code) if int(step.get("StepNo") or -1) == step_no]
+        if not matches:
+            raise HTTPException(status_code=404, detail=f"No active route step {step_no} for {client_code} route {route_code}.")
+        return {"step": matches[0], "source": "CFG.API_Process_Map"}
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.get("/api/tss/permission-grant")
+def tss_permission_grant(
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    importer_eori: str | None = Query(None),
+    eori: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    query = {"importer_eori": importer_eori or eori}
+    try:
+        return tss_operation_payload(
+            client_code=client_code,
+            endpoint="/permission_grant",
+            method="GET",
+            op_type="read",
+            route_code="A",
+            env_code=env_code,
+            query=query,
+            send=send,
+            confirm_live=confirm_live,
+        )
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.post("/api/tss/headers")
+def tss_headers_create(
+    payload: Annotated[dict[str, object] | None, Body()] = None,
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(
+            client_code=client_code,
+            endpoint="/headers",
+            method="POST",
+            op_type="create",
+            route_code="A",
+            env_code=env_code,
+            payload=payload,
+            send=send,
+            confirm_live=confirm_live,
+        )
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.get("/api/tss/headers")
+def tss_headers_read(
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    reference: str | None = Query(None),
+    declaration_number: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    query = {"reference": reference or declaration_number}
+    try:
+        return tss_operation_payload(
+            client_code=client_code,
+            endpoint="/headers",
+            method="POST",
+            op_type="create",
+            route_code="A",
+            env_code=env_code,
+            query=query,
+            send=send,
+            confirm_live=confirm_live,
+        ) | {"note": "Header read is used by mirror_ens.py; CFG route A maps /headers as POST create."}
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.post("/api/tss/consignments")
+def tss_consignments_create(
+    payload: Annotated[dict[str, object] | None, Body()] = None,
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/consignments", method="POST", op_type="create", route_code="A", env_code=env_code, payload=payload, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.post("/api/tss/consignments/submit")
+def tss_consignments_submit(
+    payload: Annotated[dict[str, object] | None, Body()] = None,
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/consignments", method="POST", op_type="submit", route_code="A", env_code=env_code, payload=payload, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.post("/api/tss/goods")
+def tss_goods_create(
+    payload: Annotated[dict[str, object] | None, Body()] = None,
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/goods", method="POST", op_type="create", route_code="A", env_code=env_code, payload=payload, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.get("/api/tss/goods")
+def tss_goods_lookup(
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    goods_id: str | None = Query(None),
+    consignment_number: str | None = Query(None),
+    declaration_number: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    query = {"goods_id": goods_id, "consignment_number": consignment_number, "declaration_number": declaration_number}
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/goods", method="GET", op_type="lookup", route_code="A", env_code=env_code, query=query, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.post("/api/tss/goods/update")
+def tss_goods_update(
+    payload: Annotated[dict[str, object] | None, Body()] = None,
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/goods", method="POST", op_type="update", route_code="A", env_code=env_code, payload=payload, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.get("/api/tss/simplified-frontier-declarations")
+def tss_sfd_lookup(
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    consignment_number: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/simplified_frontier_declarations", method="GET", op_type="lookup", route_code="A", env_code=env_code, query={"consignment_number": consignment_number}, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.post("/api/tss/gvms-gmr")
+def tss_gvms_gmr_create(
+    payload: Annotated[dict[str, object] | None, Body()] = None,
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/gvms_gmr", method="POST", op_type="create", route_code="A", env_code=env_code, payload=payload, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.post("/api/tss/gvms-gmr/submit")
+def tss_gvms_gmr_submit(
+    payload: Annotated[dict[str, object] | None, Body()] = None,
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/gvms_gmr", method="POST", op_type="submit", route_code="A", env_code=env_code, payload=payload, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.get("/api/tss/gvms-gmr")
+def tss_gvms_gmr_read(
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    gmr_id: str | None = Query(None),
+    reference: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/gvms_gmr", method="GET", op_type="read", route_code="A", env_code=env_code, query={"gmr_id": gmr_id or reference}, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.get("/api/tss/supplementary-declarations")
+def tss_supplementary_declarations_lookup(
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    sfd_number: str | None = Query(None),
+    reference: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/supplementary_declarations", method="GET", op_type="lookup", route_code="A", env_code=env_code, query={"sfd_number": sfd_number or reference}, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+
+@app.post("/api/tss/supplementary-declarations/submit")
+def tss_supplementary_declarations_submit(
+    payload: Annotated[dict[str, object] | None, Body()] = None,
+    client_code: str = Query("BKD"),
+    env_code: str | None = Query(None),
+    send: bool = Query(False),
+    confirm_live: bool = Query(False),
+) -> dict[str, object]:
+    try:
+        return tss_operation_payload(client_code=client_code, endpoint="/supplementary_declarations", method="POST", op_type="submit", route_code="A", env_code=env_code, payload=payload, send=send, confirm_live=confirm_live)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
 
 @app.get("/api/session")
 def session(client_code: str = Query("PLE")) -> dict[str, object]:
