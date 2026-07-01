@@ -37,10 +37,18 @@ PRS.BKD_ENS_Header_Submission (VALIDATED)
 ## Run (scheduler just runs the scripts)
 
 ```powershell
-python Modules\Submission\promote_ens.py     # VALIDATED -> STG (READY)
-python Modules\Submission\submit_ens.py       # create; dry-run unless SUBMISSION_DRY_RUN=0
-python Modules\Submission\mirror_ens.py       # get-back -> TSS.* live mirror; mark complete
+python Modules\Submission\promote_ens.py         # VALIDATED -> STG (READY)
+python Modules\Submission\submit_ens.py           # create; dry-run unless SUBMISSION_DRY_RUN=0
+python Modules\Submission\mirror_ens.py           # get-back -> TSS.* live mirror; mark complete
+python Modules\Submission\fetch_submitted_json.py # dump each submitted header's request+response JSON for analysis
 ```
+
+`fetch_submitted_json.py` GETs every submitted header (has a `declaration_number`)
+back from TSS and writes one JSON file per movement — full **request + response** —
+to `SUBMISSION_JSON_DIR` (default `<repo>\Development\json`). It's a read, so it
+calls TSS regardless of `SUBMISSION_DRY_RUN`, and logs each call to `API.Call`. Use
+the dumps to design the `TSS.BKD_ENS_Header` mirror and the next process step. The
+`Development\json\` folder is gitignored (dumps may contain live TSS data).
 
 ## Where things land
 
