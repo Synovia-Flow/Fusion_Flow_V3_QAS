@@ -41,3 +41,6 @@ Development/Deploy/Queue/*.sql
 # TSS connectivity test credentials (live passwords) - never commit.
 Development/Connectivity/tss_credentials.json
 Configuration/tss_credentials.json
+
+# TSS response dumps (may contain live declaration data) — analysis output, transient.
+Development/json/

@@ -1,0 +1,41 @@
+{
+  "client_code": "BKD",
+  "movement_key": "25.06.26|ICR2524521",
+  "declaration_number": "ENS000000000422574",
+  "stg_status": "RECONCILED",
+  "env": "TST",
+  "fetched_at_utc": "2026-07-01 20:06:21.530820",
+  "request": {
+    "method": "GET",
+    "url": "https://api.tsstestenv.co.uk/api/x_fhmrc_tss_api/v1/tss_api/headers?reference=ENS000000000422574",
+    "headers": {
+      "Authorization": "Basic ***",
+      "Content-Type": "application/json",
+      "Accept": "application/json"
+    }
+  },
+  "response": {
+    "status_code": 200,
+    "ok": true,
+    "duration_ms": 187,
+    "headers": {
+      "Server": "snow_adc",
+      "Date": "Wed, 01 Jul 2026 20:06:21 GMT",
+      "Content-Type": "application/json;charset=UTF-8",
+      "Transfer-Encoding": "chunked",
+      "Connection": "keep-alive",
+      "Set-Cookie": "BIGipServerpool_tssapi=e3a697b7a5f947c66b5ef9fb44e978ce; httponly; secure; samesite=None; path=/, JSESSIONID=A8A247340BF6C7B2979436F9469C67BC; Path=/; HttpOnly; Secure; SameSite=None, glide_user=; Max-Age=0; Expires=Thu, 01-Jan-1970 00:00:10 GMT; Path=/; HttpOnly; Secure; SameSite=None, glide_user_session=; Max-Age=0; Expires=Thu, 01-Jan-1970 00:00:10 GMT; Path=/; HttpOnly; Secure; SameSite=None, glide_user_route=glide.0c345c77797f21649781dce171720287; Max-Age=2147483647; Expires=Mon, 19-Jul-2094 23:20:28 GMT; Path=/; HttpOnly; Secure; SameSite=None, glide_node_id_for_js=e2a46d601b6fa90333b08710831873564cfdf8d8ee9f6b2e97008a4e8bb1c9fd; Path=/; Secure; SameSite=None, glide_session_store=48AAD4063B3947504478B39704E45A4E; Max-Age=300; Expires=Wed, 01-Jul-2026 20:11:21 GMT; Path=/; HttpOnly; Secure; SameSite=None",
+      "Server-Timing": "t;desc=\"ccaa9c063b39\", sem_wait;dur=0, sesh_wait;dur=0",
+      "Content-Encoding": "gzip",
+      "X-Is-Logged-In": "true",
+      "X-Transaction-ID": "ccaa9c063b39",
+      "X-Content-Type-Options": "nosniff",
+      "Pragma": "no-store,no-cache",
+      "Cache-Control": "no-cache,no-store,must-revalidate,max-age=-1",
+      "Expires": "0",
+      "Strict-Transport-Security": "max-age=63072000; includeSubDomains"
+    },
+    "body": "{\"result\":{\"stackDelegated\":\"\\tat sys_ws_operation.66b40f9a1b52681052e37c95464bcb94.operation_script:9 (process)\\n\\tat sys_ws_operation.66b40f9a1b52681052e37c95464bcb94.operation_script:77\\n\",\"objectMeta\":{\"access\":\"PUBLIC\",\"scriptIncludeFunction\":false,\"scriptIncludeObject\":false,\"glideScriptable\":false,\"scriptableObject\":false,\"scopedApi\":false,\"nativeJavaObject\":false,\"clientCallable\":true,\"scriptIncludeSandboxCallable\":false,\"actionDesigner\":false,\"flowDesigner\":false,\"relatedList\":false,\"prototypeServer\":false,\"globalScript\":false,\"dynamicFunction\":false,\"scriptlet\":false,\"scriptInclude\":false,\"standardObject\":true,\"javaApi\":false,\"name\":\"Object\",\"public\":true,\"type\":\"STANDARD_OBJECT\"},\"className\":\"Error\",\"size\":0,\"allIds\":[\"message\",\"fileName\",\"sourceName\",\"lineNumber\",\"stack\",\"rhinoException\"],\"prototype\":{\"stackDelegated\"\"\",\"error\":{\"message\":\"Cannot map object\",\"detail\":\"Cannot map object Check logs for error trace or enable glide.rest.debug property to verify REST request processing\"},\"status\":\"failure\"}",
+    "error": null
+  }
+}
