@@ -628,6 +628,14 @@ function PreviewDetailsModal({ payload, onClose }) {
   const selectedGoods = selected?.goodsItems || [];
   const summary = preview.summary || {};
   const splitLabel = summary.splitConsignmentCount ? `${summary.splitConsignmentCount} split parts` : 'No split needed';
+  const rowModeText = preview.rowMode === 'api_field_value'
+    ? 'Field/value manifest mapped into PRS/TSS shape.'
+    : preview.rowMode === 'multi_sheet'
+      ? 'Workbook sheets combined into PRS/TSS shape.'
+      : 'Workbook rows mapped into PRS/TSS shape.';
+  const sourceSheetText = (preview.sourceSheets || [])
+    .map((sheet) => `${sheet.sheetName || 'Sheet'}: ${sheet.rowMode === 'api_field_value' ? 'field/value' : 'rows'} (${sheet.mappedFieldCount || 0} mapped)`)
+    .join(' | ');
 
   return (
     <div className="preview-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -636,7 +644,8 @@ function PreviewDetailsModal({ payload, onClose }) {
           <div>
             <span className="preview-eyebrow">Preview only / DB off / TSS off</span>
             <h2>{payload.filename}</h2>
-            <p>{preview.rowMode === 'api_field_value' ? 'Field/value manifest mapped into PRS/TSS shape.' : 'Workbook rows mapped into PRS/TSS shape.'}</p>
+            <p>{rowModeText}</p>
+            {sourceSheetText && <p className="preview-source-sheets">{sourceSheetText}</p>}
           </div>
           <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close mapped preview">
             <MaterialIcon>close</MaterialIcon>
@@ -789,7 +798,12 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
   const processingPreview = previewState.payload?.processingPreview;
   const processingSummary = processingPreview?.summary || {};
   const isFieldValuePreview = processingPreview?.rowMode === 'api_field_value';
+  const isMultiSheetPreview = processingPreview?.rowMode === 'multi_sheet';
+  const isMappedPreview = isFieldValuePreview || isMultiSheetPreview;
   const previewMissingRequiredCount = processingSummary.missingRequiredCount || 0;
+  const sourceSheetsText = (processingPreview?.sourceSheets || [])
+    .map((sheet) => `${sheet.sheetName || 'Sheet'} ${sheet.rowMode === 'api_field_value' ? 'field/value' : 'rows'}: ${sheet.mappedFieldCount || 0} mapped`)
+    .join(' | ');
 
   return (
     <section className="upload-page page-card" aria-label="Upload consignments">
@@ -890,9 +904,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
               {(previewState.payload.validationContext?.demoSatisfiedTargets || []).length > 0 && (
                 <span>Demo supplied: {(previewState.payload.validationContext.demoSatisfiedTargets || []).map((item) => item.targetColumn).join(', ')}</span>
               )}
-              {isFieldValuePreview ? (
+              {isMappedPreview ? (
                 <>
-                  <span>Field/value rows: {processingSummary.mappedFieldCount || 0} matched / {processingSummary.unmatchedFieldCount || 0} unmatched into PRS/TSS preview</span>
+                  {isMultiSheetPreview && sourceSheetsText && <span>Workbook sheets: {sourceSheetsText}</span>}
+                  <span>{isFieldValuePreview ? 'Field/value rows' : 'Preview rows'}: {processingSummary.sourceRows || 0} source / {processingSummary.mappedFieldCount || 0} matched / {processingSummary.unmatchedFieldCount || 0} unmatched into PRS/TSS preview</span>
                   <span>Preview required: {previewMissingRequiredCount ? `${previewMissingRequiredCount} missing across PRS/TSS details` : 'ready - no required fields missing'}</span>
                 </>
               ) : (

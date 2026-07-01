@@ -14,6 +14,10 @@ CSV_CONTENT = b"consignment_number,goods_description,transport_document_number\n
 
 
 def xlsx_content(rows: list[list[str]]) -> bytes:
+    return xlsx_workbook_content([("Sheet1", rows)])
+
+
+def xlsx_workbook_content(sheets: list[tuple[str, list[list[str]]]]) -> bytes:
     def col_name(index: int) -> str:
         name = ""
         index += 1
@@ -22,39 +26,49 @@ def xlsx_content(rows: list[list[str]]) -> bytes:
             name = chr(65 + rem) + name
         return name
 
-    sheet_rows = []
-    for row_index, row in enumerate(rows, 1):
-        cells = []
-        for col_index, value in enumerate(row):
-            ref = f"{col_name(col_index)}{row_index}"
-            cells.append(f'<c r="{ref}" t="inlineStr"><is><t>{escape(str(value))}</t></is></c>')
-        sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+    def sheet_xml(rows: list[list[str]]) -> str:
+        sheet_rows = []
+        for row_index, row in enumerate(rows, 1):
+            cells = []
+            for col_index, value in enumerate(row):
+                ref = f"{col_name(col_index)}{row_index}"
+                cells.append(f'<c r="{ref}" t="inlineStr"><is><t>{escape(str(value))}</t></is></c>')
+            sheet_rows.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{''.join(sheet_rows)}</sheetData></worksheet>'''
 
+    content_overrides = [
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+    ]
+    workbook_sheets = []
+    workbook_rels = []
     buffer = BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", """<?xml version="1.0" encoding="UTF-8"?>
+        for index, (sheet_name, rows) in enumerate(sheets, 1):
+            content_overrides.append(f'<Override PartName="/xl/worksheets/sheet{index}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>')
+            workbook_sheets.append(f'<sheet name="{escape(sheet_name)}" sheetId="{index}" r:id="rId{index}"/>')
+            workbook_rels.append(f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{index}.xml"/>')
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", sheet_xml(rows))
+
+        archive.writestr("[Content_Types].xml", f'''<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
 <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
 <Default Extension="xml" ContentType="application/xml"/>
-<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-</Types>""")
-        archive.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8"?>
+{''.join(content_overrides)}
+</Types>''')
+        archive.writestr("_rels/.rels", '''<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
-</Relationships>""")
-        archive.writestr("xl/workbook.xml", """<?xml version="1.0" encoding="UTF-8"?>
+</Relationships>''')
+        archive.writestr("xl/workbook.xml", f'''<?xml version="1.0" encoding="UTF-8"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
-</workbook>""")
-        archive.writestr("xl/_rels/workbook.xml.rels", """<?xml version="1.0" encoding="UTF-8"?>
+<sheets>{''.join(workbook_sheets)}</sheets>
+</workbook>''')
+        archive.writestr("xl/_rels/workbook.xml.rels", f'''<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-</Relationships>""")
-        archive.writestr("xl/worksheets/sheet1.xml", f"""<?xml version="1.0" encoding="UTF-8"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>{''.join(sheet_rows)}</sheetData></worksheet>""")
+{''.join(workbook_rels)}
+</Relationships>''')
     return buffer.getvalue()
-
 
 def upload_file(filename: str, content: bytes = CSV_CONTENT) -> UploadFile:
     content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if filename.lower().endswith(".xlsx") else "text/csv"
@@ -222,6 +236,118 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(payload_preview["operations"][1]["payload"]["declaration_number"], "ENS900000000000001")
         self.assertEqual(payload_preview["goodsItemCount"], 2)
         self.assertEqual(payload_preview["goodsItems"][0]["gross_mass_kg"], "42.5")
+
+    def test_demo_mode_combines_lisburn_field_value_sheet_with_goods_table_sheet(self):
+        content = xlsx_workbook_content([
+            ("Sheet1", [
+                ["api_field", "source_value"],
+                ["movement_type", "RoRo Accompanied ICS2"],
+                ["transport_document_number", "ICR2524064"],
+                ["arrival_port", "Belfast Port"],
+            ]),
+            ("Primeline_NI_CAT1_Parts_05_05_2", [
+                [
+                    "consignment_description",
+                    "trader_reference",
+                    "transport_document_number",
+                    "destination_country",
+                    "consignor_eori",
+                    "consignor_name",
+                    "consignor_country",
+                    "consignee_eori",
+                    "consignee_name",
+                    "consignee_country",
+                    "importer_eori",
+                    "importer_name",
+                    "importer_country",
+                    "exporter_eori",
+                    "exporter_name",
+                    "exporter_country",
+                    "commodity_code",
+                    "type_of_packages",
+                    "number_of_packages",
+                    "package_marks",
+                    "gross_mass_kg",
+                    "goods_description",
+                    "country_of_origin",
+                ],
+                [
+                    "Caterpillar Parts",
+                    "MANIFEST 01.05.26",
+                    "PLEGVT001",
+                    "GB",
+                    "XI100516042000",
+                    "Finning UK",
+                    "GB",
+                    "XI100516042000",
+                    "Finning(NI)",
+                    "GB",
+                    "XI100516042000",
+                    "Finning(NI)",
+                    "GB",
+                    "XI100516042000",
+                    "Finning UK",
+                    "GB",
+                    "73182200",
+                    "BX",
+                    "1",
+                    "6PC073421A",
+                    "0.02",
+                    "WASHER -DE",
+                    "US",
+                ],
+                [
+                    "Caterpillar Parts",
+                    "MANIFEST 01.05.26",
+                    "PLEGVT001",
+                    "GB",
+                    "XI100516042000",
+                    "Finning UK",
+                    "GB",
+                    "XI100516042000",
+                    "Finning(NI)",
+                    "GB",
+                    "XI100516042000",
+                    "Finning(NI)",
+                    "GB",
+                    "XI100516042000",
+                    "Finning UK",
+                    "GB",
+                    "73182200",
+                    "BX",
+                    "1",
+                    "8KS000880A",
+                    "0.02",
+                    "WASHER -DE",
+                    "US",
+                ],
+            ]),
+        ])
+
+        payload = portal_main.upload_consignment_preview(
+            client_code="PLE",
+            files=[upload_file("PLE FILE -LISBURN MANIFEST 01.05.2026 .xlsx", content)],
+            demo_mode=True,
+        )
+
+        self.assertEqual(payload["detectedStructure"]["sheetNames"], ["Sheet1", "Primeline_NI_CAT1_Parts_05_05_2"])
+        self.assertEqual(len(payload["detectedStructure"]["worksheets"]), 2)
+        preview = payload["processingPreview"]
+        self.assertEqual(preview["rowMode"], "multi_sheet")
+        self.assertEqual([sheet["rowMode"] for sheet in preview["sourceSheets"]], ["api_field_value", "wide_rows"])
+        self.assertEqual(preview["summary"]["consignmentCount"], 1)
+        self.assertEqual(preview["summary"]["goodsItemCount"], 2)
+        self.assertEqual(preview["summary"]["missingRequiredCount"], 1)
+        consignment = preview["consignments"][0]
+        self.assertEqual(consignment["values"]["declaration_number"], "ENS900000000000001")
+        self.assertEqual(consignment["values"]["consignment_number"], "PLEGVT001")
+        self.assertEqual(consignment["values"]["goods_description"], "Caterpillar Parts")
+        self.assertEqual(consignment["values"]["transport_document_number"], "PLEGVT001")
+        self.assertIn("controlled_goods", consignment["missingRequired"])
+        self.assertEqual(consignment["goodsItems"][0]["values"]["package_marks"], "6PC073421A")
+        self.assertEqual(consignment["goodsItems"][1]["values"]["package_marks"], "8KS000880A")
+        self.assertEqual(consignment["goodsItems"][0]["status"], "READY")
+        self.assertFalse(consignment["tssPayloadPreview"]["ready"])
 
     def test_demo_mode_maps_tss_style_api_paths_to_consignment_and_goods(self):
         content = xlsx_content([

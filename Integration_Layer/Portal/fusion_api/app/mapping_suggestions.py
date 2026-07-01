@@ -64,6 +64,7 @@ ALIASES: dict[str, tuple[str, str]] = {
     "consignmentnumber": ("PRS.Consignment", "consignment_number"),
     "consignmentreference": ("PRS.Consignment", "consignment_number"),
     "consignmentref": ("PRS.Consignment", "consignment_number"),
+    "consignmentdescription": ("PRS.Consignment", "goods_description"),
     "dec": ("PRS.Consignment", "consignment_number"),
     "decnumber": ("PRS.Consignment", "consignment_number"),
     "traderreference": ("PRS.Consignment", "trader_reference"),

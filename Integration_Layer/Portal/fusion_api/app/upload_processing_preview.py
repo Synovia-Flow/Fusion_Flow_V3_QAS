@@ -335,7 +335,7 @@ def _fields_payload(
     return fields, missing_required, issues
 
 
-def _field_value_preview(rows: list[dict[str, Any]], demo_ens: dict[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+def _field_value_preview(rows: list[dict[str, Any]], demo_ens: dict[str, Any] | None, *, source_sheet: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     consignment: dict[str, Any] = {}
     consignment_sources: dict[str, dict[str, Any]] = {}
     goods_by_index: dict[int, dict[str, Any]] = {}
@@ -348,10 +348,10 @@ def _field_value_preview(rows: list[dict[str, Any]], demo_ens: dict[str, Any] | 
         source_value = _row_value(row, FIELD_VALUE_COLUMNS)
         target = _target_for(api_field)
         if not target:
-            unmatched.append({"rowNumber": row_number, "apiField": api_field, "sourceValue": source_value, "reason": "No safe PRS/TSS target match."})
+            unmatched.append({"rowNumber": row_number, "apiField": api_field, "sourceValue": source_value, "reason": "No safe PRS/TSS target match.", **({"sourceSheet": source_sheet} if source_sheet else {})})
             continue
         table_name, target_column = target
-        source = {"rowNumber": row_number, "apiField": api_field, "sourceColumn": "source_value"}
+        source = {"rowNumber": row_number, "apiField": api_field, "sourceColumn": "source_value", **({"sourceSheet": source_sheet} if source_sheet else {})}
         matched += 1
         if table_name == "PRS.Consignment":
             _assign_first(consignment, consignment_sources, target_column, source_value, source)
@@ -371,7 +371,7 @@ def _field_value_preview(rows: list[dict[str, Any]], demo_ens: dict[str, Any] | 
     return [{"values": consignment, "sources": consignment_sources, "goods": goods_items}], unmatched, matched
 
 
-def _wide_row_preview(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+def _wide_row_preview(rows: list[dict[str, Any]], *, source_sheet: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
     lookup = target_lookup()
     groups: dict[str, dict[str, Any]] = {}
     unmatched: list[dict[str, Any]] = []
@@ -391,7 +391,7 @@ def _wide_row_preview(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]],
             if not target:
                 continue
             table_name, target_column = target
-            source = {"rowNumber": row_number, "sourceColumn": source_column}
+            source = {"rowNumber": row_number, "sourceColumn": source_column, **({"sourceSheet": source_sheet} if source_sheet else {})}
             matched += 1
             row_matched += 1
             if table_name == "PRS.Consignment":
@@ -399,7 +399,7 @@ def _wide_row_preview(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]],
             elif table_name == "PRS.Goods_Item":
                 _assign_first(goods, goods_sources, target_column, value, source)
         if row_matched == 0:
-            unmatched.append({"rowNumber": row_number, "reason": "No columns in this row matched PRS/TSS targets."})
+            unmatched.append({"rowNumber": row_number, "reason": "No columns in this row matched PRS/TSS targets.", **({"sourceSheet": source_sheet} if source_sheet else {})})
             continue
         group_key = (
             clean_cell(consignment.get("consignment_number"))
@@ -407,7 +407,7 @@ def _wide_row_preview(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]],
             or clean_cell(consignment.get("trader_reference"))
             or "__single__"
         )
-        group = groups.setdefault(group_key, {"values": {}, "sources": {}, "goods": []})
+        group = groups.setdefault(group_key, {"values": {}, "sources": {}, "goods": [], "groupKey": group_key})
         for field, value in consignment.items():
             _assign_first(group["values"], group["sources"], field, value, consignment_sources.get(field, {"rowNumber": row_number}))
         if goods:
@@ -432,7 +432,8 @@ def _split_groups(groups: list[dict[str, Any]], demo_ens: dict[str, Any] | None)
                 base_sources["goods_description"] = goods_items[0].get("sources", {}).get("goods_description", {"source": "firstGoodsItem"})
         chunks = [goods_items[index:index + MAX_GOODS_PER_CONSIGNMENT] for index in range(0, len(goods_items), MAX_GOODS_PER_CONSIGNMENT)] or [[]]
         part_count = len(chunks)
-        original_number = clean_cell(base_values.get("consignment_number")) or f"PREVIEW-{group_index:03d}"
+        group_key = clean_cell(group.get("groupKey"))
+        original_number = clean_cell(base_values.get("consignment_number")) or (group_key if group_key and group_key != "__single__" else f"PREVIEW-{group_index:03d}")
         for part_index, chunk in enumerate(chunks, 1):
             values = dict(base_values)
             sources = dict(base_sources)
@@ -458,14 +459,75 @@ def _split_groups(groups: list[dict[str, Any]], demo_ens: dict[str, Any] | None)
     return output
 
 
+def _worksheet_structures(structure: dict[str, Any]) -> list[dict[str, Any]]:
+    worksheets = structure.get("worksheets")
+    if isinstance(worksheets, list) and worksheets:
+        return [worksheet for worksheet in worksheets if isinstance(worksheet, dict)]
+    return [structure]
+
+
+def _group_goods_count(groups: list[dict[str, Any]]) -> int:
+    return sum(len(group.get("goods") or []) for group in groups)
+
+
+def _merge_default_groups(data_groups: list[dict[str, Any]], default_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not data_groups:
+        return default_groups
+    for group in data_groups:
+        for default in default_groups:
+            default_values = default.get("values") or {}
+            default_sources = default.get("sources") or {}
+            for field, value in default_values.items():
+                _assign_first(group["values"], group["sources"], field, value, default_sources.get(field, {"source": "workbookDefault"}))
+            if not group.get("goods") and default.get("goods"):
+                group["goods"].extend(default.get("goods") or [])
+    return data_groups
+
+
+def _groups_from_structure(structure: dict[str, Any], demo_ens: dict[str, Any] | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, int, str, list[dict[str, Any]]]:
+    data_groups: list[dict[str, Any]] = []
+    default_groups: list[dict[str, Any]] = []
+    all_unmatched: list[dict[str, Any]] = []
+    matched_total = 0
+    source_rows_total = 0
+    source_sheets: list[dict[str, Any]] = []
+    row_modes: list[str] = []
+
+    for worksheet in _worksheet_structures(structure):
+        rows = _rows_from_structure(worksheet)
+        columns = worksheet.get("columns") or []
+        sheet_name = clean_cell(worksheet.get("sheetName")) or None
+        row_mode = "api_field_value" if _is_field_value_mode(rows, columns) else "wide_rows"
+        if row_mode == "api_field_value":
+            groups, unmatched, matched_count = _field_value_preview(rows, demo_ens, source_sheet=sheet_name)
+            default_groups.extend(groups)
+        else:
+            groups, unmatched, matched_count = _wide_row_preview(rows, source_sheet=sheet_name)
+            data_groups.extend(groups)
+
+        all_unmatched.extend(unmatched)
+        matched_total += matched_count
+        source_rows_total += len(rows)
+        if rows or columns:
+            row_modes.append(row_mode)
+            source_sheets.append({
+                "sheetName": sheet_name,
+                "rowMode": row_mode,
+                "sourceRows": len(rows),
+                "detectedColumns": len(columns),
+                "mappedFieldCount": matched_count,
+                "unmatchedFieldCount": len(unmatched),
+                "consignmentGroupCount": len(groups),
+                "goodsItemCount": _group_goods_count(groups),
+            })
+
+    groups = _merge_default_groups(data_groups, default_groups)
+    row_mode = "multi_sheet" if len(source_sheets) > 1 else (row_modes[0] if row_modes else "wide_rows")
+    return groups, all_unmatched, matched_total, source_rows_total, row_mode, source_sheets
+
+
 def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, Any], demo_ens: dict[str, Any] | None) -> dict[str, Any]:
-    rows = _rows_from_structure(structure)
-    columns = structure.get("columns") or []
-    row_mode = "api_field_value" if _is_field_value_mode(rows, columns) else "wide_rows"
-    if row_mode == "api_field_value":
-        groups, unmatched, matched_count = _field_value_preview(rows, demo_ens)
-    else:
-        groups, unmatched, matched_count = _wide_row_preview(rows)
+    groups, unmatched, matched_count, source_row_count, row_mode, source_sheets = _groups_from_structure(structure, demo_ens)
 
     split_groups = _split_groups(groups, demo_ens)
     consignments: list[dict[str, Any]] = []
@@ -535,9 +597,10 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
         "clientCode": profile.get("clientCode"),
         "portalClientCode": profile.get("portalClientCode"),
         "rowMode": row_mode,
+        "sourceSheets": source_sheets,
         "maxGoodsPerConsignment": MAX_GOODS_PER_CONSIGNMENT,
         "summary": {
-            "sourceRows": len(rows),
+            "sourceRows": source_row_count,
             "mappedFieldCount": matched_count,
             "unmatchedFieldCount": len(unmatched),
             "consignmentCount": len(consignments),

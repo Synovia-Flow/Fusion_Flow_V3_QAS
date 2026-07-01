@@ -170,24 +170,29 @@ def inspect_xlsx(content: bytes) -> dict[str, Any]:
         sheets = workbook_sheets(zip_file)
         if not sheets:
             return empty_structure("xlsx", "No worksheets found in workbook.")
-        selected_sheet = sheets[0]
-        sheet_root = xml_root(zip_file, selected_sheet["path"])
-        rows: list[list[str]] = []
-        for row_node in sheet_root.iter():
-            if not (row_node.tag.endswith("}row") or row_node.tag == "row"):
-                continue
-            values: list[str] = []
-            for cell in row_node:
-                if not (cell.tag.endswith("}c") or cell.tag == "c"):
+        sheet_names = [sheet["name"] for sheet in sheets]
+        worksheet_structures: list[dict[str, Any]] = []
+        for sheet in sheets:
+            sheet_root = xml_root(zip_file, sheet["path"])
+            rows: list[list[str]] = []
+            for row_node in sheet_root.iter():
+                if not (row_node.tag.endswith("}row") or row_node.tag == "row"):
                     continue
-                index = column_index(cell.attrib.get("r", ""))
-                while len(values) <= index:
-                    values.append("")
-                values[index] = cell_value(cell, shared_strings)
-            rows.append(values)
-            if len(rows) >= MAX_SCAN_ROWS:
-                break
-        return structure_from_rows("xlsx", rows, sheet_name=selected_sheet["name"], sheet_names=[sheet["name"] for sheet in sheets])
+                values: list[str] = []
+                for cell in row_node:
+                    if not (cell.tag.endswith("}c") or cell.tag == "c"):
+                        continue
+                    index = column_index(cell.attrib.get("r", ""))
+                    while len(values) <= index:
+                        values.append("")
+                    values[index] = cell_value(cell, shared_strings)
+                rows.append(values)
+                if len(rows) >= MAX_SCAN_ROWS:
+                    break
+            worksheet_structures.append(structure_from_rows("xlsx", rows, sheet_name=sheet["name"], sheet_names=sheet_names))
+        selected_structure = dict(worksheet_structures[0])
+        selected_structure["worksheets"] = worksheet_structures
+        return selected_structure
 
 
 def inspect_upload(filename: str | None, content: bytes) -> dict[str, Any]:

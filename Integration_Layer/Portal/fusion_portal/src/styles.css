@@ -1556,6 +1556,11 @@ button:disabled { cursor: default; }
   color: #526176;
   font-size: 14px;
 }
+.preview-modal-header .preview-source-sheets {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+}
 .modal-close-button {
   width: 38px;
   height: 38px;
