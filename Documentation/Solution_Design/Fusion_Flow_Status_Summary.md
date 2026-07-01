@@ -6,17 +6,18 @@ deployed schema is mirrored to `Documentation/DB_Schema.md` on every deploy run.
 
 ---
 
-## 1. Schemas (11 + deploy audit)
+## 1. Schemas (12 + deploy audit)
 
 | Schema | Role |
 |--------|------|
 | **CFG** | Configuration — clients, jobs, parameters, choice values, processing map, translations |
 | **ING** | Ingestion landing — raw inbound artefacts (verbatim) |
 | **PRS** | Processing — canonical / submission-shaped objects + tracking |
-| **STG** | Staging — `PRS.Processed` records promoted here for submission |
+| **STG** | Staging — VALIDATED records promoted here, submission-ready (`STG.BKD_ENS_Header`) |
 | **EXC** | Execution spine — one run, per-record transactions, per-field change audit |
 | **LOG** | Process / error / API trace logs |
-| **API** | TSS API call records |
+| **API** | Authoritative log of every TSS call — request + response (`API.Call`) |
+| **TSS** | Live mirror — authoritative copy of what's live in TSS (`TSS.BKD_ENS_Header`) |
 | **CTL** | Control |
 | **ARC** | Archive of reconciled terminal records |
 | **SRV** | Serve — cross-client views |
@@ -27,7 +28,7 @@ deployed schema is mirrored to `Documentation/DB_Schema.md` on every deploy run.
 
 ## 2. Database migration set (canonical, `Configuration/SQL/`)
 
-All 26 scripts (000–025) are idempotent and consolidated in `Configuration/SQL/`
+All 30 scripts (000–029) are idempotent and consolidated in `Configuration/SQL/`
 as the single source of truth. Stage pending scripts with `stage_queue.py`, then
 `deploy.py` (moves to `Archive/<run-stamp>/`, logs CHG, regenerates `DB_Schema.md`).
 
@@ -35,8 +36,9 @@ as the single source of truth. Stage pending scripts with `stage_queue.py`, then
 |---|------|-----------|
 | 000–024 | schemas, CFG seed, EXC/LOG, ING, PRS, jobs, BKD ENS tables, choice map/sync/align, processing map, error views, reprocess, value translation, snapshot + reference-list jobs | ✅ deployed |
 | **025** | alignment cleanup: deactivate superseded jobs, consolidate CountryWide → CWD, `DEFAULT_ENV`→`TST`, vocabulary reconcile + widened `Fusion_Status` CHECKs | ⏳ **pending deploy** |
+| **026–029** | Submission (Module 3): `STG.BKD_ENS_Header`, `TSS` live-mirror schema, `API.Call` log, submission controls + jobs | ⏳ **pending deploy** |
 
-> The live DB is at **024**. Staging + deploying 025 applies the cleanup and regenerates `DB_Schema.md`.
+> The live DB is at **024**. Staging + deploying 025–029 applies the cleanup and the submission layer, and regenerates `DB_Schema.md`.
 
 ---
 
@@ -53,6 +55,10 @@ as the single source of truth. Stage pending scripts with `stage_queue.py`, then
 | `REF_FETCH_COMMODITY_CODES` | Global | Refresh ~35k commodity codes → `CFG.Commodity_Code_Cache` | `fetch_commodity_codes` |
 | `PRS_ENGINE_BKD_ENS` | Processing | Config-driven engine: ING → PRS for new BKD ENS rows | `process_engine` |
 | `PRS_REPROCESS_BKD_ENS` | Processing | Re-run already-processed BKD ENS rows, close off resolved errors | `reprocess_engine` |
+| `PRS_PROMOTE_BKD_ENS` | Submission | Promote VALIDATED PRS rows → `STG.BKD_ENS_Header` (READY) | `promote_ens` |
+| `SUB_CREATE_BKD_ENS` | Submission | `POST /headers` create; log to `API.Call`; capture ENS number (dry-run safe) | `submit_ens` |
+| `SUB_MIRROR_BKD_ENS` | Submission | GET header back → `TSS.BKD_ENS_Header` live mirror; mark complete | `mirror_ens` |
+| `SUB_UPDATE_BKD_ENS` / `SUB_CANCEL_BKD_ENS` | Submission | Stubs (inactive) — operate against the `TSS.*` live mirror | — |
 | `REP_DB_SNAPSHOT_XLSX` | Reporting | Full DB → Excel (tab per table, Zero Records, Summary, Column Analysis) | `export_db_snapshot` |
 | `REP_REFERENCE_LISTS_XLSX` | Reporting | Curated CFG option lists → Excel (Vocabulary etc. + Index) | `export_reference_lists` |
 | ~~`PRS_PROCESS_BKD`~~ / ~~`PRS_STAGE_BKD_ENS`~~ | Processing | **Deactivated (025)** — superseded by the engine | — |
@@ -142,8 +148,9 @@ mapping, add a row with that file's name — it takes precedence.
 
 ## 8. Next-phase candidates
 
-1. **Deploy 025** (alignment cleanup).
-2. Onboard CWD / PLE: seed their `Processing_Profile` + `Field_Map` (no code change).
-3. Build the **STG promotion** step (VALIDATED → `STG_MATERIALISED` into the STG schema)
-   and the TSS **submission** module (Route A), using the now-widened `Fusion_Status`.
-4. Reconcile any orphaned `SYNCING` executions.
+1. **Deploy 025–029**, then run promote → submit (dry-run) → mirror; review `API.Call`.
+2. Arm submission against **TST** (`SUBMISSION_DRY_RUN=0`, `SUBMISSION_ENV=TST`) and verify
+   the live mirror `TSS.BKD_ENS_Header` populates and STG marks `RECONCILED`.
+3. Build the **UPDATE** (full-replacement, Rule 16) and **CANCEL** jobs against the `TSS.*` mirror.
+4. Extend Route A downstream: Consignment → Goods → SFD → GMR → Supplementary.
+5. Onboard CWD / PLE: seed their `Processing_Profile` + `Field_Map` (no code change).
