@@ -1,5 +1,5 @@
-# Secondary deployment target for quick demos/fallback.
-# Azure remains the preferred production path via .github/workflows/deploy-azure.yml.
+# Active deployment target while Azure subscription is not available.
+# Azure can be re-enabled later with a GitHub Actions workflow.
 services:
   - type: web
     name: fusion-flow-api
