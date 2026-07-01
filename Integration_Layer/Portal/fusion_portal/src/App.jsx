@@ -12,6 +12,26 @@ const PORTAL_CLIENTS = [
   { tenantCode: 'PLE', tenantName: 'Primeline Express' },
   { tenantCode: 'CWD', tenantName: 'Countrywide' },
 ];
+const DEMO_ENS_BY_CLIENT = {
+  PLE: {
+    declarationNumber: 'ENS900000000000001',
+    movementKey: 'DEMO-PLE-ENS-001',
+    arrivalPort: 'GBAUBELBELBEL',
+    carrierEori: 'GB123456789000',
+  },
+  CWD: {
+    declarationNumber: 'ENS900000000000002',
+    movementKey: 'DEMO-CWD-ENS-001',
+    arrivalPort: 'GBAUBELBELBEL',
+    carrierEori: 'GB123456789000',
+  },
+  BKD: {
+    declarationNumber: 'ENS900000000000003',
+    movementKey: 'DEMO-BKD-ENS-001',
+    arrivalPort: 'GBAUBELBELBEL',
+    carrierEori: 'GB123456789000',
+  },
+};
 const SETTINGS_NAV_SECTIONS = [
   { id: 'TSS_API', label: 'TSS Portal API', icon: 'sync_alt' },
   { id: 'GRAPH', label: 'Inbound Email / Microsoft Graph', icon: 'mail' },
@@ -32,6 +52,10 @@ function sessionFallback(clientCode = DEFAULT_SESSION.tenantCode) {
     tenantCode: client.tenantCode,
     tenantName: client.tenantName,
   };
+}
+
+function demoEnsForClient(clientCode = DEFAULT_SESSION.tenantCode) {
+  return DEMO_ENS_BY_CLIENT[clientCode] || DEMO_ENS_BY_CLIENT.PLE;
 }
 
 
@@ -500,10 +524,20 @@ function TemplateButton({ icon, children }) {
   );
 }
 
-function UploadConsignmentPage({ onBack, onPreviewUpload, connection }) {
+function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
+  const activeClientCode = connection?.portalClientCode || session?.tenantCode || DEFAULT_SESSION.tenantCode;
+  const demoEns = demoEnsForClient(activeClientCode);
+  const [headerDeclarationNumber, setHeaderDeclarationNumber] = useState('');
   const [previewState, setPreviewState] = useState({ status: 'idle', payload: null, error: '' });
+
+  useEffect(() => {
+    if (demoMode) {
+      setHeaderDeclarationNumber(demoEns.declarationNumber);
+    }
+  }, [demoMode, demoEns.declarationNumber]);
 
   function handleFiles(files) {
     const nextFiles = Array.from(files || []);
@@ -522,7 +556,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection }) {
     if (!selectedFiles.length) return;
     setPreviewState({ status: 'loading', payload: null, error: '' });
     try {
-      const payload = await onPreviewUpload(selectedFiles);
+      const payload = await onPreviewUpload(selectedFiles, {
+        demoMode,
+        demoEnsReference: demoMode ? demoEns.declarationNumber : headerDeclarationNumber,
+      });
       setPreviewState({ status: 'ready', payload, error: '' });
     } catch (error) {
       setPreviewState({ status: 'error', payload: null, error: error.message });
@@ -551,7 +588,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection }) {
       <header className="upload-heading">
         <h1>Create Consignment From Template</h1>
         <p>Use the templates below to create consignments in bulk by filling in the required information and uploading the file.</p>
-        <p>After uploading, you can preview the parsed consignments and send them to TSS either as drafts or final submissions.</p>
+        <p>After uploading, you can preview parsed consignments, file-selection rules, and validation readiness before any live processing.</p>
       </header>
 
       <div className="template-grid" aria-label="Templates">
@@ -573,6 +610,20 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection }) {
         </div>
       )}
 
+      <div className={`demo-mode-panel ${demoMode ? 'is-active' : ''}`}>
+        <label className="demo-toggle">
+          <input type="checkbox" checked={demoMode} onChange={(event) => { setDemoMode(event.target.checked); setPreviewState({ status: 'idle', payload: null, error: '' }); }} />
+          <span className="demo-switch" aria-hidden="true" />
+          <span>Demo mode</span>
+        </label>
+        <div className="demo-ens-summary">
+          <span>{demoMode ? 'Demo ENS selected' : 'Manual ENS'}</span>
+          <strong>{demoMode ? demoEns.declarationNumber : (headerDeclarationNumber || 'Not selected')}</strong>
+          <small>{demoMode ? `${demoEns.movementKey} / ${demoEns.arrivalPort}` : 'Preview will use the declaration number above when provided.'}</small>
+        </div>
+        <div className="demo-safety-chip">DB off / TSS off</div>
+      </div>
+
       <div className="declaration-area">
         <label>Declaration type:</label>
         <div className="declaration-pill">Entry Summary Declaration</div>
@@ -580,7 +631,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection }) {
 
       <label className="field-shell stacked">
         <span>Header Declaration Number*</span>
-        <input type="text" placeholder="ENS000000000000000" />
+        <input type="text" value={demoMode ? demoEns.declarationNumber : headerDeclarationNumber} readOnly={demoMode} placeholder="ENS000000000000000" onChange={(event) => setHeaderDeclarationNumber(event.target.value)} />
       </label>
 
       <label className="select-shell stacked">
@@ -611,10 +662,15 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection }) {
           {previewState.status === 'ready' && (
             <>
               <strong>{previewState.payload.filename}</strong>
+              <span>{previewState.payload.demoMode ? `Demo ENS: ${previewState.payload.demoEns?.declarationNumber}` : previewState.payload.selectionRule}</span>
+              <span>Mode: {previewState.payload.writeMode} / DB: {previewState.payload.databaseWrite ? 'on' : 'off'} / TSS: {previewState.payload.tssWrite ? 'on' : 'off'}</span>
               <span>{previewState.payload.selectionRule}</span>
               <span>Selected ordinal: {previewState.payload.selectedFileOrdinal} / received: {(previewState.payload.receivedFiles || []).length}</span>
               <span>Ignored: {(previewState.payload.ignoredFiles || []).map((item) => item.filename).join(', ') || 'none'}</span>
               <span>Target: {previewState.payload.wouldLand.fileTable} / {previewState.payload.wouldLand.rowTable}</span>
+              {(previewState.payload.validationContext?.demoSatisfiedTargets || []).length > 0 && (
+                <span>Demo supplied: {(previewState.payload.validationContext.demoSatisfiedTargets || []).map((item) => item.targetColumn).join(', ')}</span>
+              )}
               <span>Mapping: {previewState.payload.mappingSummary?.status || 'UNKNOWN'} - {previewState.payload.mappingSummary?.mappedColumns || 0}/{previewState.payload.mappingSummary?.detectedColumns || 0} columns mapped</span>
               <span>Suggested: {previewState.payload.mappingSuggestions?.suggestedCount || 0} matched / {previewState.payload.mappingSuggestions?.unmatchedCount || 0} unmatched</span>
               {(previewState.payload.mappingSuggestions?.missingRequiredTargets || []).length > 0 && (
@@ -636,7 +692,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection }) {
       </div>
 
       <button className="preview-button" type="button" disabled={!selectedFiles.length || previewState.status === 'loading'} onClick={handlePreview}>
-        {previewState.status === 'loading' ? 'Preparing Preview' : 'Upload & Preview'}
+        {previewState.status === 'loading' ? 'Preparing Preview' : (demoMode ? 'Run Demo Preview' : 'Upload & Preview')}
       </button>
     </section>
   );
@@ -896,8 +952,8 @@ export default function App() {
     navigate('login');
   }
 
-  function handlePreviewUpload(files) {
-    return previewConsignmentUpload({ clientCode: session.tenantCode, files });
+  function handlePreviewUpload(files, options = {}) {
+    return previewConsignmentUpload({ clientCode: session.tenantCode, files, ...options });
   }
 
   async function handleSaveSettings(payload) {
@@ -918,7 +974,7 @@ export default function App() {
       <main className={mainClass}>
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} />}
-        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} />}
+        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} session={session} />}
         {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} session={session} connection={connection} onQueueForTss={handleQueueForTss} />}
         {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} />}
       </main>

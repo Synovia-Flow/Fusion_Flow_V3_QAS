@@ -59,9 +59,11 @@ export function saveAdminSettings({ clientCode, updates }) {
     body: JSON.stringify({ clientCode, updates }),
   });
 }
-export function previewConsignmentUpload({ clientCode, files }) {
+export function previewConsignmentUpload({ clientCode, files, demoMode = false, demoEnsReference = '' }) {
   const body = new FormData();
   body.append('client_code', clientCode);
+  body.append('demo_mode', demoMode ? 'true' : 'false');
+  if (demoEnsReference) body.append('demo_ens_reference', demoEnsReference);
   Array.from(files || []).forEach((file) => body.append('files', file));
   return request('/api/uploads/consignments/preview', { method: 'POST', body });
 }

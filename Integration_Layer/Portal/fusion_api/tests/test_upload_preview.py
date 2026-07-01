@@ -60,6 +60,34 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 422)
         self.assertIn("requires attached file #2", str(ctx.exception.detail))
 
+    def test_demo_mode_supplies_default_ens_without_db_or_tss_write(self):
+        payload = portal_main.upload_consignment_preview(
+            client_code="PLE",
+            files=[upload_file("primeline-demo.csv")],
+            demo_mode=True,
+        )
+
+        self.assertTrue(payload["demoMode"])
+        self.assertFalse(payload["databaseWrite"])
+        self.assertFalse(payload["tssWrite"])
+        self.assertEqual(payload["writeMode"], "demo_preview_only")
+        self.assertEqual(payload["demoEns"]["declarationNumber"], "ENS900000000000001")
+        missing = {
+            (item["targetTable"], item["targetColumn"])
+            for item in payload["mappingSuggestions"]["missingRequiredTargets"]
+        }
+        self.assertNotIn(("PRS.Consignment", "declaration_number"), missing)
+        self.assertEqual(
+            payload["validationContext"]["demoSatisfiedTargets"],
+            [{"targetTable": "PRS.Consignment", "targetColumn": "declaration_number", "source": "demoEns"}],
+        )
+
+    def test_demo_mode_keeps_client_file_selection_validation(self):
+        with self.assertRaises(HTTPException) as ctx:
+            portal_main.upload_consignment_preview(client_code="CWD", files=[upload_file("only-one.csv")], demo_mode=True)
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("requires attached file #2", str(ctx.exception.detail))
 
 if __name__ == "__main__":
     unittest.main()

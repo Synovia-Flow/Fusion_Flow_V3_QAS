@@ -7,7 +7,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -1814,6 +1814,93 @@ def selected_file_ordinal(profile: dict[str, object]) -> int:
     return required_file_ordinal(profile)
 
 
+DEMO_UPLOAD_PROFILES: dict[str, dict[str, object]] = {
+    "BKD": {
+        "portalClientCode": "BKD",
+        "clientCode": "BKD",
+        "clientName": "Birkdale",
+        "tssCredentialClientCode": "BKD",
+        "preferredEnvCode": "TST",
+        "defaultRoute": "A",
+        "requiresEnsBeforeSubmit": True,
+        "fileSelection": {
+            "requiredFileOrdinal": 1,
+            "acceptedExtensions": ".xlsx,.xls,.csv",
+            "targetLandingTable": "ING.Inbound_File / ING.Raw_Record",
+            "targetCanonicalRoot": "PRS.Consignment / PRS.Goods_Item",
+            "notes": "Birkdale demo maps the first uploaded file.",
+        },
+    },
+}
+
+DEMO_ENS_REFERENCES = {
+    "PLE": "ENS900000000000001",
+    "CWD": "ENS900000000000002",
+    "BKD": "ENS900000000000003",
+}
+
+
+def demo_upload_profile(value: str) -> dict[str, object]:
+    code = normalize_portal_code(value)
+    fallback = fallback_profile(code)
+    if fallback:
+        fallback.setdefault("defaultRoute", "A")
+        return fallback
+    profile = DEMO_UPLOAD_PROFILES.get(code)
+    if profile:
+        return json.loads(json.dumps(profile))
+    return {
+        "portalClientCode": code,
+        "clientCode": code,
+        "clientName": code,
+        "tssCredentialClientCode": code,
+        "preferredEnvCode": "TST",
+        "defaultRoute": "A",
+        "requiresEnsBeforeSubmit": True,
+        "fileSelection": {
+            "requiredFileOrdinal": 1,
+            "acceptedExtensions": ".xlsx,.xls,.csv",
+            "targetLandingTable": "ING.Inbound_File / ING.Raw_Record",
+            "targetCanonicalRoot": "PRS.Consignment / PRS.Goods_Item",
+            "notes": "Generic demo maps the first uploaded file.",
+        },
+    }
+
+
+def demo_ens_payload(profile: dict[str, object], override_reference: str | None = None) -> dict[str, object]:
+    code = str(profile.get("portalClientCode") or profile.get("clientCode") or "DEMO").upper()
+    arrival = (datetime.now(timezone.utc) + timedelta(days=7)).replace(microsecond=0)
+    declaration_number = (override_reference or DEMO_ENS_REFERENCES.get(code) or "ENS900000000000999").strip()
+    return {
+        "source": "demo_default",
+        "declarationNumber": declaration_number,
+        "declaration_number": declaration_number,
+        "movementKey": f"DEMO-{code}-ENS-001",
+        "movement_type": "IM",
+        "transport_document_number": f"DEMO-{code}-TDN-001",
+        "arrival_date_time": arrival.isoformat(),
+        "arrival_port": "GBAUBELBELBEL",
+        "place_of_loading": "IEDUBDUBDUB",
+        "place_of_unloading": "GBAUBELBELBEL",
+        "carrier_eori": "GB123456789000",
+        "route": str(profile.get("defaultRoute") or "A"),
+        "no_sfd_reason": "NONE",
+    }
+
+
+def apply_demo_ens_to_mapping(mapping_suggestions: dict[str, object], demo_ens: dict[str, object] | None) -> dict[str, object]:
+    if not demo_ens:
+        return mapping_suggestions
+    supplied_target = {"targetTable": "PRS.Consignment", "targetColumn": "declaration_number", "source": "demoEns"}
+    next_suggestions = dict(mapping_suggestions)
+    next_suggestions["missingRequiredTargets"] = [
+        item for item in list(mapping_suggestions.get("missingRequiredTargets") or [])
+        if not (item.get("targetTable") == supplied_target["targetTable"] and item.get("targetColumn") == supplied_target["targetColumn"])
+    ]
+    next_suggestions["demoSatisfiedTargets"] = [supplied_target]
+    return next_suggestions
+
+
 def load_file_profile_column_map(profile: dict[str, object]) -> list[dict[str, object]]:
     return []
 
@@ -1823,6 +1910,8 @@ def upload_consignment_preview(
     client_code: Annotated[str, Form()] = "PLE",
     files: Annotated[list[UploadFile] | None, File()] = None,
     file: Annotated[UploadFile | None, File()] = None,
+    demo_mode: Annotated[bool, Form()] = False,
+    demo_ens_reference: Annotated[str | None, Form()] = None,
 ) -> dict[str, object]:
     uploaded_files = list(files or [])
     if file is not None:
@@ -1830,7 +1919,7 @@ def upload_consignment_preview(
     if not uploaded_files:
         raise HTTPException(status_code=422, detail="at least one file is required.")
 
-    profile = load_portal_profile(client_code)
+    profile = demo_upload_profile(client_code) if demo_mode else load_portal_profile(client_code)
     code = str(profile["clientCode"])
     required_ordinal = selected_file_ordinal(profile)
     try:
@@ -1843,7 +1932,8 @@ def upload_consignment_preview(
     structure = inspect_upload(selected_file.filename, selected_content)
     column_mappings = load_file_profile_column_map(profile)
     mapping_summary = summarise_mapping(structure.get("columns", []), column_mappings)
-    mapping_suggestions = suggest_column_mappings(structure.get("columns", []))
+    demo_ens = demo_ens_payload(profile, demo_ens_reference) if demo_mode else None
+    mapping_suggestions = apply_demo_ens_to_mapping(suggest_column_mappings(structure.get("columns", [])), demo_ens)
 
     received_files = [
         {
@@ -1873,12 +1963,21 @@ def upload_consignment_preview(
         "columnMappings": column_mappings,
         "mappingSummary": mapping_summary,
         "mappingSuggestions": mapping_suggestions,
-        "writeMode": "preview_only",
+        "demoMode": bool(demo_mode),
+        "demoEns": demo_ens,
+        "databaseWrite": False,
+        "tssWrite": False,
+        "writeMode": "demo_preview_only" if demo_mode else "preview_only",
+        "validationContext": {
+            "ensSource": "demo_default" if demo_mode else "uploaded_or_existing",
+            "demoSatisfiedTargets": mapping_suggestions.get("demoSatisfiedTargets", []),
+        },
         "wouldLand": {
             "fileTable": "ING.Inbound_File",
             "rowTable": "ING.Raw_Record",
             "sourceChannel": "MANUAL",
-            "status": "INGESTED",
+            "status": "NOT_WRITTEN" if demo_mode else "INGESTED",
+            "note": "Demo mode validates only; no DB or TSS write is attempted." if demo_mode else "Preview only; portal upload writes remain disabled.",
         },
-        "nextStep": "Use Module 1 ingestion/processing logic to land and transform rows before enabling DB writes from the portal.",
+        "nextStep": "Review validation output only; demo mode does not land rows, create ENS, or submit to TSS." if demo_mode else "Use Module 1 ingestion/processing logic to land and transform rows before enabling DB writes from the portal.",
     }
