@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getAdminSettings, getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings } from './api';
+import { getAdminSettings, getApiDocsUrl, getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'PLE',
@@ -579,10 +579,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
           <MaterialIcon>arrow_back</MaterialIcon>
           <span>Back</span>
         </button>
-        <button className="api-link" type="button">
+        <a className="api-link" href={getApiDocsUrl()} target="_blank" rel="noreferrer" title="Open Swagger API documentation">
           <MaterialIcon>help</MaterialIcon>
           <span>API</span>
-        </button>
+        </a>
       </div>
 
       <header className="upload-heading">
