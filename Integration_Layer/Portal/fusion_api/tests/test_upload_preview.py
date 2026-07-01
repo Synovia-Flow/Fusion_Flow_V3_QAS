@@ -212,6 +212,16 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(consignment["goodsItems"][0]["values"]["goods_description"], "Lisburn goods item 1")
         self.assertEqual(consignment["goodsItems"][1]["values"]["goods_description"], "Lisburn goods item 2")
         self.assertEqual(consignment["goodsItems"][1]["missingRequired"], [])
+        payload_preview = consignment["tssPayloadPreview"]
+        self.assertTrue(payload_preview["ready"])
+        self.assertFalse(payload_preview["databaseWrite"])
+        self.assertFalse(payload_preview["tssWrite"])
+        self.assertEqual(payload_preview["operations"][0]["operationCode"], "UPDATE_CONSIGNMENT_WITH_ENS")
+        self.assertEqual(payload_preview["operations"][0]["payload"]["consignment_number"], "CON-LISBURN-001")
+        self.assertEqual(payload_preview["operations"][1]["operationCode"], "SUBMIT_CONSIGNMENT")
+        self.assertEqual(payload_preview["operations"][1]["payload"]["declaration_number"], "ENS900000000000001")
+        self.assertEqual(payload_preview["goodsItemCount"], 2)
+        self.assertEqual(payload_preview["goodsItems"][0]["gross_mass_kg"], "42.5")
 
     def test_demo_mode_maps_tss_style_api_paths_to_consignment_and_goods(self):
         content = xlsx_content([
@@ -283,6 +293,8 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(goods["status"], "NEEDS_REVIEW")
         self.assertIn("gross_mass_kg", goods["missingRequired"])
         self.assertEqual(preview["summary"]["missingRequiredCount"], 1)
+        self.assertFalse(consignment["tssPayloadPreview"]["ready"])
+        self.assertNotIn("gross_mass_kg", consignment["tssPayloadPreview"]["goodsItems"][0])
         self.assertTrue(any("Gross mass kg is required" in issue["message"] for issue in goods["issues"]))
 
     def test_demo_mode_splits_more_than_99_goods_into_multiple_consignments(self):

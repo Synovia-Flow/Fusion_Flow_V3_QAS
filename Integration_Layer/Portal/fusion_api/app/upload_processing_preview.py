@@ -220,6 +220,55 @@ def _assign_first(values: dict[str, Any], sources: dict[str, dict[str, Any]], fi
     return True
 
 
+def _compact_payload(values: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for field in fields:
+        value = compact(values.get(field))
+        if value is not None:
+            payload[field] = value
+    return payload
+
+
+def _tss_payload_preview(values: dict[str, Any], goods_payload: list[dict[str, Any]], consignment_status: str) -> dict[str, Any]:
+    ens_value = compact(values.get("declaration_number"))
+    consignment_number = compact(values.get("consignment_number"))
+    update_payload = {"op_type": "update", **_compact_payload(values, CONSIGNMENT_DISPLAY_FIELDS)}
+    if ens_value:
+        update_payload["declaration_number"] = ens_value
+    submit_payload = {
+        "op_type": "submit",
+        "declaration_number": ens_value,
+        "consignment_number": consignment_number,
+    }
+    submit_payload = {key: value for key, value in submit_payload.items() if compact(value) is not None}
+    goods_items = [
+        {
+            "ordinal": item.get("ordinal"),
+            "status": item.get("status"),
+            **_compact_payload(item.get("values") or {}, GOODS_DISPLAY_FIELDS),
+        }
+        for item in goods_payload
+    ]
+    return {
+        "mode": "preview_only",
+        "databaseWrite": False,
+        "tssWrite": False,
+        "ready": consignment_status == "READY" and bool(goods_payload) and not any((item.get("status") != "READY") for item in goods_payload),
+        "operations": [
+            {
+                "operationCode": "UPDATE_CONSIGNMENT_WITH_ENS",
+                "payload": update_payload,
+            },
+            {
+                "operationCode": "SUBMIT_CONSIGNMENT",
+                "payload": submit_payload,
+            },
+        ],
+        "goodsItems": goods_items,
+        "goodsItemCount": len(goods_items),
+    }
+
+
 def _numeric(value: Any) -> tuple[bool, float | None]:
     text = clean_cell(value).replace(",", "")
     if not text:
@@ -467,16 +516,18 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
         total_goods += len(goods_payload)
         issue_count += len(cons_issues)
         missing_count += len(cons_missing)
+        consignment_status = "READY" if not cons_missing and not any(issue.get("severity") == "error" for issue in cons_issues) and goods_payload and not goods_has_blockers else "NEEDS_REVIEW"
         consignments.append({
             "previewId": f"PREVIEW-{index:03d}",
             "ordinal": index,
-            "status": "READY" if not cons_missing and not any(issue.get("severity") == "error" for issue in cons_issues) and goods_payload and not goods_has_blockers else "NEEDS_REVIEW",
+            "status": consignment_status,
             "values": values,
             "fields": cons_fields,
             "missingRequired": cons_missing,
             "issues": cons_issues,
             "goodsItems": goods_payload,
             "goodsItemCount": len(goods_payload),
+            "tssPayloadPreview": _tss_payload_preview(values, goods_payload, consignment_status),
             "split": group["split"],
         })
 

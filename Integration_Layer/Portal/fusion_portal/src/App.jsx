@@ -564,6 +564,36 @@ function PreviewFieldGrid({ fields = [] }) {
   );
 }
 
+function PreviewPayloadPanel({ payloadPreview }) {
+  if (!payloadPreview) return null;
+  const operations = payloadPreview.operations || [];
+  const goodsItems = payloadPreview.goodsItems || [];
+  const goodsSample = goodsItems.slice(0, 5);
+  return (
+    <div className="preview-payload-panel">
+      <div className="preview-payload-heading">
+        <div>
+          <span>Preview payload</span>
+          <h3>TSS-ready shape</h3>
+        </div>
+        <strong>{payloadPreview.ready ? 'READY' : 'NEEDS REVIEW'} / DB off / TSS off</strong>
+      </div>
+      <div className="preview-payload-grid">
+        {operations.map((operation) => (
+          <div className="preview-payload-block" key={operation.operationCode}>
+            <span>{operation.operationCode}</span>
+            <pre>{JSON.stringify(operation.payload || {}, null, 2)}</pre>
+          </div>
+        ))}
+        <div className="preview-payload-block goods">
+          <span>PRS.Goods_Item payloads {goodsItems.length > goodsSample.length ? `(first ${goodsSample.length} of ${goodsItems.length})` : `(${goodsItems.length})`}</span>
+          <pre>{JSON.stringify(goodsSample, null, 2)}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PreviewIssueList({ title, issues = [], missingRequired = [] }) {
   if (!issues.length && !missingRequired.length) return null;
   return (
@@ -689,6 +719,8 @@ function PreviewDetailsModal({ payload, onClose }) {
                   </tbody>
                 </table>
               </div>
+
+              <PreviewPayloadPanel payloadPreview={selected.tssPayloadPreview} />
             </div>
           )}
         </div>
