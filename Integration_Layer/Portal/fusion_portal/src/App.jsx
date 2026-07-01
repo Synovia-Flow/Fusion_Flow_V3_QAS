@@ -798,8 +798,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
   const processingPreview = previewState.payload?.processingPreview;
   const processingSummary = processingPreview?.summary || {};
   const isFieldValuePreview = processingPreview?.rowMode === 'api_field_value';
-  const isMultiSheetPreview = processingPreview?.rowMode === 'multi_sheet';
-  const isMappedPreview = isFieldValuePreview || isMultiSheetPreview;
+  const hasProcessingPreview = Boolean(processingPreview);
   const previewMissingRequiredCount = processingSummary.missingRequiredCount || 0;
   const sourceSheetsText = (processingPreview?.sourceSheets || [])
     .map((sheet) => `${sheet.sheetName || 'Sheet'} ${sheet.rowMode === 'api_field_value' ? 'field/value' : 'rows'}: ${sheet.mappedFieldCount || 0} mapped`)
@@ -904,9 +903,9 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
               {(previewState.payload.validationContext?.demoSatisfiedTargets || []).length > 0 && (
                 <span>Demo supplied: {(previewState.payload.validationContext.demoSatisfiedTargets || []).map((item) => item.targetColumn).join(', ')}</span>
               )}
-              {isMappedPreview ? (
+              {hasProcessingPreview ? (
                 <>
-                  {isMultiSheetPreview && sourceSheetsText && <span>Workbook sheets: {sourceSheetsText}</span>}
+                  {sourceSheetsText && <span>Workbook sheets: {sourceSheetsText}</span>}
                   <span>{isFieldValuePreview ? 'Field/value rows' : 'Preview rows'}: {processingSummary.sourceRows || 0} source / {processingSummary.mappedFieldCount || 0} matched / {processingSummary.unmatchedFieldCount || 0} unmatched into PRS/TSS preview</span>
                   <span>Preview required: {previewMissingRequiredCount ? `${previewMissingRequiredCount} missing across PRS/TSS details` : 'ready - no required fields missing'}</span>
                 </>

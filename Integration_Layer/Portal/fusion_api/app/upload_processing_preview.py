@@ -493,18 +493,26 @@ def _groups_from_structure(structure: dict[str, Any], demo_ens: dict[str, Any] |
     source_sheets: list[dict[str, Any]] = []
     row_modes: list[str] = []
 
-    for worksheet in _worksheet_structures(structure):
+    worksheets = _worksheet_structures(structure)
+    for worksheet in worksheets:
         rows = _rows_from_structure(worksheet)
         columns = worksheet.get("columns") or []
         sheet_name = clean_cell(worksheet.get("sheetName")) or None
         row_mode = "api_field_value" if _is_field_value_mode(rows, columns) else "wide_rows"
         if row_mode == "api_field_value":
             groups, unmatched, matched_count = _field_value_preview(rows, demo_ens, source_sheet=sheet_name)
-            default_groups.extend(groups)
         else:
             groups, unmatched, matched_count = _wide_row_preview(rows, source_sheet=sheet_name)
-            data_groups.extend(groups)
 
+        goods_count = _group_goods_count(groups)
+        ignore_sheet = len(worksheets) > 1 and rows and matched_count == 0 and goods_count == 0
+        if ignore_sheet:
+            continue
+
+        if row_mode == "api_field_value":
+            default_groups.extend(groups)
+        else:
+            data_groups.extend(groups)
         all_unmatched.extend(unmatched)
         matched_total += matched_count
         source_rows_total += len(rows)
@@ -518,7 +526,7 @@ def _groups_from_structure(structure: dict[str, Any], demo_ens: dict[str, Any] |
                 "mappedFieldCount": matched_count,
                 "unmatchedFieldCount": len(unmatched),
                 "consignmentGroupCount": len(groups),
-                "goodsItemCount": _group_goods_count(groups),
+                "goodsItemCount": goods_count,
             })
 
     groups = _merge_default_groups(data_groups, default_groups)

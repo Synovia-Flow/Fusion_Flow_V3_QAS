@@ -453,6 +453,115 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(preview["consignments"][1]["values"]["consignment_number"], "CON-99-02")
         self.assertTrue(preview["consignments"][1]["split"]["isSplit"])
 
+    def test_demo_mode_maps_countrywide_wos_xlsx_second_attachment_and_splits_goods(self):
+        headers = [
+            "consignment_description",
+            "trader_reference",
+            "transport_document_number",
+            "destination_country",
+            "consignor_eori",
+            "consignor_name",
+            "consignor_country",
+            "consignee_eori",
+            "consignee_name",
+            "consignee_country",
+            "importer_eori",
+            "importer_name",
+            "importer_country",
+            "exporter_eori",
+            "exporter_name",
+            "exporter_country",
+            "commodity_code",
+            "type_of_packages",
+            "number_of_packages",
+            "gross_mass_kg",
+            "goods_description",
+            "controlled_goods_type",
+            "goods_domestic_status",
+            "country_of_origin",
+            "package_marks",
+            "item_invoice_amount",
+            "item_invoice_currency",
+            "net_mass_kg",
+            "procedure_code",
+            "additional_procedure_code",
+        ]
+        data_rows = []
+        for index in range(1, 161):
+            data_rows.append([
+                "CONFECTIONERY PRODUCTS",
+                "ORD567945",
+                "GVT1606Test3",
+                "GB",
+                "XI113773873000",
+                "World Of Sweets",
+                "GB",
+                "",
+                "Stewart Miller Limited",
+                "GB",
+                "GB113773873000",
+                "World Of Sweets",
+                "GB",
+                "GB113773873000",
+                "World Of Sweets",
+                "GB",
+                "1806321000",
+                "Boxes",
+                "1",
+                "0.623",
+                "WORLD OF SWEETS VARIOUS CONFECTIONERY PRODUCTS AND THE LIKE",
+                "WEAPONS",
+                "NIDOM",
+                "US",
+                f"ADDR-{index:03d}",
+                "15.77",
+                "GBP",
+                "0.623",
+                "4000",
+                "000",
+            ])
+        content = xlsx_workbook_content([
+            ("ControlledGoodsExample", [headers, *data_rows]),
+            ("Next Priority Fields", [
+                ["Level", "Column 2", "Column 3"],
+                ["Goods Item", "document_references > document_code", "Repeatable field"],
+                ["Goods Item", "tax_base_unit", ""],
+            ]),
+        ])
+
+        payload = portal_main.upload_consignment_preview(
+            client_code="CWD",
+            files=[upload_file("first-not-selected.csv"), upload_file("CW FILE -WOS 16.04.2026.xlsx", content)],
+            demo_mode=True,
+        )
+
+        self.assertEqual(payload["portalClientCode"], "CWD")
+        self.assertEqual(payload["tssCredentialClientCode"], "CWF")
+        self.assertEqual(payload["selectedFileOrdinal"], 2)
+        self.assertEqual(payload["filename"], "CW FILE -WOS 16.04.2026.xlsx")
+        self.assertEqual([item["filename"] for item in payload["ignoredFiles"]], ["first-not-selected.csv"])
+        self.assertEqual(payload["detectedStructure"]["sheetNames"], ["ControlledGoodsExample", "Next Priority Fields"])
+        preview = payload["processingPreview"]
+        self.assertEqual(preview["rowMode"], "wide_rows")
+        self.assertEqual([sheet["sheetName"] for sheet in preview["sourceSheets"]], ["ControlledGoodsExample"])
+        self.assertEqual(preview["summary"]["sourceRows"], 160)
+        self.assertEqual(preview["summary"]["unmatchedFieldCount"], 0)
+        self.assertEqual(preview["summary"]["consignmentCount"], 2)
+        self.assertEqual(preview["summary"]["goodsItemCount"], 160)
+        self.assertEqual(preview["summary"]["splitConsignmentCount"], 2)
+        self.assertEqual(preview["summary"]["missingRequiredCount"], 4)
+        first, second = preview["consignments"]
+        self.assertEqual(first["values"]["consignment_number"], "GVT1606Test3-01")
+        self.assertEqual(second["values"]["consignment_number"], "GVT1606Test3-02")
+        self.assertEqual(first["split"]["originalConsignmentNumber"], "GVT1606Test3")
+        self.assertEqual(first["goodsItemCount"], 99)
+        self.assertEqual(second["goodsItemCount"], 61)
+        self.assertEqual(first["goodsItems"][0]["status"], "READY")
+        self.assertIn("controlled_goods", first["missingRequired"])
+        self.assertIn("consignee_eori", first["missingRequired"])
+        self.assertFalse(first["tssPayloadPreview"]["ready"])
+        self.assertEqual(first["tssPayloadPreview"]["goodsItemCount"], 99)
+
     def test_demo_mode_keeps_client_file_selection_validation(self):
         with self.assertRaises(HTTPException) as ctx:
             portal_main.upload_consignment_preview(client_code="CWD", files=[upload_file("only-one.csv")], demo_mode=True)
