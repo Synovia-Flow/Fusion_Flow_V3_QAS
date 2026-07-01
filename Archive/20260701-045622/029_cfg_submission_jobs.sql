@@ -31,7 +31,7 @@ USING (VALUES
     ('SUBMISSION_DRY_RUN',       '1',                     'BOOL',   'Submission: 1 = build + log the request but do NOT call TSS (safe default). 0 = actually submit.'),
     ('SUBMISSION_MOVEMENT_KEY',  '',                      'STRING', 'Submission: optional single MovementKey (blank = all in scope).'),
     ('SUBMISSION_MAX_ROWS',      '0',                     'INT',    'Submission: cap the number of rows submitted/mirrored per run (0 = no cap). Set e.g. 3 to send a few.'),
-    ('SUBMISSION_API_BASE_PATH', '/x_fhmrc_tss_api/v1/tss_api', 'STRING', 'Submission: resource path prefix appended to the env BaseUrl before the endpoint. Declaration resources live under /x_fhmrc_tss_api/v1/tss_api/<resource> (e.g. headers) - note the tss_api segment; choice_values is the exception (no tss_api).')
+    ('SUBMISSION_API_BASE_PATH', '/x_fhmrc_tss_api/v1',   'STRING', 'Submission: resource path prefix appended to the env BaseUrl before the endpoint (e.g. /headers).')
 ) AS s (ParameterKey, ParameterValue, ValueType, Description)
 ON t.ParameterKey = s.ParameterKey
 WHEN NOT MATCHED THEN INSERT (ParameterKey, ParameterValue, ValueType, Description)
