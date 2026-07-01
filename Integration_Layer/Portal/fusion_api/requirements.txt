@@ -1,4 +1,7 @@
-﻿fastapi>=0.115,<1
+fastapi>=0.115,<1
 uvicorn[standard]>=0.30,<1
 pyodbc>=5.1,<6
+python-tds>=1.17,<2
+pyOpenSSL>=24,<26
+certifi>=2025.1
 python-multipart>=0.0.9,<1
