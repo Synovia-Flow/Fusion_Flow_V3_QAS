@@ -60,8 +60,31 @@ from SQL later:
 | `data.<CC>.statusMix` / `rejectionReasons` | `PRS.vw_BKD_ENS_Header_*` |
 | `data.<CC>.throughput` / `activity` | `EXC.Execution` / `LOG.Process_Log` |
 
-A small exporter (e.g. `Modules/Global/export_blueprint.py`) can write this file on a
-schedule so the portal reflects live state. Not yet built — say the word.
+## Live DB link (`tools/`)
 
-> This is the front-end shell. It reads a static blueprint today; wiring it to a
-> live read-only API against the DB is the next step.
+Two scripts turn the live database into `blueprint.json` (needs `pyodbc` — use the
+production venv):
+
+```powershell
+# 1) create the connection env from the .ini (writes liveWeb/.env — gitignored)
+python liveWeb\tools\make_env.py --print
+
+# 2) regenerate blueprint.json from the live DB
+python liveWeb\tools\export_blueprint.py
+```
+
+- **`make_env.py`** reads `Configuration/Fusion_Flow_QAS.ini [database]` and writes
+  `liveWeb/.env` (`DB_SERVER` / `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_DRIVER` /
+  `DB_ENCRYPT` / `DB_TRUST`). `--print` echoes a Render-ready env block (password
+  masked) to paste into the Render service's Environment.
+- **`export_blueprint.py`** connects (prefers `liveWeb/.env`, else the `.ini`),
+  reads `CFG.Clients` / `CFG.Job` / `CFG.Application_Parameters` and, for each client
+  that has ENS tables, `PRS.<CC>_ENS_Header_Tracking` + the `vw_*` views + `LOG`/`EXC`,
+  and writes `blueprint.json`. Every query is guarded, so inactive clients degrade to
+  an onboarding placeholder. Secret-named params are masked.
+
+Because the site is static, "live" means: run `export_blueprint.py` (locally, or as a
+scheduled job / Render cron), commit the refreshed `blueprint.json`, and Render
+auto-deploys. For real-time, the same query layer can be exposed as a tiny read-only
+Render **web service** the portal fetches from — the front-end already fetches
+`blueprint.json` at load and would just point at that endpoint instead.
