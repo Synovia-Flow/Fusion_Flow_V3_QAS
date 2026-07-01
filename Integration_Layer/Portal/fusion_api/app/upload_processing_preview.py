@@ -138,6 +138,18 @@ def _is_field_value_mode(rows: list[dict[str, Any]], columns: list[dict[str, Any
     return any(normalise(name) in lookup for name in FIELD_NAME_COLUMNS) and any(normalise(name) in lookup for name in FIELD_VALUE_COLUMNS)
 
 
+def _target_tail(value: str) -> str:
+    tail = re.sub(r"^PRS[._\-\s:]+", "", value, flags=re.I)
+    tail = re.sub(
+        r"^(consignment|goods_item|goodsitem|goods|item|items)(?:[._\-\s:\[]+\d+\]?)*[._\-\s:]+",
+        "",
+        tail,
+        flags=re.I,
+    )
+    tail = re.sub(r"\[[0-9]+\]", "", tail)
+    return tail
+
+
 def _target_for(raw_field: str) -> tuple[str, str] | None:
     clean = clean_cell(raw_field)
     if not clean:
@@ -145,7 +157,7 @@ def _target_for(raw_field: str) -> tuple[str, str] | None:
     forced_table = None
     if re.search(r"(?:^|[._\-\s:])(?:prs[._\-\s:]*)?consignment[._\-\s:]", clean, flags=re.I):
         forced_table = "PRS.Consignment"
-    elif re.search(r"(?:^|[._\-\s:])(?:prs[._\-\s:]*)?(?:goods_item|goodsitem|goods|item)[._\-\s:\[]", clean, flags=re.I):
+    elif re.search(r"(?:^|[._\-\s:])(?:prs[._\-\s:]*)?(?:goods_item|goodsitem|goods|item|items)[._\-\s:\[]", clean, flags=re.I):
         forced_table = "PRS.Goods_Item"
 
     candidates = [clean]
@@ -153,6 +165,7 @@ def _target_for(raw_field: str) -> tuple[str, str] | None:
     candidates.append(_PREFIX_RE.sub("", clean))
     candidates.append(re.sub(r"\[[0-9]+\]", "", clean))
     candidates.append(re.sub(r"[._\-\s]+[0-9]+$", "", clean))
+    candidates.append(_target_tail(clean))
 
     if forced_table:
         for candidate in candidates:
