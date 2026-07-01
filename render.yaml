@@ -1,0 +1,33 @@
+# Secondary deployment target for quick demos/fallback.
+# Azure remains the preferred production path via .github/workflows/deploy-azure.yml.
+services:
+  - type: web
+    name: fusion-flow-api
+    runtime: python
+    rootDir: Integration_Layer/Portal/fusion_api
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: DB_CONN_STR
+        sync: false
+      - key: FLOW_V1_USER
+        sync: false
+      - key: FLOW_V1_PASSWORD
+        sync: false
+      - key: FUSION_PORTAL_CORS_ORIGINS
+        value: https://fusion-flow-portal.onrender.com
+
+  - type: web
+    name: fusion-flow-portal
+    runtime: static
+    rootDir: Integration_Layer/Portal/fusion_portal
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://fusion-flow-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
