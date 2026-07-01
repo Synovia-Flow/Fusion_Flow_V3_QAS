@@ -47,7 +47,7 @@ later module phases.
 | 26 | `026_stg_bkd_ens_header.sql` | `STG.BKD_ENS_Header` — submission-ready staging copy of a VALIDATED ENS header (full TSS payload + lineage), with the lifecycle `STG_MATERIALISED → READY → SUBMITTING → SUBMITTED → RECONCILED` (+ `ERROR`/`CANCELLED`). Fed by `Modules/Submission/promote_ens.py`. |
 | 27 | `027_tss_mirror_schema.sql` | New **`TSS`** schema + `TSS.BKD_ENS_Header` — the authoritative **live mirror** of what's in TSS (parsed header fields + verbatim `RawJson`), keyed by `Declaration_Number`. Written by `mirror_ens.py`; the update/cancel jobs link here. |
 | 28 | `028_api_call_log.sql` | **`API`** schema + `API.Call` — authoritative log of EVERY TSS call (EXC linkage, process, route/step, full request+response, status, duration, dry-run flag, TSS ref) + `API.vw_Call_Log` / `_Errors`. |
-| 29 | `029_cfg_submission_jobs.sql` | Submission controls (`SUBMISSION_CLIENT`/`ENTITY`/`ENV`=TST/`DRY_RUN`=1/`MOVEMENT_KEY`/`API_BASE_PATH`) + jobs `PRS_PROMOTE_BKD_ENS`, `SUB_CREATE_BKD_ENS`, `SUB_MIRROR_BKD_ENS` and the `SUB_UPDATE_BKD_ENS` / `SUB_CANCEL_BKD_ENS` stubs. Module 3 (`Modules/Submission/`). |
+| 29 | `029_cfg_submission_jobs.sql` | Submission controls (`SUBMISSION_CLIENT`/`ENTITY`/`ENV`=TST/`DRY_RUN`=1/`MOVEMENT_KEY`/`MAX_ROWS`/`API_BASE_PATH`) + jobs `PRS_PROMOTE_BKD_ENS`, `SUB_CREATE_BKD_ENS`, `SUB_MIRROR_BKD_ENS` and the `SUB_UPDATE_BKD_ENS` / `SUB_CANCEL_BKD_ENS` stubs. Module 3 (`Modules/Submission/`). `MAX_ROWS` caps rows per run (0 = all; set e.g. 3 to send a few). |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 

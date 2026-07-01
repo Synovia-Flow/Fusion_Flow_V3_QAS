@@ -30,6 +30,7 @@ USING (VALUES
     ('SUBMISSION_ENV',           'TST',                   'STRING', 'Submission: TSS environment code (CFG.TSS_Environment: PRD|TST). Default TST.'),
     ('SUBMISSION_DRY_RUN',       '1',                     'BOOL',   'Submission: 1 = build + log the request but do NOT call TSS (safe default). 0 = actually submit.'),
     ('SUBMISSION_MOVEMENT_KEY',  '',                      'STRING', 'Submission: optional single MovementKey (blank = all in scope).'),
+    ('SUBMISSION_MAX_ROWS',      '0',                     'INT',    'Submission: cap the number of rows submitted/mirrored per run (0 = no cap). Set e.g. 3 to send a few.'),
     ('SUBMISSION_API_BASE_PATH', '/x_fhmrc_tss_api/v1',   'STRING', 'Submission: resource path prefix appended to the env BaseUrl before the endpoint (e.g. /headers).')
 ) AS s (ParameterKey, ParameterValue, ValueType, Description)
 ON t.ParameterKey = s.ParameterKey

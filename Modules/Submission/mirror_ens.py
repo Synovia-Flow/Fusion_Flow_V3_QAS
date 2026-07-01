@@ -50,6 +50,10 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
     dry_run = _truthy(db.param("SUBMISSION_DRY_RUN", "1"))
     base_path = (db.param("SUBMISSION_API_BASE_PATH", "/x_fhmrc_tss_api/v1") or "").strip()
     target_mk = (db.param("SUBMISSION_MOVEMENT_KEY", "") or "").strip()
+    try:
+        max_rows = int((db.param("SUBMISSION_MAX_ROWS", "0") or "0").strip())
+    except ValueError:
+        max_rows = 0
     db.dry_run = dry_run
 
     found = done = failed = 0
@@ -60,11 +64,13 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                + (f" (MK={target_mk})" if target_mk else ""))
 
         mirror_cols = set(db.introspect("TSS", "BKD_ENS_Header"))
-        sql = ("SELECT * FROM STG.BKD_ENS_Header WHERE ClientCode = ? AND Fusion_Status = 'SUBMITTED' "
+        top = f"TOP ({max_rows}) " if max_rows > 0 else ""
+        sql = (f"SELECT {top}* FROM STG.BKD_ENS_Header WHERE ClientCode = ? AND Fusion_Status = 'SUBMITTED' "
                "AND declaration_number IS NOT NULL")
         params = [client]
         if target_mk:
             sql += " AND MovementKey = ?"; params.append(target_mk)
+        sql += " ORDER BY StgID"
         rows = db.q(sql, *params)
         found = len(rows)
         db.log("SOURCE", f"{found} SUBMITTED row(s) to mirror.")

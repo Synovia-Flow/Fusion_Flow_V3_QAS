@@ -56,6 +56,10 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
     dry_run = _truthy(db.param("SUBMISSION_DRY_RUN", "1"))
     base_path = (db.param("SUBMISSION_API_BASE_PATH", "/x_fhmrc_tss_api/v1") or "").strip()
     target_mk = (db.param("SUBMISSION_MOVEMENT_KEY", "") or "").strip()
+    try:
+        max_rows = int((db.param("SUBMISSION_MAX_ROWS", "0") or "0").strip())
+    except ValueError:
+        max_rows = 0
     db.dry_run = dry_run
 
     found = done = failed = submitted = 0
@@ -65,13 +69,16 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
         db.log("START", f"Submit(create) {client} ENS to {env} dry_run={dry_run} url~={client_api.url_for(ENDPOINT)}"
                + (f" (MK={target_mk})" if target_mk else ""))
 
-        sql = "SELECT * FROM STG.BKD_ENS_Header WHERE ClientCode = ? AND Fusion_Status = 'READY'"
+        top = f"TOP ({max_rows}) " if max_rows > 0 else ""
+        sql = f"SELECT {top}* FROM STG.BKD_ENS_Header WHERE ClientCode = ? AND Fusion_Status = 'READY'"
         params = [client]
         if target_mk:
             sql += " AND MovementKey = ?"; params.append(target_mk)
+        sql += " ORDER BY StgID"
         rows = db.q(sql, *params)
         found = len(rows)
-        db.log("SOURCE", f"{found} READY row(s) to submit.")
+        db.log("SOURCE", f"{found} READY row(s) to submit"
+               + (f" (capped at SUBMISSION_MAX_ROWS={max_rows})" if max_rows > 0 else "") + ".")
 
         for r in rows:
             mk = (r.get("MovementKey") or "").strip()
