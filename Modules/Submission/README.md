@@ -58,5 +58,29 @@ the dumps to design the `TSS.BKD_ENS_Header` mirror and the next process step. T
 - `TSS.BKD_ENS_Header` — the authoritative **live mirror** of what's in TSS (raw JSON + parsed).
 - `EXC.Execution` / `EXC.Transaction` / `LOG.*` — the run spine and per-movement transitions.
 
-`update_ens.py` / `cancel_ens.py` are registered as jobs (`SUB_UPDATE_BKD_ENS`,
-`SUB_CANCEL_BKD_ENS`, inactive) and will operate against `TSS.BKD_ENS_Header`.
+## TSS layer — update / cancel
+
+- **`update_ens.py`** (`SUB_UPDATE_BKD_ENS`) — full-replacement **update** (Rule 16):
+  POST `/headers` with the full payload + `op_type=update` + `declaration_number` for
+  live STG rows. Re-run `mirror_ens.py` after to refresh the mirror.
+- **`cancel_ens.py`** (`SUB_CANCEL_BKD_ENS`) — **cancel**: POST `/headers` with
+  `{op_type:"cancel", declaration_number}`. On success sets STG + tracking
+  `Fusion_Status=CANCELLED` and marks the `TSS` mirror not-live (`IsLive=0`,
+  `CancelledAt`). Destructive → requires `SUBMISSION_MOVEMENT_KEY` or `_MAX_ROWS`.
+
+Both are dry-run safe and log every call to `API.Call` / EXC, exactly like create.
+Activated by migration `032`.
+
+## Driving it from the portal
+
+`liveWeb/app.py` exposes guarded action endpoints so the portal's pipeline buttons
+run these jobs for one movement:
+
+- `POST /api/action/<verb>?mk=<MovementKey>` — `verb` ∈ promote · submit · mirror ·
+  update · cancel · reprocess. Sets the movement-key param, runs the runner (dry-run
+  governed by `SUBMISSION_DRY_RUN`), returns the fresh status. Everything is tracked
+  server-side.
+- `POST /api/edit` — patch whitelisted STG payload fields for a movement (the Edit form).
+
+Both are **OFF by default** — set `PORTAL_ACTIONS_ENABLED=1` on the service to allow
+them. When disabled, the portal buttons fall back to a visual-only advance.

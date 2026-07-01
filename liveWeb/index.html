@@ -225,6 +225,8 @@ svg .hit{fill:transparent;cursor:crosshair}
 .act:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(19,218,198,.32)}
 .act.submit{background:linear-gradient(135deg,var(--fusion),var(--fusion2));color:#3a1400}
 .act.reproc{background:linear-gradient(135deg,#F79009,#FBB040);color:#3a2400}
+.act.secondary{background:var(--surface2);color:var(--ink);border:1px solid var(--hairline)}
+.act.danger{background:linear-gradient(135deg,var(--bad),#F97066);color:#fff}
 .act .job{font-size:10px;font-weight:600;opacity:.85;font-variant-numeric:tabular-nums}
 .act:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
 .done-badge{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:13px;color:var(--good);background:rgba(23,178,106,.12);padding:10px 16px;border-radius:11px}
@@ -573,10 +575,10 @@ const STAGES = [
 const STATUS_STAGE = {REJECTED:2,Rejected:2,VALIDATED:2,Validated:2,"STG_MATERIALISED":3,READY:3,
   Staged:3,STAGED:3,SUBMITTED:4,Submitted:4,Draft:4,RECONCILED:5,Reconciled:5};
 const ACTIONS = {   // current stage index -> the action that advances it
-  1:{label:"Validate",          job:"PRS_ENGINE_BKD_ENS",   to:2, cls:""},
-  2:{label:"Promote to STG",    job:"PRS_PROMOTE_BKD_ENS",  to:3, cls:""},
-  3:{label:"Submit to TSS",     job:"SUB_CREATE_BKD_ENS",   to:4, cls:"submit"},
-  4:{label:"Mirror from TSS",   job:"SUB_MIRROR_BKD_ENS",   to:5, cls:""},
+  1:{label:"Validate",          job:"PRS_ENGINE_BKD_ENS",   to:2, cls:"", v:"reprocess"},
+  2:{label:"Promote to STG",    job:"PRS_PROMOTE_BKD_ENS",  to:3, cls:"", v:"promote"},
+  3:{label:"Submit to TSS",     job:"SUB_CREATE_BKD_ENS",   to:4, cls:"submit", v:"submit"},
+  4:{label:"Mirror from TSS",   job:"SUB_MIRROR_BKD_ENS",   to:5, cls:"", v:"mirror"},
 };
 const DOWNSTREAM = ["Consignment","Goods (≤99)","Submit consignment","SFD lookup","GMR","Supplementary"];
 
@@ -626,21 +628,33 @@ function renderPipeline(first){
     <td><span class="tt">${r.tt}</span></td><td class="arrow">→</td><td class="to">${r.out}</td>
     <td style="color:var(--muted);font-size:11.5px">${r.rule}</td></tr>`).join('');
 
-  let actionsHtml;
-  if(PL.rejected){
-    actionsHtml=`<button class="act reproc" data-to="2" data-job="PRS_REPROCESS_BKD_ENS"><span>Reprocess &amp; validate</span><span class="job">PRS_REPROCESS_BKD_ENS</span></button>`;
+  let stageBtn;
+  if(PL.cancelled){
+    stageBtn=`<span class="done-badge" style="color:var(--bad);background:rgba(240,68,56,.12)">✕ Cancelled in TSS</span>`;
+  }else if(PL.rejected){
+    stageBtn=`<button class="act reproc" data-verb="reprocess" data-to="2" data-job="PRS_REPROCESS_BKD_ENS"><span>Reprocess &amp; validate →</span><span class="job">runs PRS_REPROCESS_BKD_ENS</span></button>`;
   }else if(ACTIONS[PL.idx]){
     const a=ACTIONS[PL.idx];
-    actionsHtml=`<button class="act ${a.cls}" data-to="${a.to}" data-job="${a.job}"><span>${a.label} →</span><span class="job">runs ${a.job}</span></button>`;
+    stageBtn=`<button class="act ${a.cls}" data-verb="${a.v}" data-to="${a.to}" data-job="${a.job}"><span>${a.label} →</span><span class="job">runs ${a.job}</span></button>`;
   }else{
-    actionsHtml=`<span class="done-badge">✓ Reconciled — live in TSS mirror</span>`;
+    stageBtn=`<span class="done-badge">✓ Reconciled — live in TSS mirror</span>`;
   }
+
+  const live = PL.decl && PL.decl!=='—' && !PL.cancelled;
+  const tssActions = live ? `
+    <div class="actions" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--hairline)">
+      <span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);width:100%">TSS layer — declaration is live (${PL.decl})</span>
+      <button class="act secondary" data-do="edit"><span>Edit fields</span><span class="job">then Update</span></button>
+      <button class="act" data-verb="update" data-job="SUB_UPDATE_BKD_ENS"><span>Update (Rule 16) →</span><span class="job">runs SUB_UPDATE_BKD_ENS</span></button>
+      <button class="act danger" data-verb="cancel" data-job="SUB_CANCEL_BKD_ENS"><span>Cancel →</span><span class="job">runs SUB_CANCEL_BKD_ENS</span></button>
+    </div><div id="editForm"></div>` : '';
 
   $('#pl-body').innerHTML=`
     <h4>Stage progression — click a button to advance</h4>
     <div class="rail">${rail}</div>
-    <div class="actions">${actionsHtml}
-      <span style="font-size:11.5px;color:var(--muted)">Each button runs the mapped job / API call on the DB.</span></div>
+    <div class="actions">${stageBtn}
+      <span style="font-size:11.5px;color:var(--muted)">Each button runs the mapped job / API call — all tracked in EXC + API.Call.</span></div>
+    ${tssActions}
     <div class="downstream"><span class="dlab">Repeatable · next API calls</span>
       ${DOWNSTREAM.map(x=>`<span class="dp">${x}</span>`).join('<span style="color:var(--muted)">›</span>')}</div>
     <h4>ING → PRS transformations (${x.length} fields)</h4>
@@ -648,10 +662,58 @@ function renderPipeline(first){
       <thead><tr><th>Field</th><th>ING source</th><th>Transform</th><th></th><th>PRS output</th><th>Rule</th></tr></thead>
       <tbody>${xrows}</tbody></table></div></div>`;
 
-  if(first){ // animate the current node in
-    const cur=$('#pl-body .stage.current, #pl-body .stage.reject'); if(cur)cur.classList.add('pulse');
-  }
-  $('#pl-body').querySelectorAll('.act').forEach(b=>b.addEventListener('click',()=>advance(+b.dataset.to,b.dataset.job)));
+  if(first){const cur=$('#pl-body .stage.current, #pl-body .stage.reject'); if(cur)cur.classList.add('pulse');}
+  $('#pl-body').querySelectorAll('[data-verb]').forEach(b=>b.addEventListener('click',()=>runAction(b.dataset.verb,b.dataset.job,b.dataset.to?+b.dataset.to:null)));
+  $('#pl-body').querySelectorAll('[data-do="edit"]').forEach(b=>b.addEventListener('click',openEdit));
+}
+
+/* run a real job (scoped to this movement) via the API; fall back to a visual advance
+   when the actions endpoint is disabled/unavailable. Everything is tracked server-side. */
+async function runAction(verb, job, to){
+  toast(`${job}…`);
+  try{
+    const r=await fetch(`/api/action/${verb}?mk=`+encodeURIComponent(PL.mk),{method:'POST'});
+    const j=await r.json().catch(()=>({}));
+    if(r.status===403||j.disabled){toast('Actions disabled (demo) — advancing visually');return visualAdvance(verb,to);}
+    if(!r.ok||j.ok===false){toast('Failed: '+(j.error||('HTTP '+r.status)));return;}
+    toast(`Ran ${job} ✓`); addAct(`${job}: ${PL.mk}`);
+    if(verb==='cancel'){PL.cancelled=true;}
+    else if(j.status&&j.status.fusion){const i=STATUS_STAGE[j.status.fusion];if(i!=null)PL.idx=i;PL.rejected=/reject/i.test(j.status.fusion);if(j.status.decl&&j.status.decl!=='—')PL.decl=j.status.decl;}
+    else if(to!=null){PL.idx=to;}
+    renderPipeline(false);
+  }catch(e){toast('Actions endpoint unavailable — advancing visually');visualAdvance(verb,to);}
+}
+function visualAdvance(verb,to){
+  if(verb==='cancel'){PL.cancelled=true;addAct(`SUB_CANCEL_BKD_ENS (visual): ${PL.mk}`);}
+  else if(verb==='update'){addAct(`SUB_UPDATE_BKD_ENS (visual): ${PL.mk}`);}
+  else if(to!=null){PL.idx=to;addAct(`(visual) ${PL.mk} → ${STAGES[to]?STAGES[to].lbl:''}`);}
+  renderPipeline(false);
+}
+function addAct(text){const d=cd();(d.activity=d.activity||[]).unshift({time:'now',text,tone:'flow'});}
+
+function openEdit(){
+  const x=transformsFor(PL.sub), pick=['movement_type','arrival_date_time','arrival_port','seal_number','carrier_name'];
+  const val=f=>{const t=x.find(r=>r.f===f);return t?t.out:'';};
+  $('#editForm').innerHTML=`<div class="panel" style="margin-top:14px"><h4 style="margin-top:0">Edit payload fields — ${PL.mk}</h4>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+    ${pick.map(f=>`<label style="font-size:11.5px;font-weight:600;color:var(--muted)">${f}
+      <input data-ef="${f}" value="${val(f)}" style="display:block;width:100%;margin-top:5px;padding:10px 12px;border:1px solid var(--hairline);border-radius:9px;font-family:inherit;font-size:13px;color:var(--ink)"/></label>`).join('')}</div>
+    <div style="margin-top:14px;display:flex;gap:10px">
+      <button class="act" id="saveEdit"><span>Save fields</span><span class="job">POST /api/edit</span></button>
+      <button class="act secondary" id="closeEdit"><span>Close</span></button></div></div>`;
+  $('#saveEdit').addEventListener('click',saveEdit);
+  $('#closeEdit').addEventListener('click',()=>{$('#editForm').innerHTML='';});
+}
+async function saveEdit(){
+  const fields={}; $('#editForm').querySelectorAll('[data-ef]').forEach(i=>fields[i.dataset.ef]=i.value);
+  try{
+    const r=await fetch('/api/edit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mk:PL.mk,fields})});
+    const j=await r.json().catch(()=>({}));
+    if(r.status===403||j.disabled)toast('Actions disabled (demo) — edits not persisted');
+    else if(j.ok){toast(`Saved ${(j.updated||[]).length} field(s) — now Update to push to TSS`);addAct(`Edited ${PL.mk}: ${(j.updated||[]).join(', ')}`);}
+    else toast('Edit failed: '+(j.error||('HTTP '+r.status)));
+  }catch(e){toast('Edit endpoint unavailable (demo)');}
+  $('#editForm').innerHTML='';
 }
 
 function advance(to, job){

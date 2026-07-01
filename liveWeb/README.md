@@ -107,6 +107,16 @@ blueprint from the DB:
 | `GET /` + `/<file>` | the portal + assets |
 | `GET /api/blueprint` | live blueprint built from the DB (30s cache); **falls back** to the committed `blueprint.json` (tagged `source:"static-fallback"`) if the DB is unreachable, so the page always loads |
 | `GET /api/health` | liveness probe |
+| `POST /api/action/<verb>?mk=…` | run a job for one movement — `promote`/`submit`/`mirror`/`update`/`cancel`/`reprocess` (dry-run governed by `SUBMISSION_DRY_RUN`); tracked in EXC + `API.Call` |
+| `POST /api/edit` | patch whitelisted STG payload fields for a movement (Edit form) |
+
+The pipeline drill-down (click a Submissions row) shows the stage rail, the ING→PRS
+transforms, stage-advance buttons, and — once a movement is live in TSS — **Edit /
+Update (Rule 16) / Cancel** on the TSS layer. Buttons call the endpoints above.
+
+> **Actions are OFF by default.** Set `PORTAL_ACTIONS_ENABLED=1` on the service to let
+> the buttons actually run jobs / call TSS; otherwise they advance the pipeline
+> visually only (safe demo mode).
 
 The front-end tries `/api/blueprint` first, then `blueprint.json`, then its inline
 copy — so the exact same `index.html` works as a static site **or** behind this API.
