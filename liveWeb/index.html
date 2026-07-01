@@ -187,6 +187,52 @@ svg .grid{stroke:var(--hairline);stroke-width:1}
 svg .hit{fill:transparent;cursor:crosshair}
 .empty{color:var(--muted);font-size:13px;padding:26px 0;text-align:center}
 .footer{max-width:1220px;margin:0 auto;padding:8px 30px 30px;color:var(--muted);font-size:11.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+/* ---------- pipeline drill-down ---------- */
+.rowlink{cursor:pointer}
+.rowlink td:last-child::after{content:"▸";color:var(--muted);margin-left:8px;opacity:0;transition:opacity .15s}
+.rowlink:hover td:last-child::after{opacity:1}
+.modal{position:fixed;inset:0;z-index:90;display:none;align-items:flex-start;justify-content:center;padding:38px 16px;overflow:auto;background:rgba(7,21,43,.55);backdrop-filter:blur(5px)}
+.modal.open{display:flex;animation:fade .22s ease}
+.sheet{width:min(1060px,96vw);background:var(--surface);border-radius:20px;box-shadow:var(--shadow-lg);overflow:hidden;margin-bottom:40px}
+.sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:22px 24px;background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff}
+.sheet-head h3{font-size:19px;color:#fff}
+.sheet-head .mk{font-size:12.5px;color:#AFC3E0;font-variant-numeric:tabular-nums;margin-top:5px;display:flex;gap:14px;flex-wrap:wrap}
+.sheet-head .x{background:rgba(255,255,255,.12);border:none;color:#fff;width:36px;height:36px;border-radius:10px;font-size:15px;flex:none}
+.sheet-head .x:hover{background:rgba(255,255,255,.2)}
+.sheet-body{padding:24px}
+.sheet-body h4{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:26px 0 12px}
+.sheet-body h4:first-child{margin-top:4px}
+/* stage rail */
+.rail{display:flex;align-items:flex-start;margin:6px 0 8px;overflow-x:auto;padding-bottom:6px}
+.stage{flex:1;min-width:118px;display:flex;flex-direction:column;align-items:center;text-align:center;position:relative}
+.stage .bar{position:absolute;top:23px;left:50%;width:100%;height:3px;background:var(--hairline);z-index:1;border-radius:2px}
+.stage.done .bar{background:var(--flow)}
+.stage:last-child .bar{display:none}
+.stage .node{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:15px;background:var(--surface2);color:var(--muted);border:2px solid var(--hairline);z-index:2;transition:transform .2s, background .2s, box-shadow .2s}
+.stage.done .node{background:var(--flow);color:#04241f;border-color:var(--flow)}
+.stage.current .node{background:var(--navy);color:#fff;border-color:var(--flow);box-shadow:0 0 0 6px rgba(19,218,198,.18)}
+.stage.reject .node{background:var(--bad);color:#fff;border-color:var(--bad);box-shadow:0 0 0 6px rgba(240,68,56,.16)}
+.stage.pulse .node{animation:pulse .5s ease}
+@keyframes pulse{0%{transform:scale(.7)}60%{transform:scale(1.15)}100%{transform:scale(1)}}
+.stage .lbl{font-size:11.5px;font-weight:700;margin-top:10px;color:var(--ink)}
+.stage .sub{font-size:10px;color:var(--muted);margin-top:2px;max-width:118px}
+.downstream{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;padding:12px;border:1px dashed var(--hairline);border-radius:12px;background:var(--surface2)}
+.downstream .dlab{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.downstream .dp{font-size:11.5px;font-weight:700;color:var(--muted);background:var(--surface);border:1px solid var(--hairline);padding:4px 11px;border-radius:var(--pill)}
+/* actions */
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.act{border:none;border-radius:11px;padding:12px 18px;font-weight:700;font-size:13px;color:#04241f;background:linear-gradient(135deg,var(--flow),var(--flow-deep));display:flex;flex-direction:column;align-items:flex-start;gap:1px;transition:transform .12s,box-shadow .2s,opacity .2s}
+.act:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(19,218,198,.32)}
+.act.submit{background:linear-gradient(135deg,var(--fusion),var(--fusion2));color:#3a1400}
+.act.reproc{background:linear-gradient(135deg,#F79009,#FBB040);color:#3a2400}
+.act .job{font-size:10px;font-weight:600;opacity:.85;font-variant-numeric:tabular-nums}
+.act:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+.done-badge{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:13px;color:var(--good);background:rgba(23,178,106,.12);padding:10px 16px;border-radius:11px}
+.xform td .from{color:var(--muted)} .xform td .to{font-weight:700;color:var(--ink)}
+.xform .arrow{color:var(--flow-deep);font-weight:800;padding:0 6px}
+.tt{font-size:10px;font-weight:700;padding:2px 8px;border-radius:var(--pill);background:rgba(59,160,255,.13);color:#1E7FD6;white-space:nowrap}
+.toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%) translateY(20px);z-index:120;background:var(--navy);color:#fff;padding:12px 20px;border-radius:12px;box-shadow:var(--shadow-lg);font-weight:600;font-size:13px;opacity:0;transition:.28s;pointer-events:none;max-width:90vw}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -250,6 +296,16 @@ svg .hit{fill:transparent;cursor:crosshair}
   </div>
 </div>
 
+<div class="modal" id="pipeline" role="dialog" aria-modal="true" aria-label="Movement pipeline">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div><h3 id="pl-title">Movement pipeline</h3><div class="mk" id="pl-mk"></div></div>
+      <button class="x" id="pl-close" aria-label="Close">✕</button>
+    </div>
+    <div class="sheet-body" id="pl-body"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
 <div class="tooltip" id="tip"></div>
 
 <script>
@@ -411,12 +467,15 @@ function renderClients(){
 function renderSubmissions(){
   const d=cd(), v=$('#v-Submissions');
   const statuses=['All',...new Set((d.submissions||[]).map(s=>s.status))];
-  v.innerHTML=`<div class="page-head"><div><div class="eyebrow">${CURRENT}</div><h2>Submissions</h2><p>Movements and their TSS declaration state — <code>PRS</code> → <code>STG</code> → <code>TSS</code> mirror.</p></div>
+  v.innerHTML=`<div class="page-head"><div><div class="eyebrow">${CURRENT}</div><h2>Submissions</h2><p>Movements and their TSS declaration state — <code>PRS</code> → <code>STG</code> → <code>TSS</code> mirror. <b>Click a row</b> to open its pipeline.</p></div>
     <div class="filters"><select class="mini" id="stFilter">${statuses.map(s=>`<option>${s}</option>`).join('')}</select></div></div>
     <div class="panel"><div class="tablewrap"><table><thead><tr><th>Movement</th><th>ENS number</th><th>Arrival (UTC)</th><th>Port</th><th>Status</th></tr></thead>
     <tbody id="subBody"></tbody></table></div>${(d.submissions||[]).length?'':'<div class="empty">No submissions for this client yet.</div>'}</div>`;
   const body=$('#subBody',v);
-  const draw=f=>{body.innerHTML=(d.submissions||[]).filter(s=>f==='All'||s.status===f).map(s=>`<tr><td class="mono">${s.mk}</td><td class="mono">${s.decl}</td><td class="mono">${s.arrival}</td><td class="mono">${s.port}</td><td>${statusPill(s.status)}</td></tr>`).join('');};
+  const draw=f=>{
+    body.innerHTML=(d.submissions||[]).filter(s=>f==='All'||s.status===f).map(s=>`<tr class="rowlink" data-mk="${s.mk}"><td class="mono">${s.mk}</td><td class="mono">${s.decl}</td><td class="mono">${s.arrival}</td><td class="mono">${s.port}</td><td>${statusPill(s.status)}</td></tr>`).join('');
+    body.querySelectorAll('.rowlink').forEach(tr=>tr.addEventListener('click',()=>openPipeline(tr.dataset.mk)));
+  };
   draw('All');
   $('#stFilter',v).addEventListener('change',e=>draw(e.target.value));
 }
@@ -499,6 +558,117 @@ $('#loginForm').addEventListener('submit',e=>{
   $('#app').classList.add('show');
   setTimeout(()=>{try{$('#splash').remove();}catch(_){}}, 800);
 });
+
+/* ---------------- movement pipeline (drill-down) ---------------- */
+/* Data-driven stages — extend this array (Consignment/Goods/...) to reuse the whole
+   drill-down for the next API calls; ACTIONS maps each stage to the job that advances it. */
+const STAGES = [
+  {key:"INGESTED",   n:"1", lbl:"Ingested",    sub:"ING raw landed"},
+  {key:"TRANSFORMED",n:"2", lbl:"Transformed", sub:"PRS map + enrich"},
+  {key:"VALIDATED",  n:"3", lbl:"Validated",   sub:"rules passed"},
+  {key:"STAGED",     n:"4", lbl:"Staged",      sub:"STG materialised"},
+  {key:"SUBMITTED",  n:"5", lbl:"Submitted",   sub:"POST /headers"},
+  {key:"RECONCILED", n:"6", lbl:"Reconciled",  sub:"TSS mirror"},
+];
+const STATUS_STAGE = {REJECTED:2,Rejected:2,VALIDATED:2,Validated:2,"STG_MATERIALISED":3,READY:3,
+  Staged:3,STAGED:3,SUBMITTED:4,Submitted:4,Draft:4,RECONCILED:5,Reconciled:5};
+const ACTIONS = {   // current stage index -> the action that advances it
+  1:{label:"Validate",          job:"PRS_ENGINE_BKD_ENS",   to:2, cls:""},
+  2:{label:"Promote to STG",    job:"PRS_PROMOTE_BKD_ENS",  to:3, cls:""},
+  3:{label:"Submit to TSS",     job:"SUB_CREATE_BKD_ENS",   to:4, cls:"submit"},
+  4:{label:"Mirror from TSS",   job:"SUB_MIRROR_BKD_ENS",   to:5, cls:""},
+};
+const DOWNSTREAM = ["Consignment","Goods (≤99)","Submit consignment","SFD lookup","GMR","Supplementary"];
+
+function transformsFor(s){
+  // Representative ING -> PRS transformation set for a BKD ENS header (grounded in the
+  // real field map + local translations). A live build would read EXC.Data_Processing_Enhancement.
+  const port = s.port && s.port!=="—" ? s.port : "GBAUBELBELBEL";
+  return [
+    {f:"op_type",                   src:"—",                     tt:"CONST",         out:"create",        rule:"op_type"},
+    {f:"movement_type",             src:"RoRo Accompanied ICS2", tt:"CHOICE",        out:"3a",            rule:"Value_Translation"},
+    {f:"type_of_passive_transport", src:"3103",                  tt:"CHOICE",        out:"3103",          rule:"Rule 3 (3a)"},
+    {f:"identity_no_of_transport",  src:"IMO9244116#MV72WNH",    tt:"PASSTHROUGH",   out:"IMO9244116#MV72WNH", rule:"—"},
+    {f:"nationality_of_transport",  src:"GB",                    tt:"CHOICE",        out:"GB",            rule:"country"},
+    {f:"arrival_date_time",         src:"04/07/2026 06:30",      tt:"DATE_UTC",      out:(s.arrival&&s.arrival!=="—"?s.arrival:"04/07/2026 10:42:12"), rule:"Rule 4"},
+    {f:"arrival_port",              src:"Belfast Port",          tt:"CHOICE",        out:port,            rule:"Value_Translation / Rule 12"},
+    {f:"place_of_loading",          src:"Warwick",               tt:"PASSTHROUGH",   out:"Warwick",       rule:"—"},
+    {f:"transport_charges",         src:"—",                     tt:"QAS",           out:"Y",             rule:"Rule 11"},
+    {f:"carrier_eori",              src:"XI894542681000",        tt:"CODE",          out:"XI894542681000",rule:"—"},
+    {f:"carrier_name",              src:"—",                     tt:"MASTER_ENRICH", out:"Primeline Express Limited", rule:"Carrier_Master"},
+    {f:"route",                     src:"—",                     tt:"READONLY",      out:"gb-ni",         rule:"TSS-assigned"},
+  ];
+}
+
+let PL = {mk:null, idx:1, rejected:false, decl:"—"};
+
+function openPipeline(mk){
+  const d=cd(); const s=(d.submissions||[]).find(x=>x.mk===mk); if(!s)return;
+  const st=s.status||"";
+  PL={mk, decl:s.decl||"—", rejected:/reject/i.test(st), idx:(STATUS_STAGE[st]!=null?STATUS_STAGE[st]:1), sub:s};
+  $('#pl-title').textContent=`${clientMeta().name} · Movement pipeline`;
+  $('#pl-mk').innerHTML=`<span>MK ${mk}</span><span>ENS ${PL.decl}</span><span>Status ${statusPill(st)}</span>`;
+  renderPipeline(true);
+  $('#pipeline').classList.add('open');
+}
+function closePipeline(){$('#pipeline').classList.remove('open');}
+
+function renderPipeline(first){
+  const rail=STAGES.map((s,i)=>{
+    let cls = i<PL.idx ? 'done' : (i===PL.idx ? (PL.rejected?'reject':'current') : '');
+    return `<div class="stage ${cls}" data-i="${i}"><div class="bar"></div>
+      <div class="node">${cls==='reject'?'!':(i<PL.idx?'✓':s.n)}</div>
+      <div class="lbl">${s.lbl}</div><div class="sub">${s.sub}</div></div>`;
+  }).join('');
+
+  const x=transformsFor(PL.sub);
+  const xrows=x.map(r=>`<tr><td class="mono">${r.f}</td><td class="from">${r.src}</td>
+    <td><span class="tt">${r.tt}</span></td><td class="arrow">→</td><td class="to">${r.out}</td>
+    <td style="color:var(--muted);font-size:11.5px">${r.rule}</td></tr>`).join('');
+
+  let actionsHtml;
+  if(PL.rejected){
+    actionsHtml=`<button class="act reproc" data-to="2" data-job="PRS_REPROCESS_BKD_ENS"><span>Reprocess &amp; validate</span><span class="job">PRS_REPROCESS_BKD_ENS</span></button>`;
+  }else if(ACTIONS[PL.idx]){
+    const a=ACTIONS[PL.idx];
+    actionsHtml=`<button class="act ${a.cls}" data-to="${a.to}" data-job="${a.job}"><span>${a.label} →</span><span class="job">runs ${a.job}</span></button>`;
+  }else{
+    actionsHtml=`<span class="done-badge">✓ Reconciled — live in TSS mirror</span>`;
+  }
+
+  $('#pl-body').innerHTML=`
+    <h4>Stage progression — click a button to advance</h4>
+    <div class="rail">${rail}</div>
+    <div class="actions">${actionsHtml}
+      <span style="font-size:11.5px;color:var(--muted)">Each button runs the mapped job / API call on the DB.</span></div>
+    <div class="downstream"><span class="dlab">Repeatable · next API calls</span>
+      ${DOWNSTREAM.map(x=>`<span class="dp">${x}</span>`).join('<span style="color:var(--muted)">›</span>')}</div>
+    <h4>ING → PRS transformations (${x.length} fields)</h4>
+    <div class="panel" style="padding:6px 4px"><div class="tablewrap"><table class="xform">
+      <thead><tr><th>Field</th><th>ING source</th><th>Transform</th><th></th><th>PRS output</th><th>Rule</th></tr></thead>
+      <tbody>${xrows}</tbody></table></div></div>`;
+
+  if(first){ // animate the current node in
+    const cur=$('#pl-body .stage.current, #pl-body .stage.reject'); if(cur)cur.classList.add('pulse');
+  }
+  $('#pl-body').querySelectorAll('.act').forEach(b=>b.addEventListener('click',()=>advance(+b.dataset.to,b.dataset.job)));
+}
+
+function advance(to, job){
+  PL.rejected=false; PL.idx=to;
+  renderPipeline(false);
+  const node=$$(`#pl-body .stage[data-i="${to}"]`); if(node)node.classList.add('pulse');
+  const stg=STAGES[to]?STAGES[to].lbl:'done';
+  toast(`Ran ${job} → ${stg}`);
+  const d=cd(); (d.activity=d.activity||[]).unshift({time:"now",text:`${job}: ${PL.mk} → ${stg}`,tone:"flow"});
+}
+function $$(s){return document.querySelector(s);}
+let _toastT;
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('on');clearTimeout(_toastT);_toastT=setTimeout(()=>t.classList.remove('on'),2600);}
+
+$('#pl-close').addEventListener('click',closePipeline);
+$('#pipeline').addEventListener('click',e=>{if(e.target.id==='pipeline')closePipeline();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closePipeline();});
 
 /* data source: live API -> static blueprint.json -> inline fallback */
 function load(url,next){return fetch(url,{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject()).then(j=>{BP=j;boot();}).catch(next);}
