@@ -89,7 +89,15 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                 db.transition("ENS_HEADER", f"MK={mk}", "SUBMITTING", "SUBMITTING")
 
                 result = client_api.call("POST", ENDPOINT, payload)
-                decl = extract_declaration_number(TssClient.parse_json(result)) if result.get("ok") and not dry_run else None
+                parsed = TssClient.parse_json(result) if not dry_run else None
+                res_obj = parsed.get("result") if isinstance(parsed, dict) else None
+                if not isinstance(res_obj, dict):
+                    res_obj = parsed if isinstance(parsed, dict) else {}
+                status_str = str(res_obj.get("status") or "").lower()
+                proc_msg = res_obj.get("process_message")
+                # TSS reports logical failure inside result.status even on 2xx - trust both.
+                logical_ok = bool(result.get("ok")) and status_str not in ("error", "failure")
+                decl = extract_declaration_number(parsed) if logical_ok else None
                 db.log_call(process="SUBMITTING", resource="Declaration Header", op_type="create",
                             movement_key=mk, declaration_number=decl, result=result)
 
@@ -99,7 +107,7 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                     db.commit()
                     continue
 
-                if result.get("ok"):
+                if logical_ok and decl:
                     db.exec("UPDATE STG.BKD_ENS_Header SET Fusion_Status = 'SUBMITTED', "
                             "declaration_number = ?, Tss_Status = 'Submitted', SubmitExecutionID = ?, "
                             "SubmittedAt = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME() "
@@ -111,11 +119,11 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                     db.transition("ENS_HEADER", f"MK={mk}", "SUBMITTING", "SUBMITTED")
                     submitted += 1; done += 1
                 else:
-                    err = result.get("error") or "submit failed"
+                    err = proc_msg or result.get("error") or "submit failed"
                     db.exec("UPDATE STG.BKD_ENS_Header SET Fusion_Status = 'ERROR', "
                             "Tss_Error_Message = ?, SubmitExecutionID = ?, UpdatedAt = SYSUTCDATETIME() "
                             "WHERE ClientCode = ? AND MovementKey = ?",
-                            (result.get("response_text") or err)[:4000], db.execution_id, client, mk)
+                            (proc_msg or result.get("response_text") or err)[:4000], db.execution_id, client, mk)
                     db.transition("ENS_HEADER", f"MK={mk}", "SUBMITTING", "ERROR")
                     db.log_error("SUBMIT", f"MK={mk}: {err}", "TSS")
                     failed += 1
