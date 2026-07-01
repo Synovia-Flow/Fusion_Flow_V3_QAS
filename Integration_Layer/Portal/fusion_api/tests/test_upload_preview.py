@@ -230,6 +230,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
             ["request.goodsItems[1].packageMarks", "ADDR"],
             ["request.goodsItems[1].grossMassKg", "99.5"],
             ["request.goodsItems[1].netMassKg", "95.0"],
+            ["request.goodsItems[1].controlledGoods", "yes"],
         ])
 
         payload = portal_main.upload_consignment_preview(
@@ -242,12 +243,14 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         consignment = preview["consignments"][0]
         goods = consignment["goodsItems"][0]
         self.assertEqual(preview["rowMode"], "api_field_value")
-        self.assertEqual(preview["summary"]["mappedFieldCount"], 14)
+        self.assertEqual(preview["summary"]["mappedFieldCount"], 15)
         self.assertEqual(preview["summary"]["unmatchedFieldCount"], 0)
         self.assertEqual(consignment["status"], "READY")
         self.assertEqual(consignment["values"]["consignment_number"], "CON-TSS-PATH-001")
         self.assertEqual(goods["values"]["goods_description"], "TSS path goods item")
         self.assertEqual(goods["values"]["gross_mass_kg"], "99.5")
+        self.assertEqual(goods["values"]["controlled_goods"], "yes")
+        self.assertNotEqual(consignment["values"].get("controlled_goods"), "yes")
 
     def test_demo_mode_marks_consignment_needs_review_when_goods_weight_missing(self):
         content = xlsx_content([

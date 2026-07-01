@@ -171,9 +171,9 @@ def _target_for(raw_field: str) -> tuple[str, str] | None:
     if not clean:
         return None
     forced_table = None
-    if re.search(r"(?:^|[._\-\s:])(?:prs[._\-\s:]*)?consignment[._\-\s:]", clean, flags=re.I):
+    if re.search(r"(?:^|[._\-\s:])(?:prs[._\-\s:]*)?consignments?(?:[._\-\s:]|$)", clean, flags=re.I):
         forced_table = "PRS.Consignment"
-    elif re.search(r"(?:^|[._\-\s:])(?:prs[._\-\s:]*)?(?:goods_item|goodsitem|goods|item|items)[._\-\s:\[]", clean, flags=re.I):
+    elif re.search(r"(?:^|[._\-\s:])(?:prs[._\-\s:]*)?(?:goods_items?|goodsitems?|items?)(?:[._\-\s:\[]|$)", clean, flags=re.I):
         forced_table = "PRS.Goods_Item"
 
     candidates = [clean]
