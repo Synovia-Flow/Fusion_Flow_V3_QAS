@@ -3,10 +3,9 @@
 services:
   - type: web
     name: fusion-flow-api
-    runtime: python
-    rootDir: Integration_Layer/Portal/fusion_api
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    runtime: docker
+    dockerfilePath: Integration_Layer/Portal/fusion_api/Dockerfile
+    dockerContext: Integration_Layer/Portal/fusion_api
     healthCheckPath: /api/health
     envVars:
       - key: DB_CONN_STR
