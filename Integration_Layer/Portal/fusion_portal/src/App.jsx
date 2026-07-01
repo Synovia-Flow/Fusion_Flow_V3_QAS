@@ -749,6 +749,11 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
     handleFiles(event.dataTransfer.files);
   }
 
+  function handleOpenApiDocs(event) {
+    event.preventDefault();
+    window.open(getApiDocsUrl(), '_blank', 'noopener,noreferrer');
+  }
+
   return (
     <section className="upload-page page-card" aria-label="Upload consignments">
       <div className="page-card-topline">
@@ -756,7 +761,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
           <MaterialIcon>arrow_back</MaterialIcon>
           <span>Back</span>
         </button>
-        <a className="api-link" href={getApiDocsUrl()} target="_blank" rel="noreferrer" title="Open Swagger API documentation">
+        <a className="api-link" href={getApiDocsUrl()} target="_blank" rel="noreferrer" title="Open Swagger API documentation" onClick={handleOpenApiDocs}>
           <MaterialIcon>help</MaterialIcon>
           <span>API</span>
         </a>
