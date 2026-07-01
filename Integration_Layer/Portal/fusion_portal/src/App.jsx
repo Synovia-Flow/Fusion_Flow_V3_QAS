@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { getAdminSettings, getApiDocsUrl, getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings } from './api';
 
 const DEFAULT_SESSION = {
@@ -183,9 +183,14 @@ function MaterialIcon({ children, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`} aria-hidden="true">{children}</span>;
 }
 
-function DrawerRow({ icon, label, active = false, danger = false, indent = false, trailing, onClick }) {
+function DrawerRow({ icon, label, active = false, danger = false, indent = false, trailing, expanded, onClick }) {
   return (
-    <button className={`drawer-row ${active ? 'active' : ''} ${danger ? 'danger' : ''} ${indent ? 'indent' : ''}`} type="button" onClick={onClick}>
+    <button
+      className={`drawer-row ${active ? 'active' : ''} ${danger ? 'danger' : ''} ${indent ? 'indent' : ''}`}
+      type="button"
+      aria-expanded={expanded}
+      onClick={onClick}
+    >
       <MaterialIcon>{icon}</MaterialIcon>
       <span>{label}</span>
       {trailing && <MaterialIcon className="trailing">{trailing}</MaterialIcon>}
@@ -193,9 +198,77 @@ function DrawerRow({ icon, label, active = false, danger = false, indent = false
   );
 }
 
-function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [], settingsSection, onNavigate, onSettingsSection, onLogout, onToggleTheme }) {
+function DrawerInfoRow({ icon, label, value }) {
+  return (
+    <div className="drawer-info-row">
+      <MaterialIcon>{icon}</MaterialIcon>
+      {label && <span>{label}</span>}
+      <strong>{value || 'Not available'}</strong>
+    </div>
+  );
+}
+
+function detectBrowser(userAgent = '') {
+  const browserRules = [
+    ['Edg/', 'Edge'],
+    ['Chrome/', 'Chrome'],
+    ['Firefox/', 'Firefox'],
+    ['Version/', 'Safari'],
+  ];
+  const match = browserRules.find(([token]) => userAgent.includes(token));
+  if (!match) return 'Browser unknown';
+  const [token, name] = match;
+  const version = userAgent.split(token)[1]?.split(/[ .)]/).slice(0, 3).join('.') || '';
+  return `${name}${version ? ` ${version}` : ''}`;
+}
+
+function detectOs(userAgent = '') {
+  if (userAgent.includes('Windows NT 10.0')) return 'Windows 10/11';
+  if (userAgent.includes('Windows')) return 'Windows';
+  if (userAgent.includes('Mac OS X')) return 'macOS';
+  if (userAgent.includes('Android')) return 'Android';
+  if (userAgent.includes('iPhone') || userAgent.includes('iPad')) return 'iOS';
+  if (userAgent.includes('Linux')) return 'Linux';
+  return 'OS unknown';
+}
+
+function appInfoSnapshot() {
+  const nav = typeof navigator === 'undefined' ? {} : navigator;
+  const mode = import.meta.env?.MODE || 'production';
+  return {
+    appName: 'SynoviaFlow',
+    version: import.meta.env?.VITE_APP_VERSION || '1.1.7',
+    runtime: `React ${React.version}`,
+    environment: mode.charAt(0).toUpperCase() + mode.slice(1),
+    culture: nav.language || 'en-US',
+    browser: detectBrowser(nav.userAgent || ''),
+    os: detectOs(nav.userAgent || ''),
+  };
+}
+
+function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [], settingsSection, session, apiStatus, onNavigate, onSettingsSection, onLogout, onToggleTheme }) {
   const visibleSettings = settingsSections.length ? settingsSections : SETTINGS_NAV_SECTIONS;
   const firstSettingsId = visibleSettings[0]?.id || SETTINGS_NAV_SECTIONS[0].id;
+  const [openSections, setOpenSections] = useState({
+    settings: true,
+    session: true,
+    appInfo: false,
+    device: true,
+  });
+  const appInfo = useMemo(() => appInfoSnapshot(), []);
+
+  function toggleSection(sectionId) {
+    setOpenSections((current) => ({ ...current, [sectionId]: !current[sectionId] }));
+  }
+
+  function openSettings() {
+    if (isAuthenticated && view !== 'settings') {
+      setOpenSections((current) => ({ ...current, settings: true }));
+      onSettingsSection(settingsSection || firstSettingsId);
+      return;
+    }
+    setOpenSections((current) => ({ ...current, settings: !current.settings }));
+  }
 
   return (
     <aside className={`drawer ${open ? 'is-open' : ''}`} aria-label="Navigation">
@@ -208,21 +281,71 @@ function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [
             <DrawerRow icon="list_alt" label="View Consignments" active={view === 'consignments'} onClick={() => onNavigate('consignments')} />
           </>
         )}
-        <DrawerRow icon="settings" label="Settings" active={view === 'settings'} trailing={isAuthenticated ? 'expand_less' : 'expand_more'} onClick={isAuthenticated ? () => onSettingsSection(settingsSection || firstSettingsId) : undefined} />
-        {isAuthenticated && visibleSettings.map((section) => (
+        <DrawerRow
+          icon="settings"
+          label="Settings"
+          active={view === 'settings'}
+          trailing={openSections.settings ? 'expand_less' : 'expand_more'}
+          expanded={openSections.settings}
+          onClick={openSettings}
+        />
+        {isAuthenticated && openSections.settings && visibleSettings.map((section) => (
           <DrawerRow key={section.id} icon={section.icon || 'tune'} label={section.label} active={view === 'settings' && settingsSection === section.id} indent onClick={() => onSettingsSection(section.id)} />
         ))}
-        <DrawerRow icon="dark_mode" label="Dark theme" active={isDarkTheme} indent onClick={onToggleTheme} />
-        <DrawerRow icon="frame_reload" label="Reload application" danger indent onClick={() => window.location.reload()} />
-        <DrawerRow icon="badge" label="Session" trailing="expand_less" />
-        {isAuthenticated ? (
+        {openSections.settings && <DrawerRow icon="dark_mode" label="Dark theme" active={isDarkTheme} indent onClick={onToggleTheme} />}
+        {openSections.settings && <DrawerRow icon="frame_reload" label="Reload application" danger indent onClick={() => window.location.reload()} />}
+        <DrawerRow
+          icon="badge"
+          label="Session"
+          trailing={openSections.session ? 'expand_less' : 'expand_more'}
+          expanded={openSections.session}
+          onClick={() => toggleSection('session')}
+        />
+        {openSections.session && isAuthenticated && (
+          <div className="drawer-info-block">
+            <DrawerInfoRow icon="person" label="User" value={session?.username} />
+            <DrawerInfoRow icon="admin_panel_settings" label="Role" value={session?.role} />
+            <DrawerInfoRow icon="business" label="Tenant" value={session?.tenantName} />
+            <DrawerInfoRow icon="cloud_done" label="API" value={apiStatus || 'idle'} />
+          </div>
+        )}
+        {openSections.session && (isAuthenticated ? (
           <DrawerRow icon="logout" label="Logout" indent onClick={onLogout} />
         ) : (
           <DrawerRow icon="login" label="Login" active={view === 'login'} indent />
-        )}
+        ))}
       </nav>
       <div className="drawer-bottom">
-        <DrawerRow icon="code" label="App Info" trailing="expand_more" />
+        <DrawerRow
+          icon="code"
+          label="App Info"
+          trailing={openSections.appInfo ? 'expand_less' : 'expand_more'}
+          expanded={openSections.appInfo}
+          onClick={() => toggleSection('appInfo')}
+        />
+        {openSections.appInfo && (
+          <div className="drawer-info-block app-info-block">
+            <DrawerInfoRow icon="manage_accounts" label="" value={appInfo.appName} />
+            <DrawerInfoRow icon="archive" label="Version" value={appInfo.version} />
+            <DrawerInfoRow icon="memory" label="Runtime" value={appInfo.runtime} />
+            <DrawerInfoRow icon="public" label="Env" value={appInfo.environment} />
+            <DrawerRow
+              icon="computer"
+              label="Device & OS"
+              active
+              trailing={openSections.device ? 'expand_less' : 'expand_more'}
+              expanded={openSections.device}
+              onClick={() => toggleSection('device')}
+            />
+            {openSections.device && (
+              <div className="drawer-info-nested">
+                <DrawerInfoRow icon="translate" label="Culture" value={appInfo.culture} />
+                <DrawerInfoRow icon="data_exploration" label="Browser" value={appInfo.browser} />
+                <DrawerInfoRow icon="desktop_windows" label="OS" value={appInfo.os} />
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -1231,7 +1354,7 @@ export default function App() {
         {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
-      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || SETTINGS_NAV_SECTIONS} settingsSection={settingsSection} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />
+      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || SETTINGS_NAV_SECTIONS} settingsSection={settingsSection} session={session} apiStatus={apiStatus} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />
     </div>
   );
 }

@@ -68,6 +68,7 @@ button:disabled { cursor: default; }
   flex-direction: column;
   transform: translateX(-100%);
   transition: transform 180ms cubic-bezier(.4, 0, .2, 1);
+  overflow-y: auto;
 }
 .drawer.is-open { transform: translateX(0); }
 
@@ -149,6 +150,76 @@ button:disabled { cursor: default; }
   font-weight: 700;
 }
 .drawer-bottom .drawer-row .trailing { color: #616161; }
+
+.drawer-info-block {
+  border-bottom: 1px solid var(--divider);
+  background: #fff;
+  padding: 6px 0;
+}
+
+.drawer-info-row {
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: 20px auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px 0 42px;
+  color: #969da7;
+  font-size: 13px;
+}
+
+.drawer-info-row .material-symbols-outlined {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  color: #9aa0a6;
+  font-size: 20px;
+  line-height: 20px;
+}
+
+.drawer-info-row span {
+  white-space: nowrap;
+}
+
+.drawer-info-row strong {
+  min-width: 0;
+  color: #7d8590;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-info-row span + strong::before {
+  content: ': ';
+  font-weight: 400;
+  color: #969da7;
+}
+
+.drawer-info-row .material-symbols-outlined + strong {
+  grid-column: 2 / 4;
+}
+
+.app-info-block {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.app-info-block .drawer-row {
+  background: var(--active-row);
+  border-bottom: 0;
+  color: var(--drawer-text);
+  font-weight: 700;
+}
+
+.drawer-info-nested {
+  padding: 4px 0 8px;
+  background: #fff;
+}
+
+.drawer-info-nested .drawer-info-row {
+  padding-left: 50px;
+}
 
 .appbar {
   position: fixed;
@@ -1954,3 +2025,27 @@ button:disabled { cursor: default; }
   .preview-field-grid { grid-template-columns: 1fr; }
   .preview-payload-grid { grid-template-columns: 1fr; }
 }
+
+
+.app-shell[data-theme="dark"] .drawer-info-block,
+.app-shell[data-theme="dark"] .drawer-info-nested {
+  background: #111827;
+  border-color: rgba(148, 163, 184, .16);
+}
+
+.app-shell[data-theme="dark"] .drawer-info-row,
+.app-shell[data-theme="dark"] .drawer-info-row span,
+.app-shell[data-theme="dark"] .drawer-info-row span + strong::before {
+  color: #94a3b8;
+}
+
+.app-shell[data-theme="dark"] .drawer-info-row strong,
+.app-shell[data-theme="dark"] .drawer-info-row .material-symbols-outlined {
+  color: #cbd5e1;
+}
+
+.app-shell[data-theme="dark"] .app-info-block .drawer-row {
+  background: rgba(96, 165, 250, .16);
+  color: #e5edf7;
+}
+
