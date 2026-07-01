@@ -36,8 +36,11 @@ ING (INGESTED)                                                   STG (submission
 | `PROCESSED` | Complete & validated; **ready to move to STG**. (terminal in PRS) |
 | `SUBMITTED` / `CANCELLED` | Set in **STG** once the TSS API call is made. |
 
-> Adds `PROCESSED` to the existing `STAGED/VALIDATED/SUBMITTED/REJECTED/CANCELLED`
-> set — a one-line widening of the `CK_…_Status` CHECK on the `013` tables.
+> The `CK_…_Status` CHECK on the `013` tables was widened (migration `025`) to the
+> full movement lifecycle — `STAGED` (staged into the submission table, pre-validation),
+> `VALIDATED`, `REJECTED`, `STG_MATERIALISED`, `READY`, `LINKED`, `SUBMITTING`,
+> `SUBMITTED`, `ACKNOWLEDGED`, `IN_PROGRESS`, `RECONCILED`, `MISMATCH`, `ARCHIVED`,
+> `ERROR`, `CANCELLED`, `ON_HOLD` — a consistent subset of `CFG.Status_Vocabulary`.
 
 ---
 
@@ -128,7 +131,7 @@ a CFG-driven field map. Proposed:
 
 ```
 CFG.Processing_Field_Map
-  ClientCode      char(3)        -- BKD | PLE | CWF
+  ClientCode      char(3)        -- BKD | PLE | CWD
   EntityKind      varchar(20)    -- ENS_HEADER | CONSIGNMENT | GOODS_ITEM
   TargetField     varchar(64)    -- e.g. movement_type
   SourceColumn    varchar(64)    -- ING column (NULL for CONST/MASTER_ENRICH/DERIVE)

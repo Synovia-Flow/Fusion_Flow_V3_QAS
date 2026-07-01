@@ -5,7 +5,7 @@
 
     Clients (confirmed):
         BKD  Birkdale          - ACTIVE pilot (Route A simplified procedure)
-        CWF  CountryWide       - registered, inactive (sender/source pending)
+        CWD  CountryWide       - registered, inactive (sender/source pending)
         PLE  Primeline Express - agent (actAs), inactive (R2 fast-follow)
 
     Confirmed operational roots:
@@ -20,14 +20,14 @@
                 and a Key Vault secret REFERENCE only.
 
     >>> REVIEW BEFORE PROD: confirm the TSS API usernames, the PLE actAs id,
-        and the CWF / PLE sender rules.
+        and the CWD / PLE sender rules.
 */
 
 /* Confirmed roots. */
 DECLARE @IntRoot nvarchar(1000) = N'\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Integration_Layer';
 DECLARE @DocRoot nvarchar(1000) = N'\\PL-AZ-SDF-PLINT\Fusion_Production\Synovia_Flow_Quality\Documentation_Layer';
 DECLARE @BKDRoot nvarchar(1000) = CONCAT(@IntRoot, N'\BKD');
-DECLARE @CWFRoot nvarchar(1000) = CONCAT(@IntRoot, N'\CWF');
+DECLARE @CWDRoot nvarchar(1000) = CONCAT(@IntRoot, N'\CWD');
 DECLARE @PLERoot nvarchar(1000) = CONCAT(@IntRoot, N'\PLE');
 
 /* ================================================================== */
@@ -56,7 +56,7 @@ WHEN NOT MATCHED THEN INSERT (ParameterKey, ParameterValue, ValueType, Descripti
 MERGE CFG.Clients AS t
 USING (VALUES
     ('BKD', 'Birkdale',          'BKD', 'BKD_', 'A', 0, NULL, 1, 'Active pilot client. Route A simplified procedure.'),
-    ('CWF', 'CountryWide',       'CWF', 'CWF_', 'A', 0, NULL, 0, 'Registered, inactive. Sender/source pending confirmation.'),
+    ('CWD', 'CountryWide',       'CWD', 'CWD_', 'A', 0, NULL, 0, 'Registered, inactive. Sender/source pending confirmation.'),
     ('PLE', 'Primeline Express', 'PLE', 'PLE_', 'A', 1, NULL, 0, 'Agent (actAs) - R2 fast-follow. Inactive until actAs id confirmed.')
 ) AS s (ClientCode, ClientName, SchemaName, StgTablePrefix, DefaultRoute, IsAgent, ActAsSysId, IsActive, Notes)
 ON t.ClientCode = s.ClientCode
@@ -72,7 +72,7 @@ MERGE CFG.Credentials AS t
 USING (VALUES
     ('BKD', 'TEST', 'BASIC', 'API.TSS0000000', 'kv-fusionflow-qas/BKD-TSS-TEST', 1, 'Placeholder - set real username; secret lives in Key Vault.'),
     ('BKD', 'PROD', 'BASIC', 'API.TSS0000000', 'kv-fusionflow-prd/BKD-TSS-PROD', 0, 'Placeholder - enable at cutover.'),
-    ('CWF', 'TEST', 'BASIC', 'API.TSS0000000', 'kv-fusionflow-qas/CWF-TSS-TEST', 0, 'Placeholder - inactive.'),
+    ('CWD', 'TEST', 'BASIC', 'API.TSS0000000', 'kv-fusionflow-qas/CWD-TSS-TEST', 0, 'Placeholder - inactive.'),
     ('PLE', 'TEST', 'BASIC', 'API.TSS0000000', 'kv-fusionflow-qas/PLE-TSS-TEST', 0, 'Placeholder - agent, inactive.')
 ) AS s (ClientCode, EnvCode, AuthType, ApiUsername, SecretRef, IsActive, Notes)
 ON t.ClientCode = s.ClientCode AND t.EnvCode = s.EnvCode
@@ -90,10 +90,10 @@ USING (VALUES
     ('BKD', 'PROCESS',    CONCAT(@BKDRoot, N'\Process')),
     ('BKD', 'FAIL',       CONCAT(@BKDRoot, N'\Fails')),
     ('BKD', 'ARCHIVE',    CONCAT(@BKDRoot, N'\Archive')),
-    ('CWF', 'INBOUND',    CONCAT(@CWFRoot, N'\Inbound\Sales_Order_files')),
-    ('CWF', 'PROCESS',    CONCAT(@CWFRoot, N'\Process')),
-    ('CWF', 'FAIL',       CONCAT(@CWFRoot, N'\Fails')),
-    ('CWF', 'ARCHIVE',    CONCAT(@CWFRoot, N'\Archive')),
+    ('CWD', 'INBOUND',    CONCAT(@CWDRoot, N'\Inbound\Sales_Order_files')),
+    ('CWD', 'PROCESS',    CONCAT(@CWDRoot, N'\Process')),
+    ('CWD', 'FAIL',       CONCAT(@CWDRoot, N'\Fails')),
+    ('CWD', 'ARCHIVE',    CONCAT(@CWDRoot, N'\Archive')),
     ('PLE', 'INBOUND',    CONCAT(@PLERoot, N'\Inbound\Sales_Order_files')),
     ('PLE', 'PROCESS',    CONCAT(@PLERoot, N'\Process')),
     ('PLE', 'FAIL',       CONCAT(@PLERoot, N'\Fails')),
@@ -109,7 +109,7 @@ WHEN NOT MATCHED THEN INSERT (ClientCode, PathType, PathValue) VALUES (s.ClientC
 MERGE CFG.Email_Rules AS t
 USING (VALUES
     ('BKD', N'nexus@synoviaflow.cloud', 'DOMAIN', N'birkdalesales.com', '.xlsx',      1, 'Active BKD inbound route.'),
-    ('CWF', N'nexus@synoviaflow.cloud', 'DOMAIN', N'TBD',               '.xlsx,.csv', 0, 'Pending sender confirmation.'),
+    ('CWD', N'nexus@synoviaflow.cloud', 'DOMAIN', N'TBD',               '.xlsx,.csv', 0, 'Pending sender confirmation.'),
     ('PLE', N'nexus@synoviaflow.cloud', 'DOMAIN', N'TBD',               '.xlsx,.csv', 0, 'Pending sender confirmation.')
 ) AS s (ClientCode, Mailbox, SenderRuleType, SenderRule, AllowedFileTypes, IsActive, Notes)
 ON t.ClientCode = s.ClientCode AND t.SenderRule = s.SenderRule
@@ -123,7 +123,7 @@ WHEN NOT MATCHED THEN INSERT (ClientCode, Mailbox, SenderRuleType, SenderRule, A
 MERGE CFG.API_Version AS t
 USING (VALUES
     ('BKD', '*', 'NEW', N'https://api.tsstestenv.co.uk', N'https://api.tradersupportservice.co.uk'),
-    ('CWF', '*', 'NEW', N'https://api.tsstestenv.co.uk', N'https://api.tradersupportservice.co.uk'),
+    ('CWD', '*', 'NEW', N'https://api.tsstestenv.co.uk', N'https://api.tradersupportservice.co.uk'),
     ('PLE', '*', 'NEW', N'https://api.tsstestenv.co.uk', N'https://api.tradersupportservice.co.uk')
 ) AS s (ClientCode, ResourceName, ApiVersion, BaseUrlTest, BaseUrlProd)
 ON t.ClientCode = s.ClientCode AND t.ResourceName = s.ResourceName
@@ -186,7 +186,8 @@ USING (VALUES
     ('CONSTRUCTING','CONSTRUCTED',  'Canonical base submission object assembled in PRS.',     40, 0, 0),
     ('VALIDATING',  'VALIDATED',    'Mandatory/conditional rules passed.',                    50, 0, 0),
     ('VALIDATING',  'REJECTED',     'Validation failed with reason.',                         51, 0, 1),
-    ('STAGING',     'STAGED',       'Materialised into STG.',                                 60, 0, 0),
+    ('STAGING',     'STAGED',       'Movement staged into the client submission table (pre-validation).', 45, 0, 0),
+    ('STG_LOAD',    'STG_MATERIALISED','Validated record materialised into the STG schema.',  60, 0, 0),
     ('STAGING',     'READY',        'Staged and ready to submit.',                            61, 0, 0),
     ('LINKING',     'LINKED',       'Goods -> consignment -> header bound.',                  70, 0, 0),
     ('SUBMITTING',  'SUBMITTING',   'TSS API calls in progress.',                             80, 0, 0),

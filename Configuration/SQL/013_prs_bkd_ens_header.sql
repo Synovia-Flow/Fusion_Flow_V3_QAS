@@ -75,7 +75,9 @@ BEGIN
 
         CONSTRAINT UQ_PRS_BKD_ENS_Track_Movement UNIQUE (ClientCode, MovementKey),
         CONSTRAINT CK_PRS_BKD_ENS_Track_Status CHECK
-            (Fusion_Status IN ('STAGED','VALIDATED','SUBMITTED','REJECTED','CANCELLED'))
+            (Fusion_Status IN ('STAGED','VALIDATED','REJECTED','STG_MATERIALISED','READY','LINKED',
+                               'SUBMITTING','SUBMITTED','ACKNOWLEDGED','IN_PROGRESS','RECONCILED',
+                               'MISMATCH','ARCHIVED','ERROR','CANCELLED','ON_HOLD'))
     );
 END;
 GO
@@ -150,7 +152,9 @@ BEGIN
 
         CONSTRAINT UQ_PRS_BKD_ENS_Sub_Movement UNIQUE (ClientCode, MovementKey),
         CONSTRAINT CK_PRS_BKD_ENS_Sub_Status CHECK
-            (Fusion_Status IN ('STAGED','VALIDATED','SUBMITTED','REJECTED','CANCELLED'))
+            (Fusion_Status IN ('STAGED','VALIDATED','REJECTED','STG_MATERIALISED','READY','LINKED',
+                               'SUBMITTING','SUBMITTED','ACKNOWLEDGED','IN_PROGRESS','RECONCILED',
+                               'MISMATCH','ARCHIVED','ERROR','CANCELLED','ON_HOLD'))
     );
 END;
 GO

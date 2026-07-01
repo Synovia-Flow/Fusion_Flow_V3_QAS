@@ -12,7 +12,7 @@ Identity assets for Fusion Flow documents, decks and the serve/reporting layer.
 | `synovia_blue.png` | Synovia mark on brand blue. |
 | `fusion_logo.jpg` | Fusion product mark (light backgrounds). |
 | `clients/birkdale.png` | Client — Birkdale (BKD), pilot. |
-| `clients/countrywide.png` | Client — Countrywide (CWF). |
+| `clients/countrywide.png` | Client — Countrywide (CWD). |
 | `clients/primeline-express.png` | Client — Primeline Express (PLE). |
 | `clients/claritycargologo.png` | Client — Clarity Cargo. |
 

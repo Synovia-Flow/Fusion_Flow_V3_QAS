@@ -16,7 +16,7 @@
       supplied out of band) - they are NOT committed to git. On re-deploy the
       MERGE never overwrites a password you have set.
 
-    Client codes are aligned to CWF (CountryWide) across CFG.Clients and these
+    Client codes are aligned to CWD (CountryWide) across CFG.Clients and these
     tables. Not FK-bound to CFG.Clients so the verification matrix can be seeded
     independently of client onboarding order.
 */
@@ -85,8 +85,8 @@ MERGE CFG.TSS_Credential AS t
 USING (VALUES
     ('BKD', 'PRD', 'API.TSS0012045', 1, CONVERT(datetime2(7), '2026-04-06 12:25:27.5607268'), 'PASS', 200),
     ('BKD', 'TST', 'API.TSS0012045', 1, CONVERT(datetime2(7), '2026-04-06 12:25:27.8057282'), 'PASS', 200),
-    ('CWF', 'PRD', 'API.TSS0014334', 0, CONVERT(datetime2(7), '2026-04-02 20:07:00.0000000'), 'FAIL', 401),
-    ('CWF', 'TST', 'API.TSS0014334', 1, CONVERT(datetime2(7), '2026-04-06 12:25:28.0188937'), 'PASS', 200),
+    ('CWD', 'PRD', 'API.TSS0014334', 0, CONVERT(datetime2(7), '2026-04-02 20:07:00.0000000'), 'FAIL', 401),
+    ('CWD', 'TST', 'API.TSS0014334', 1, CONVERT(datetime2(7), '2026-04-06 12:25:28.0188937'), 'PASS', 200),
     ('PLE', 'PRD', 'API.TSS0011141', 1, CONVERT(datetime2(7), '2026-04-06 12:25:28.2304062'), 'PASS', 200),
     ('PLE', 'TST', 'API.TSS0011141', 0, CONVERT(datetime2(7), '2026-04-02 20:07:00.0000000'), 'FAIL', 401)
 ) AS s (ClientCode, EnvCode, TssUsername, IsActive, LastVerified, LastStatus, HttpStatus)
@@ -101,6 +101,6 @@ GO
     SET THE REAL PASSWORDS (run once, in the database - NOT committed):
 
     UPDATE CFG.TSS_Credential SET TssPassword = '<bkd-secret>', UpdatedAt=SYSUTCDATETIME() WHERE ClientCode='BKD';
-    UPDATE CFG.TSS_Credential SET TssPassword = '<cwf-secret>', UpdatedAt=SYSUTCDATETIME() WHERE ClientCode='CWF';
+    UPDATE CFG.TSS_Credential SET TssPassword = '<cwd-secret>', UpdatedAt=SYSUTCDATETIME() WHERE ClientCode='CWD';
     UPDATE CFG.TSS_Credential SET TssPassword = '<ple-secret>', UpdatedAt=SYSUTCDATETIME() WHERE ClientCode='PLE';
 */
