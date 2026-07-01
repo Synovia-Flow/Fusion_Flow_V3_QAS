@@ -40,9 +40,9 @@ ENVIRONMENTS = {
     "TST": {"name": "Test",       "base_url": "https://api.tsstestenv.co.uk/api"},
 }
 
-# Lightweight authenticated read used to validate credentials. Adjust if your
-# tenant exposes the choice_values resource under a different path.
-TEST_ENDPOINT = "/choice_values/country"
+# Lightweight authenticated read used to validate credentials. Path per TSS API
+# Reference v2.9.5: <base>/x_fhmrc_tss_api/v1/choice_values/<field> (base ends /api).
+TEST_ENDPOINT = "/x_fhmrc_tss_api/v1/choice_values/country"
 RATE_LIMIT_SECONDS = 0.25
 TIMEOUT = 30
 
