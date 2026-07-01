@@ -17,6 +17,7 @@ from .config import allowed_origins, config_value
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
 from .file_introspection import inspect_upload, summarise_mapping
 from .mapping_suggestions import suggest_column_mappings
+from .upload_processing_preview import build_processing_preview
 from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, portal_code_for_tss_client, required_file_ordinal, select_required_file
 from .tss_submission import build_consignment_submission_plan, post_tss_json
 
@@ -1934,6 +1935,7 @@ def upload_consignment_preview(
     mapping_summary = summarise_mapping(structure.get("columns", []), column_mappings)
     demo_ens = demo_ens_payload(profile, demo_ens_reference) if demo_mode else None
     mapping_suggestions = apply_demo_ens_to_mapping(suggest_column_mappings(structure.get("columns", [])), demo_ens)
+    processing_preview = build_processing_preview(profile=profile, structure=structure, demo_ens=demo_ens)
 
     received_files = [
         {
@@ -1963,6 +1965,7 @@ def upload_consignment_preview(
         "columnMappings": column_mappings,
         "mappingSummary": mapping_summary,
         "mappingSuggestions": mapping_suggestions,
+        "processingPreview": processing_preview,
         "demoMode": bool(demo_mode),
         "demoEns": demo_ens,
         "databaseWrite": False,

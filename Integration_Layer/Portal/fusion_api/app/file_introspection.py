@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import re
@@ -7,7 +7,8 @@ from io import BytesIO, StringIO
 from typing import Any
 from xml.etree import ElementTree as ET
 
-MAX_SCAN_ROWS = 80
+MAX_DATA_ROWS = 1000
+MAX_SCAN_ROWS = MAX_DATA_ROWS + 20
 MAX_SAMPLE_ROWS = 5
 
 CELL_REF_RE = re.compile(r"([A-Z]+)")
@@ -51,15 +52,55 @@ def choose_header_row(rows: list[list[str]]) -> tuple[int | None, list[str]]:
     return None, []
 
 
-def sample_rows(rows: list[list[str]], header_row_number: int | None, headers: list[str]) -> list[dict[str, str]]:
+def records_from_rows(rows: list[list[str]], header_row_number: int | None, headers: list[str], limit: int) -> list[dict[str, str]]:
     if not header_row_number or not headers:
         return []
     out: list[dict[str, str]] = []
-    for row in rows[header_row_number: header_row_number + MAX_SAMPLE_ROWS]:
+    for row in rows[header_row_number: header_row_number + limit]:
         record = {header: clean_cell(row[index] if index < len(row) else "") for index, header in enumerate(headers)}
         if any(record.values()):
             out.append(record)
     return out
+
+
+def sample_rows(rows: list[list[str]], header_row_number: int | None, headers: list[str]) -> list[dict[str, str]]:
+    return records_from_rows(rows, header_row_number, headers, MAX_SAMPLE_ROWS)
+
+
+def data_rows(rows: list[list[str]], header_row_number: int | None, headers: list[str]) -> list[dict[str, str]]:
+    return records_from_rows(rows, header_row_number, headers, MAX_DATA_ROWS)
+
+
+def empty_structure(format_name: str, warning: str, *, sheet_name: str | None = None, sheet_names: list[str] | None = None) -> dict[str, Any]:
+    return {
+        "format": format_name,
+        "sheetName": sheet_name,
+        "sheetNames": sheet_names or [],
+        "headerRowNumber": None,
+        "columns": [],
+        "sampleRows": [],
+        "dataRows": [],
+        "dataRowCount": 0,
+        "isTruncated": False,
+        "warning": warning,
+    }
+
+
+def structure_from_rows(format_name: str, rows: list[list[str]], *, sheet_name: str | None = None, sheet_names: list[str] | None = None) -> dict[str, Any]:
+    header_row_number, headers = choose_header_row(rows)
+    all_data_rows = data_rows(rows, header_row_number, headers)
+    return {
+        "format": format_name,
+        "sheetName": sheet_name,
+        "sheetNames": sheet_names or [],
+        "headerRowNumber": header_row_number,
+        "columns": [{"ordinal": index + 1, "name": name} for index, name in enumerate(headers)],
+        "sampleRows": sample_rows(rows, header_row_number, headers),
+        "dataRows": all_data_rows,
+        "dataRowCount": len(all_data_rows),
+        "isTruncated": len(rows) >= MAX_SCAN_ROWS,
+        "warning": None,
+    }
 
 
 def inspect_csv(content: bytes) -> dict[str, Any]:
@@ -69,17 +110,7 @@ def inspect_csv(content: bytes) -> dict[str, Any]:
     except csv.Error:
         dialect = csv.excel
     rows = [[clean_cell(cell) for cell in row] for row in csv.reader(StringIO(text), dialect)]
-    rows = rows[:MAX_SCAN_ROWS]
-    header_row_number, headers = choose_header_row(rows)
-    return {
-        "format": "csv",
-        "sheetName": None,
-        "sheetNames": [],
-        "headerRowNumber": header_row_number,
-        "columns": [{"ordinal": index + 1, "name": name} for index, name in enumerate(headers)],
-        "sampleRows": sample_rows(rows, header_row_number, headers),
-        "warning": None,
-    }
+    return structure_from_rows("csv", rows[:MAX_SCAN_ROWS])
 
 
 def xml_root(zip_file: zipfile.ZipFile, path: str) -> ET.Element:
@@ -138,15 +169,7 @@ def inspect_xlsx(content: bytes) -> dict[str, Any]:
         shared_strings = read_shared_strings(zip_file)
         sheets = workbook_sheets(zip_file)
         if not sheets:
-            return {
-                "format": "xlsx",
-                "sheetName": None,
-                "sheetNames": [],
-                "headerRowNumber": None,
-                "columns": [],
-                "sampleRows": [],
-                "warning": "No worksheets found in workbook.",
-            }
+            return empty_structure("xlsx", "No worksheets found in workbook.")
         selected_sheet = sheets[0]
         sheet_root = xml_root(zip_file, selected_sheet["path"])
         rows: list[list[str]] = []
@@ -164,16 +187,7 @@ def inspect_xlsx(content: bytes) -> dict[str, Any]:
             rows.append(values)
             if len(rows) >= MAX_SCAN_ROWS:
                 break
-        header_row_number, headers = choose_header_row(rows)
-        return {
-            "format": "xlsx",
-            "sheetName": selected_sheet["name"],
-            "sheetNames": [sheet["name"] for sheet in sheets],
-            "headerRowNumber": header_row_number,
-            "columns": [{"ordinal": index + 1, "name": name} for index, name in enumerate(headers)],
-            "sampleRows": sample_rows(rows, header_row_number, headers),
-            "warning": None,
-        }
+        return structure_from_rows("xlsx", rows, sheet_name=selected_sheet["name"], sheet_names=[sheet["name"] for sheet in sheets])
 
 
 def inspect_upload(filename: str | None, content: bytes) -> dict[str, Any]:
@@ -184,34 +198,10 @@ def inspect_upload(filename: str | None, content: bytes) -> dict[str, Any]:
         if suffix == "xlsx":
             return inspect_xlsx(content)
         if suffix == "xls":
-            return {
-                "format": "xls",
-                "sheetName": None,
-                "sheetNames": [],
-                "headerRowNumber": None,
-                "columns": [],
-                "sampleRows": [],
-                "warning": "Legacy .xls header introspection is not supported yet; upload .xlsx or .csv for automatic mapping preview.",
-            }
-        return {
-            "format": suffix or "unknown",
-            "sheetName": None,
-            "sheetNames": [],
-            "headerRowNumber": None,
-            "columns": [],
-            "sampleRows": [],
-            "warning": "Unsupported file extension for header introspection.",
-        }
+            return empty_structure("xls", "Legacy .xls header introspection is not supported yet; upload .xlsx or .csv for automatic mapping preview.")
+        return empty_structure(suffix or "unknown", "Unsupported file extension for header introspection.")
     except (ET.ParseError, zipfile.BadZipFile, OSError, UnicodeError, csv.Error) as error:
-        return {
-            "format": suffix or "unknown",
-            "sheetName": None,
-            "sheetNames": [],
-            "headerRowNumber": None,
-            "columns": [],
-            "sampleRows": [],
-            "warning": f"Could not inspect file headers: {error}",
-        }
+        return empty_structure(suffix or "unknown", f"Could not inspect file headers: {error}")
 
 
 def summarise_mapping(columns: list[dict[str, Any]], mappings: list[dict[str, Any]]) -> dict[str, Any]:

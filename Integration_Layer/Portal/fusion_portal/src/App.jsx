@@ -524,6 +524,178 @@ function TemplateButton({ icon, children }) {
   );
 }
 
+
+const PREVIEW_GOODS_COLUMNS = [
+  { field: 'ordinal', label: '#' },
+  { field: 'goods_description', label: 'Description' },
+  { field: 'commodity_code', label: 'Commodity' },
+  { field: 'type_of_packages', label: 'Pkg type' },
+  { field: 'number_of_packages', label: 'Pkgs' },
+  { field: 'gross_mass_kg', label: 'Gross kg' },
+  { field: 'net_mass_kg', label: 'Net kg' },
+  { field: 'status', label: 'Status' },
+];
+
+function previewDisplay(value) {
+  if (value === null || value === undefined || value === '') return 'Missing';
+  return String(value);
+}
+
+function previewIssueCount(items = []) {
+  return items.reduce((count, item) => count + ((item.issues || []).length), 0);
+}
+
+function PreviewFieldGrid({ fields = [] }) {
+  return (
+    <div className="preview-field-grid">
+      {fields.map((field) => {
+        const hasError = (field.issues || []).some((issue) => issue.severity === 'error');
+        const hasWarning = (field.issues || []).some((issue) => issue.severity === 'warning');
+        const className = ['preview-field', field.missing ? 'is-missing' : '', hasError ? 'has-error' : '', hasWarning ? 'has-warning' : ''].filter(Boolean).join(' ');
+        return (
+          <div className={className} key={field.field}>
+            <span>{field.label}{field.required ? '*' : ''}</span>
+            <strong>{previewDisplay(field.value)}</strong>
+            {field.source && <small>{field.source.source || field.source.sourceColumn || field.source.apiField || 'mapped'}</small>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PreviewIssueList({ title, issues = [], missingRequired = [] }) {
+  if (!issues.length && !missingRequired.length) return null;
+  return (
+    <div className="preview-issues">
+      <strong>{title}</strong>
+      {missingRequired.length > 0 && (
+        <div className="preview-missing-row">
+          {missingRequired.map((field) => <span key={field}>{field}</span>)}
+        </div>
+      )}
+      {issues.map((issue, index) => (
+        <p className={`preview-issue ${issue.severity || 'error'}`} key={`${issue.field || 'issue'}-${index}`}>
+          <span>{issue.label || issue.field}</span>
+          {issue.message}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function PreviewDetailsModal({ payload, onClose }) {
+  const preview = payload?.processingPreview;
+  const consignments = preview?.consignments || [];
+  const [selectedId, setSelectedId] = useState(consignments[0]?.previewId || '');
+
+  useEffect(() => {
+    setSelectedId(consignments[0]?.previewId || '');
+  }, [payload?.sha256]);
+
+  if (!preview) return null;
+  const selected = consignments.find((item) => item.previewId === selectedId) || consignments[0];
+  const selectedGoods = selected?.goodsItems || [];
+  const summary = preview.summary || {};
+  const splitLabel = summary.splitConsignmentCount ? `${summary.splitConsignmentCount} split parts` : 'No split needed';
+
+  return (
+    <div className="preview-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="preview-modal" role="dialog" aria-modal="true" aria-label="Mapped preview details">
+        <header className="preview-modal-header">
+          <div>
+            <span className="preview-eyebrow">Preview only / DB off / TSS off</span>
+            <h2>{payload.filename}</h2>
+            <p>{preview.rowMode === 'api_field_value' ? 'Field/value manifest mapped into PRS/TSS shape.' : 'Workbook rows mapped into PRS/TSS shape.'}</p>
+          </div>
+          <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close mapped preview">
+            <MaterialIcon>close</MaterialIcon>
+          </button>
+        </header>
+
+        <div className="preview-summary-bar">
+          <div><span>Consignments</span><strong>{summary.consignmentCount || 0}</strong></div>
+          <div><span>Goods items</span><strong>{summary.goodsItemCount || 0}</strong></div>
+          <div><span>Mapped fields</span><strong>{summary.mappedFieldCount || 0}</strong></div>
+          <div className={(summary.missingRequiredCount || 0) > 0 ? 'is-alert' : ''}><span>Missing required</span><strong>{summary.missingRequiredCount || 0}</strong></div>
+          <div><span>99-row split</span><strong>{splitLabel}</strong></div>
+        </div>
+
+        <div className="preview-modal-body">
+          <aside className="preview-consignment-list" aria-label="Preview consignments">
+            {consignments.map((item) => (
+              <button className={`preview-consignment-tab ${item.previewId === selected?.previewId ? 'is-selected' : ''}`} type="button" key={item.previewId} onClick={() => setSelectedId(item.previewId)}>
+                <span>{item.values?.consignment_number || item.previewId}</span>
+                <strong>{item.goodsItemCount} goods</strong>
+                {item.split?.isSplit && <small>Part {item.split.part}/{item.split.partCount}</small>}
+                {(item.missingRequired || []).length > 0 && <em>{item.missingRequired.length} missing</em>}
+              </button>
+            ))}
+          </aside>
+
+          {selected && (
+            <div className="preview-detail-surface">
+              <div className="preview-detail-title">
+                <div>
+                  <span>PRS.Consignment</span>
+                  <h3>{selected.values?.consignment_number || selected.previewId}</h3>
+                </div>
+                <StatusBadge status={selected.status || 'NEEDS_REVIEW'} />
+              </div>
+
+              {selected.split?.isSplit && (
+                <div className="preview-split-note">
+                  <MaterialIcon>call_split</MaterialIcon>
+                  <span>Original {selected.split.originalConsignmentNumber} split into {selected.split.partCount} consignments with max {selected.split.maxGoodsPerConsignment} goods each. Description and shared fields are preserved.</span>
+                </div>
+              )}
+
+              <PreviewIssueList title="Consignment fields needing attention" issues={selected.issues || []} missingRequired={selected.missingRequired || []} />
+              <PreviewFieldGrid fields={selected.fields || []} />
+
+              <div className="preview-goods-header">
+                <div>
+                  <span>PRS.Goods_Item</span>
+                  <h3>{selectedGoods.length} goods rows</h3>
+                </div>
+                <strong>{previewIssueCount(selectedGoods)} goods issues</strong>
+              </div>
+
+              <div className="preview-goods-table-wrap">
+                <table className="preview-goods-table">
+                  <thead>
+                    <tr>
+                      {PREVIEW_GOODS_COLUMNS.map((column) => <th key={column.field}>{column.label}</th>)}
+                      <th>Missing / Issues</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedGoods.map((goods) => {
+                      const fieldLookup = Object.fromEntries((goods.fields || []).map((field) => [field.field, field]));
+                      return (
+                        <tr className={(goods.issues || []).some((issue) => issue.severity === 'error') || (goods.missingRequired || []).length ? 'has-error' : ''} key={`${selected.previewId}-${goods.ordinal}`}>
+                          {PREVIEW_GOODS_COLUMNS.map((column) => {
+                            const field = fieldLookup[column.field];
+                            const value = column.field === 'ordinal' ? goods.ordinal : (column.field === 'status' ? goods.status : field?.value);
+                            return <td className={field?.missing ? 'is-missing' : ''} key={column.field}>{previewDisplay(value)}</td>;
+                          })}
+                          <td>
+                            {(goods.missingRequired || []).length > 0 && <span className="goods-missing-list">{goods.missingRequired.join(', ')}</span>}
+                            {(goods.issues || []).map((issue, index) => <small className={`goods-issue ${issue.severity || 'error'}`} key={index}>{issue.message}</small>)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
 function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -532,6 +704,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
   const demoEns = demoEnsForClient(activeClientCode);
   const [headerDeclarationNumber, setHeaderDeclarationNumber] = useState('');
   const [previewState, setPreviewState] = useState({ status: 'idle', payload: null, error: '' });
+  const [previewDetailsOpen, setPreviewDetailsOpen] = useState(false);
 
   useEffect(() => {
     if (demoMode) {
@@ -544,12 +717,14 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
     if (nextFiles.length) {
       setSelectedFiles(nextFiles);
       setPreviewState({ status: 'idle', payload: null, error: '' });
+      setPreviewDetailsOpen(false);
     }
   }
 
   function clearFile() {
     setSelectedFiles([]);
     setPreviewState({ status: 'idle', payload: null, error: '' });
+    setPreviewDetailsOpen(false);
   }
 
   async function handlePreview() {
@@ -561,7 +736,9 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
         demoEnsReference: demoMode ? demoEns.declarationNumber : headerDeclarationNumber,
       });
       setPreviewState({ status: 'ready', payload, error: '' });
+      setPreviewDetailsOpen(Boolean(payload.processingPreview));
     } catch (error) {
+      setPreviewDetailsOpen(false);
       setPreviewState({ status: 'error', payload: null, error: error.message });
     }
   }
@@ -612,7 +789,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
 
       <div className={`demo-mode-panel ${demoMode ? 'is-active' : ''}`}>
         <label className="demo-toggle">
-          <input type="checkbox" checked={demoMode} onChange={(event) => { setDemoMode(event.target.checked); setPreviewState({ status: 'idle', payload: null, error: '' }); }} />
+          <input type="checkbox" checked={demoMode} onChange={(event) => { setDemoMode(event.target.checked); setPreviewState({ status: 'idle', payload: null, error: '' }); setPreviewDetailsOpen(false); }} />
           <span className="demo-switch" aria-hidden="true" />
           <span>Demo mode</span>
         </label>
@@ -681,6 +858,12 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
                 <span>Columns: {(previewState.payload.detectedStructure.columns || []).slice(0, 8).map((column) => column.name).join(', ')}{(previewState.payload.detectedStructure.columns || []).length > 8 ? '...' : ''}</span>
               )}
               <span>SHA256: {previewState.payload.sha256.slice(0, 16)}...</span>
+              {previewState.payload.processingPreview && (
+                <button className="preview-details-button" type="button" onClick={() => setPreviewDetailsOpen(true)}>
+                  <MaterialIcon>visibility</MaterialIcon>
+                  <span>View mapped details</span>
+                </button>
+              )}
             </>
           )}
         </div>
@@ -694,6 +877,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
       <button className="preview-button" type="button" disabled={!selectedFiles.length || previewState.status === 'loading'} onClick={handlePreview}>
         {previewState.status === 'loading' ? 'Preparing Preview' : (demoMode ? 'Run Demo Preview' : 'Upload & Preview')}
       </button>
+
+      {previewDetailsOpen && previewState.payload?.processingPreview && (
+        <PreviewDetailsModal payload={previewState.payload} onClose={() => setPreviewDetailsOpen(false)} />
+      )}
     </section>
   );
 }
