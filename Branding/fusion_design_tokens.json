@@ -11,21 +11,25 @@
     }
   },
   "color": {
-    "navy":    {"hex": "#0B1D3A", "rgb": [11, 29, 58],   "use": "primary dark / sidebar / headers / dark KPI value"},
-    "teal":    {"hex": "#00C4B4", "rgb": [0, 196, 180],  "use": "primary brand accent / active nav / links / success-ish"},
-    "teal_deep": {"hex": "#00A99B", "rgb": [0, 169, 155], "use": "link default / hover on teal"},
-    "accent":  {"hex": "#F97316", "rgb": [249, 115, 22], "use": "warning / attention / errors-inline"},
-    "sky":     {"hex": "#0EA5E9", "rgb": [14, 165, 233], "use": "secondary accent / charts / tile edge"},
-    "bg":      {"hex": "#F0F4FF", "rgb": [240, 244, 255],"use": "app background"},
-    "surface": {"hex": "#FFFFFF", "rgb": [255, 255, 255],"use": "cards / panels"},
-    "text":    {"hex": "#1E2A3A", "rgb": [30, 42, 58],   "use": "body text"},
-    "muted":   {"hex": "#6B7A8D", "rgb": [107, 122, 141],"use": "secondary text / labels"},
-    "border":  {"hex": "#D8E0EE", "rgb": [216, 224, 238],"use": "borders / dividers"},
+    "abyss":   {"hex": "#07152B", "rgb": [7, 21, 43],    "use": "deepest ground / splash / dark hero"},
+    "navy":    {"hex": "#0F2A4A", "rgb": [15, 42, 74],   "use": "primary dark / sidebar / nav pill / headers"},
+    "navy2":   {"hex": "#143458", "rgb": [20, 52, 88],   "use": "dark surface 2 / nav gradient end"},
+    "flow":    {"hex": "#13DAC6", "rgb": [19, 218, 198], "use": "primary brand accent (flow-aqua) / active nav / charts / links"},
+    "flow_deep": {"hex": "#0AB6A6", "rgb": [10, 182, 166], "use": "link default / hover / line stroke"},
+    "fusion":  {"hex": "#FF7A45", "rgb": [255, 122, 69], "use": "secondary accent (fusion-coral) / 'Powered by Fusion' / attention"},
+    "fusion2": {"hex": "#FF9A6B", "rgb": [255, 154, 107],"use": "fusion light / gradient end"},
+    "sky":     {"hex": "#3BA0FF", "rgb": [59, 160, 255], "use": "chart secondary / submitted state"},
+    "bg":      {"hex": "#EEF3FA", "rgb": [238, 243, 250],"use": "app background (navy-biased neutral)"},
+    "surface": {"hex": "#FFFFFF", "rgb": [255, 255, 255],"use": "cards / panels / tiles"},
+    "surface2":{"hex": "#F7FAFF", "rgb": [247, 250, 255],"use": "row hover / track / subtle fill"},
+    "text":    {"hex": "#132133", "rgb": [19, 33, 51],   "use": "body text (navy-black)"},
+    "muted":   {"hex": "#5E7085", "rgb": [94, 112, 133], "use": "secondary text / labels"},
+    "border":  {"hex": "#DCE6F2", "rgb": [220, 230, 242],"use": "hairline borders / dividers"},
     "status": {
-      "green":  {"hex": "#198754", "use": "success / healthy"},
-      "amber":  {"hex": "#F97316", "use": "partial / warning"},
-      "rose":   {"hex": "#DC3545", "use": "failure / error"},
-      "violet": {"hex": "#7C3AED", "use": "info / secondary category"}
+      "green":  {"hex": "#17B26A", "use": "success / healthy"},
+      "amber":  {"hex": "#F79009", "use": "partial / warning"},
+      "rose":   {"hex": "#F04438", "use": "failure / error"},
+      "violet": {"hex": "#7A5AF8", "use": "info / secondary category"}
     }
   },
   "typography": {

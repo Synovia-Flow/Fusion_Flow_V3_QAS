@@ -26,17 +26,29 @@ stage/seal markers in process material.
 
 | Token | Hex | Use |
 |-------|-----|-----|
-| Brand royal (deep) | `#17407F` | Primary brand blue, headings, key marks |
-| Flow blue (accent) | `#2F7FC4` | Accent, links, flow nodes, rules |
-| Flow blue (logo)   | `#4F98DB` | The blue in the Synovia Flow mark |
-| Customs gold       | `#C0871F` | Stage/seal markers (process docs only) |
-| Ink (navy text)    | `#15233F` | Body text on light |
-| Slate (secondary)  | `#41546F` | Secondary text |
-| Panel              | `#EDF4FB` | Light card/panel fill |
-| Hairline           | `#D6E2F0` | Borders / rules |
-| Dark ground        | `#0B1F3D` | Cover / section-divider backgrounds |
+**Flow 3 scheme** — midnight navy grounds, flow-aqua primary, fusion-coral secondary.
+Canonical values live in `fusion_design_tokens.json` (mirrored by `liveWeb/`).
 
-Semantic (status): success `#2E9E6B` · warning `#C98A2B` · error `#D2544B`.
+| Token | Hex | Use |
+|-------|-----|-----|
+| Abyss              | `#07152B` | Deepest ground — splash / dark hero |
+| Navy (primary)     | `#0F2A4A` | Sidebar / nav pill / headers / dark surfaces |
+| Navy 2             | `#143458` | Dark surface 2 / nav gradient end |
+| Flow aqua (accent) | `#13DAC6` | **Primary brand accent** — active nav, links, charts |
+| Flow deep          | `#0AB6A6` | Link default / hover / line stroke |
+| Fusion coral       | `#FF7A45` | **Secondary accent** — "Powered by Fusion", attention |
+| Fusion light       | `#FF9A6B` | Fusion gradient end |
+| Sky                | `#3BA0FF` | Chart secondary / submitted state |
+| Ink (navy text)    | `#132133` | Body text on light |
+| Slate (secondary)  | `#5E7085` | Secondary text / labels |
+| App background     | `#EEF3FA` | Navy-biased neutral ground |
+| Panel / surface    | `#FFFFFF` | Cards / panels / tiles |
+| Hairline           | `#DCE6F2` | Borders / rules |
+
+Semantic (status): success `#17B26A` · warning `#F79009` · error `#F04438` · info `#7A5AF8`.
+
+> Legacy royal/flow-blue values (`#17407F` / `#2F7FC4`) are superseded by the Flow 3
+> scheme above; customs-gold `#C0871F` is retained only for stage/seal markers in process docs.
 
 ## Typography
 
