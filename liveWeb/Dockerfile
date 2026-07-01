@@ -21,4 +21,5 @@ COPY . .
 # The image ships ODBC Driver 18; set DB_DRIVER accordingly in the environment:
 #   DB_DRIVER={ODBC Driver 18 for SQL Server}
 EXPOSE 8080
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "60", "app:app"]
+# Shell form so $PORT (set by Render) expands; falls back to 8080 locally.
+CMD gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 2 --timeout 60 app:app
