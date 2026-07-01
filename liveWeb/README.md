@@ -83,6 +83,19 @@ python liveWeb\tools\export_blueprint.py
   and writes `blueprint.json`. Every query is guarded, so inactive clients degrade to
   an onboarding placeholder. Secret-named params are masked.
 
+<<<<<<< HEAD
+=======
+### Render environment (txt env)
+
+- `render.env.example` (committed, placeholders) is the uploadable template. On Render:
+  **Service → Environment → "Add from .env"** and paste the lines, keeping
+  `DB_PASSWORD` as a **secret**.
+- Your real values come from `make_env.py` (writes the gitignored `liveWeb/.env`,
+  same `KEY=VALUE` format — upload that file directly).
+- Or declare them in the blueprint: `render.yaml` has a commented API-service block
+  with the `DB_*` vars (`sync: false` → Render prompts for them).
+
+>>>>>>> 13e2a99ce13f90845febbfc80110a65d3f222301
 Because the site is static, "live" means: run `export_blueprint.py` (locally, or as a
 scheduled job / Render cron), commit the refreshed `blueprint.json`, and Render
 auto-deploys. For real-time, the same query layer can be exposed as a tiny read-only
