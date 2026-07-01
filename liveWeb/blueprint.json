@@ -1,98 +1,644 @@
 {
-  "product": { "name": "Synovia Flow", "version": "3", "tagline": "Next-Generation Integration", "poweredBy": "Fusion" },
+  "product": {
+    "name": "Synovia Flow",
+    "version": "3",
+    "tagline": "Next-Generation Integration",
+    "poweredBy": "Fusion"
+  },
   "generatedAt": "2026-07-01",
-  "nav": ["Dashboard", "Jobs", "Analytics", "Clients", "Submissions", "Admin"],
+  "nav": [
+    "Dashboard",
+    "Jobs",
+    "Analytics",
+    "Clients",
+    "Submissions",
+    "Admin"
+  ],
   "clients": [
-    { "code": "BKD", "name": "Birkdale", "active": true, "route": "A", "channel": "EMAIL", "admin": "it.synoviasupport" },
-    { "code": "CWD", "name": "CountryWide", "active": false, "route": "A", "channel": "—", "admin": "—" },
-    { "code": "PLE", "name": "Primeline Express", "active": false, "route": "A", "channel": "—", "admin": "—" }
+    {
+      "code": "BKD",
+      "name": "Birkdale",
+      "active": true,
+      "route": "A",
+      "channel": "EMAIL",
+      "admin": "—"
+    },
+    {
+      "code": "CWD",
+      "name": "CountryWide",
+      "active": false,
+      "route": "A",
+      "channel": "—",
+      "admin": "—"
+    },
+    {
+      "code": "PLE",
+      "name": "Primeline Express",
+      "active": false,
+      "route": "A",
+      "channel": "—",
+      "admin": "—"
+    }
   ],
   "data": {
     "BKD": {
       "kpis": [
-        { "key": "movements", "label": "Movements (30d)", "value": 34, "delta": "+8", "tone": "flow" },
-        { "key": "validated", "label": "Validated", "value": 26, "delta": "+6", "tone": "good" },
-        { "key": "submitted", "label": "Submitted to TSS", "value": 9, "delta": "+9", "tone": "sky" },
-        { "key": "rejected", "label": "Rejected", "value": 3, "delta": "-5", "tone": "bad" },
-        { "key": "inflight", "label": "In-flight", "value": 5, "delta": "+2", "tone": "fusion" }
+        {
+          "label": "Movements (30d)",
+          "value": 8,
+          "delta": "",
+          "tone": "flow"
+        },
+        {
+          "label": "Validated",
+          "value": 8,
+          "delta": "",
+          "tone": "good"
+        },
+        {
+          "label": "Submitted to TSS",
+          "value": 1,
+          "delta": "",
+          "tone": "sky"
+        },
+        {
+          "label": "Rejected",
+          "value": 0,
+          "delta": "",
+          "tone": "bad"
+        },
+        {
+          "label": "In-flight",
+          "value": 7,
+          "delta": "",
+          "tone": "fusion"
+        }
       ],
       "throughput": [
-        {"d":"18 Jun","v":1},{"d":"19 Jun","v":1},{"d":"22 Jun","v":1},{"d":"23 Jun","v":1},
-        {"d":"24 Jun","v":1},{"d":"25 Jun","v":2},{"d":"26 Jun","v":1},{"d":"27 Jun","v":3},
-        {"d":"29 Jun","v":2},{"d":"30 Jun","v":4},{"d":"01 Jul","v":9}
+        {
+          "d": "30/06",
+          "v": 7
+        },
+        {
+          "d": "01/07",
+          "v": 1
+        }
       ],
       "statusMix": [
-        {"label":"Validated","value":17,"tone":"good"},
-        {"label":"Submitted","value":9,"tone":"sky"},
-        {"label":"Reconciled","value":1,"tone":"flow"},
-        {"label":"Rejected","value":3,"tone":"bad"},
-        {"label":"Staged","value":4,"tone":"muted"}
+        {
+          "label": "STG_MATERIALISED",
+          "value": 7,
+          "tone": "muted"
+        },
+        {
+          "label": "RECONCILED",
+          "value": 1,
+          "tone": "flow"
+        }
       ],
       "jobsByModule": [
-        {"label":"Ingestion","value":6},{"label":"Processing","value":2},
-        {"label":"Submission","value":4},{"label":"Reference","value":2},{"label":"Reporting","value":2}
+        {
+          "label": "Reference",
+          "value": 2
+        },
+        {
+          "label": "Processing",
+          "value": 2
+        },
+        {
+          "label": "Ingestion",
+          "value": 4
+        },
+        {
+          "label": "Reporting",
+          "value": 2
+        },
+        {
+          "label": "Submission",
+          "value": 4
+        }
       ],
-      "rejectionReasons": [
-        {"label":"arrival_date_time in past","value":7},
-        {"label":"choice value unresolved","value":3},
-        {"label":"carrier mandatory (3a)","value":1}
-      ],
+      "rejectionReasons": [],
       "activity": [
-        {"time":"21:26","text":"ENS000000000422574 mirrored from TSS (status Draft)","tone":"flow"},
-        {"time":"21:13","text":"SUB_CREATE_BKD_ENS submitted 1 header to TST","tone":"sky"},
-        {"time":"20:58","text":"PRS_ENGINE_BKD_ENS validated 6 movements","tone":"good"},
-        {"time":"20:41","text":"REF_FETCH_CHOICE_VALUES synced 35 choice sets","tone":"muted"},
-        {"time":"20:03","text":"Local translation applied: Belfast Port -> GBAUBELBELBEL","tone":"flow"}
+        {
+          "time": "21:26",
+          "text": "found=1 written=1 failed=0 dir=D:\\Synovia_Fusion_Core\\Application_Layer\\Synovia_Flow_Git\\S",
+          "tone": "flow"
+        },
+        {
+          "time": "21:26",
+          "text": "MK=25.06.26|ICR2524521 decl=ENS000000000422574 status=200 -> ENS000000000422574__25.06.26_",
+          "tone": "flow"
+        },
+        {
+          "time": "21:26",
+          "text": "1 submitted movement(s) with a declaration_number.",
+          "tone": "flow"
+        },
+        {
+          "time": "21:26",
+          "text": "Dump TSS responses for submitted BKD ENS -> D:\\Synovia_Fusion_Core\\Application_Layer\\Synov",
+          "tone": "flow"
+        },
+        {
+          "time": "21:26",
+          "text": "found=0 mirrored=0 dry_run=False failed=0",
+          "tone": "flow"
+        },
+        {
+          "time": "21:26",
+          "text": "0 SUBMITTED row(s) to mirror.",
+          "tone": "flow"
+        }
       ],
       "submissions": [
-        {"mk":"25.06.26|ICR2524521","decl":"ENS000000000422574","status":"Reconciled","arrival":"04/07/2026 10:42","port":"GBAUBELBELBEL"},
-        {"mk":"29.06.26|ICR2525023","decl":"—","status":"Validated","arrival":"03/07/2026 06:30","port":"GBAUBELBELBEL"},
-        {"mk":"30.06.26|ICR2525330","decl":"—","status":"Validated","arrival":"05/07/2026 06:30","port":"GBAUBELBELBEL"},
-        {"mk":"26.06.26|ICR2524784","decl":"—","status":"Staged","arrival":"—","port":"GBAUBELBELBEL"},
-        {"mk":"22.06.26|ICR2524031","decl":"—","status":"Rejected","arrival":"22/06/2026 06:30","port":"GBAUBELBELBEL"}
+        {
+          "mk": "25.06.26|ICR2524521",
+          "decl": "ENS000000000422574",
+          "status": "Submitted",
+          "arrival": "—",
+          "port": "—"
+        },
+        {
+          "mk": "30.06.26|ICR2525330",
+          "decl": "—",
+          "status": "STG_MATERIALISED",
+          "arrival": "—",
+          "port": "—"
+        },
+        {
+          "mk": "26.06.26|ICR2524784",
+          "decl": "—",
+          "status": "STG_MATERIALISED",
+          "arrival": "—",
+          "port": "—"
+        },
+        {
+          "mk": "29.06.26|ICR2525023",
+          "decl": "—",
+          "status": "STG_MATERIALISED",
+          "arrival": "—",
+          "port": "—"
+        },
+        {
+          "mk": "19.06.26|ICR2523547",
+          "decl": "—",
+          "status": "STG_MATERIALISED",
+          "arrival": "—",
+          "port": "—"
+        },
+        {
+          "mk": "22.06.26|ICR2524031",
+          "decl": "—",
+          "status": "STG_MATERIALISED",
+          "arrival": "—",
+          "port": "—"
+        },
+        {
+          "mk": "23.06.26|ICR2524064",
+          "decl": "—",
+          "status": "STG_MATERIALISED",
+          "arrival": "—",
+          "port": "—"
+        },
+        {
+          "mk": "24.06.26|ICR2524282",
+          "decl": "—",
+          "status": "STG_MATERIALISED",
+          "arrival": "—",
+          "port": "—"
+        }
       ],
       "jobs": [
-        {"code":"ING_BKD_CYCLE","name":"Birkdale Ingestion Cycle","module":"Ingestion","schedule":"Every 30 min, 06:00-20:00","active":true},
-        {"code":"PRS_ENGINE_BKD_ENS","name":"Process ENS Header (engine)","module":"Processing","schedule":"After ingestion","active":true},
-        {"code":"PRS_REPROCESS_BKD_ENS","name":"Reprocess ENS Header","module":"Processing","schedule":"On demand","active":true},
-        {"code":"PRS_PROMOTE_BKD_ENS","name":"Promote to STG","module":"Submission","schedule":"After processing","active":true},
-        {"code":"SUB_CREATE_BKD_ENS","name":"Submit ENS Header (create)","module":"Submission","schedule":"After promote","active":true},
-        {"code":"SUB_MIRROR_BKD_ENS","name":"Mirror from TSS","module":"Submission","schedule":"After create","active":true},
-        {"code":"SUB_FETCH_JSON_BKD_ENS","name":"Fetch responses to JSON","module":"Submission","schedule":"On demand","active":true},
-        {"code":"REF_FETCH_CHOICE_VALUES","name":"Download TSS Choice Values","module":"Reference","schedule":"Weekly","active":true},
-        {"code":"REF_FETCH_COMMODITY_CODES","name":"Download Commodity Codes","module":"Reference","schedule":"Weekly","active":true},
-        {"code":"REP_DB_SNAPSHOT_XLSX","name":"Full DB snapshot to Excel","module":"Reporting","schedule":"On demand","active":true}
+        {
+          "code": "REF_FETCH_CHOICE_VALUES",
+          "name": "Reference - Download TSS Choice Values",
+          "module": "Reference",
+          "schedule": "Weekly + on demand before processing",
+          "active": true
+        },
+        {
+          "code": "REF_FETCH_COMMODITY_CODES",
+          "name": "Reference - Download Commodity Codes",
+          "module": "Reference",
+          "schedule": "Weekly / on tariff update",
+          "active": true
+        },
+        {
+          "code": "PRS_ENGINE_BKD_ENS",
+          "name": "Process - Birkdale ENS Header (engine)",
+          "module": "Processing",
+          "schedule": "After each ingestion cycle",
+          "active": true
+        },
+        {
+          "code": "PRS_PROCESS_BKD",
+          "name": "Data Processing - Birkdale (PRS)",
+          "module": "Processing",
+          "schedule": "After each ingestion cycle",
+          "active": false
+        },
+        {
+          "code": "PRS_REPROCESS_BKD_ENS",
+          "name": "Reprocess - Birkdale ENS Header",
+          "module": "Processing",
+          "schedule": "On demand / after fixes",
+          "active": true
+        },
+        {
+          "code": "PRS_STAGE_BKD_ENS",
+          "name": "Stage - Birkdale ENS Headers",
+          "module": "Processing",
+          "schedule": "After each ingestion cycle",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_API",
+          "name": "Acquire - REST pull",
+          "module": "Ingestion",
+          "schedule": "Scheduled poll",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_AS2",
+          "name": "Acquire - AS2 exchange",
+          "module": "Ingestion",
+          "schedule": "Event-driven",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_FILE_DROP",
+          "name": "Acquire - watched INBOUND folder",
+          "module": "Ingestion",
+          "schedule": "On demand / folder watch",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_SFTP",
+          "name": "Acquire - SFTP drop",
+          "module": "Ingestion",
+          "schedule": "Scheduled poll",
+          "active": false
+        },
+        {
+          "code": "ING_BKD_CYCLE",
+          "name": "Birkdale Ingestion Cycle",
+          "module": "Ingestion",
+          "schedule": "Every 30 min, 06:00-20:00 UK business days",
+          "active": true
+        },
+        {
+          "code": "ING_BKD_ACQUIRE_EMAIL",
+          "name": "Acquire - Birkdale email attachments",
+          "module": "Ingestion",
+          "schedule": "Step 1 of ING_BKD_CYCLE",
+          "active": true
+        },
+        {
+          "code": "ING_BKD_PARSE_ENS",
+          "name": "Parse - ENS headers to CSV",
+          "module": "Ingestion",
+          "schedule": "Step 2 of ING_BKD_CYCLE",
+          "active": true
+        },
+        {
+          "code": "ING_BKD_LOAD_RAW",
+          "name": "Load - raw ENS + Sales Orders",
+          "module": "Ingestion",
+          "schedule": "Step 3 of ING_BKD_CYCLE",
+          "active": true
+        },
+        {
+          "code": "REP_DB_SNAPSHOT_XLSX",
+          "name": "Report - Full DB snapshot to Excel",
+          "module": "Reporting",
+          "schedule": "On demand",
+          "active": true
+        },
+        {
+          "code": "REP_REFERENCE_LISTS_XLSX",
+          "name": "Report - Reference / option lists to Excel",
+          "module": "Reporting",
+          "schedule": "On demand",
+          "active": true
+        },
+        {
+          "code": "PRS_PROMOTE_BKD_ENS",
+          "name": "Promote - Birkdale ENS Header to STG",
+          "module": "Submission",
+          "schedule": "After processing",
+          "active": true
+        },
+        {
+          "code": "SUB_CANCEL_BKD_ENS",
+          "name": "Cancel - Birkdale ENS Header (stub)",
+          "module": "Submission",
+          "schedule": "On demand",
+          "active": false
+        },
+        {
+          "code": "SUB_CREATE_BKD_ENS",
+          "name": "Submit - Birkdale ENS Header (create)",
+          "module": "Submission",
+          "schedule": "After promote",
+          "active": true
+        },
+        {
+          "code": "SUB_FETCH_JSON_BKD_ENS",
+          "name": "Fetch - Birkdale ENS responses to JSON",
+          "module": "Submission",
+          "schedule": "On demand",
+          "active": true
+        },
+        {
+          "code": "SUB_MIRROR_BKD_ENS",
+          "name": "Mirror - Birkdale ENS Header from TSS",
+          "module": "Submission",
+          "schedule": "After create",
+          "active": true
+        },
+        {
+          "code": "SUB_UPDATE_BKD_ENS",
+          "name": "Update - Birkdale ENS Header (stub)",
+          "module": "Submission",
+          "schedule": "On demand",
+          "active": false
+        }
       ],
       "params": [
-        {"key":"SUBMISSION_ENV","value":"TST"},
-        {"key":"SUBMISSION_DRY_RUN","value":"0"},
-        {"key":"SUBMISSION_MAX_ROWS","value":"1"},
-        {"key":"PROCESSING_MODE","value":"NEW"},
-        {"key":"DEFAULT_ENV","value":"TST"},
-        {"key":"API_RATE_LIMIT_SECONDS","value":"0.25"}
+        {
+          "key": "API_RATE_LIMIT_SECONDS",
+          "value": "0.25"
+        },
+        {
+          "key": "ARRIVAL_MAX_FUTURE_DAYS",
+          "value": "14"
+        },
+        {
+          "key": "DEFAULT_ENV",
+          "value": "TST"
+        },
+        {
+          "key": "PROCESSING_MODE",
+          "value": "NEW"
+        },
+        {
+          "key": "PROCESSING_REPROCESS_SCOPE",
+          "value": "REJECTED"
+        },
+        {
+          "key": "SUBMISSION_DRY_RUN",
+          "value": "0"
+        },
+        {
+          "key": "SUBMISSION_ENV",
+          "value": "TST"
+        },
+        {
+          "key": "SUBMISSION_MAX_ROWS",
+          "value": "1"
+        }
       ]
     },
     "CWD": {
       "kpis": [
-        {"key":"movements","label":"Movements (30d)","value":0,"delta":"0","tone":"muted"},
-        {"key":"status","label":"Onboarding","value":"Registered","delta":"","tone":"fusion"}
+        {
+          "label": "Movements (30d)",
+          "value": 0,
+          "delta": "0",
+          "tone": "muted"
+        },
+        {
+          "label": "Onboarding",
+          "value": "Inactive",
+          "delta": "",
+          "tone": "fusion"
+        }
       ],
-      "throughput": [], "statusMix": [], "jobsByModule": [], "rejectionReasons": [],
-      "activity": [{"time":"—","text":"Registered, inactive — sender/source pending confirmation.","tone":"muted"}],
+      "throughput": [],
+      "statusMix": [],
+      "jobsByModule": [],
+      "rejectionReasons": [],
+      "activity": [
+        {
+          "time": "—",
+          "text": "No ENS tables yet — client not activated.",
+          "tone": "muted"
+        }
+      ],
       "submissions": [],
-      "jobs": [{"code":"—","name":"No active jobs — inactive client","module":"—","schedule":"—","active":false}],
-      "params": [{"key":"IsActive","value":"0"},{"key":"DefaultRoute","value":"A"}]
+      "jobs": [
+        {
+          "code": "REF_FETCH_CHOICE_VALUES",
+          "name": "Reference - Download TSS Choice Values",
+          "module": "Reference",
+          "schedule": "Weekly + on demand before processing",
+          "active": true
+        },
+        {
+          "code": "REF_FETCH_COMMODITY_CODES",
+          "name": "Reference - Download Commodity Codes",
+          "module": "Reference",
+          "schedule": "Weekly / on tariff update",
+          "active": true
+        },
+        {
+          "code": "ING_ACQUIRE_API",
+          "name": "Acquire - REST pull",
+          "module": "Ingestion",
+          "schedule": "Scheduled poll",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_AS2",
+          "name": "Acquire - AS2 exchange",
+          "module": "Ingestion",
+          "schedule": "Event-driven",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_FILE_DROP",
+          "name": "Acquire - watched INBOUND folder",
+          "module": "Ingestion",
+          "schedule": "On demand / folder watch",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_SFTP",
+          "name": "Acquire - SFTP drop",
+          "module": "Ingestion",
+          "schedule": "Scheduled poll",
+          "active": false
+        },
+        {
+          "code": "REP_DB_SNAPSHOT_XLSX",
+          "name": "Report - Full DB snapshot to Excel",
+          "module": "Reporting",
+          "schedule": "On demand",
+          "active": true
+        },
+        {
+          "code": "REP_REFERENCE_LISTS_XLSX",
+          "name": "Report - Reference / option lists to Excel",
+          "module": "Reporting",
+          "schedule": "On demand",
+          "active": true
+        }
+      ],
+      "params": [
+        {
+          "key": "API_RATE_LIMIT_SECONDS",
+          "value": "0.25"
+        },
+        {
+          "key": "ARRIVAL_MAX_FUTURE_DAYS",
+          "value": "14"
+        },
+        {
+          "key": "DEFAULT_ENV",
+          "value": "TST"
+        },
+        {
+          "key": "PROCESSING_MODE",
+          "value": "NEW"
+        },
+        {
+          "key": "PROCESSING_REPROCESS_SCOPE",
+          "value": "REJECTED"
+        },
+        {
+          "key": "SUBMISSION_DRY_RUN",
+          "value": "0"
+        },
+        {
+          "key": "SUBMISSION_ENV",
+          "value": "TST"
+        },
+        {
+          "key": "SUBMISSION_MAX_ROWS",
+          "value": "1"
+        }
+      ]
     },
     "PLE": {
       "kpis": [
-        {"key":"movements","label":"Movements (30d)","value":0,"delta":"0","tone":"muted"},
-        {"key":"status","label":"Onboarding","value":"Agent (actAs)","delta":"","tone":"fusion"}
+        {
+          "label": "Movements (30d)",
+          "value": 0,
+          "delta": "0",
+          "tone": "muted"
+        },
+        {
+          "label": "Onboarding",
+          "value": "Inactive",
+          "delta": "",
+          "tone": "fusion"
+        }
       ],
-      "throughput": [], "statusMix": [], "jobsByModule": [], "rejectionReasons": [],
-      "activity": [{"time":"—","text":"Agent (actAs) — R2 fast-follow. Inactive until actAs id confirmed.","tone":"muted"}],
+      "throughput": [],
+      "statusMix": [],
+      "jobsByModule": [],
+      "rejectionReasons": [],
+      "activity": [
+        {
+          "time": "—",
+          "text": "No ENS tables yet — client not activated.",
+          "tone": "muted"
+        }
+      ],
       "submissions": [],
-      "jobs": [{"code":"—","name":"No active jobs — inactive client","module":"—","schedule":"—","active":false}],
-      "params": [{"key":"IsActive","value":"0"},{"key":"IsAgent","value":"1"}]
+      "jobs": [
+        {
+          "code": "REF_FETCH_CHOICE_VALUES",
+          "name": "Reference - Download TSS Choice Values",
+          "module": "Reference",
+          "schedule": "Weekly + on demand before processing",
+          "active": true
+        },
+        {
+          "code": "REF_FETCH_COMMODITY_CODES",
+          "name": "Reference - Download Commodity Codes",
+          "module": "Reference",
+          "schedule": "Weekly / on tariff update",
+          "active": true
+        },
+        {
+          "code": "ING_ACQUIRE_API",
+          "name": "Acquire - REST pull",
+          "module": "Ingestion",
+          "schedule": "Scheduled poll",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_AS2",
+          "name": "Acquire - AS2 exchange",
+          "module": "Ingestion",
+          "schedule": "Event-driven",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_FILE_DROP",
+          "name": "Acquire - watched INBOUND folder",
+          "module": "Ingestion",
+          "schedule": "On demand / folder watch",
+          "active": false
+        },
+        {
+          "code": "ING_ACQUIRE_SFTP",
+          "name": "Acquire - SFTP drop",
+          "module": "Ingestion",
+          "schedule": "Scheduled poll",
+          "active": false
+        },
+        {
+          "code": "REP_DB_SNAPSHOT_XLSX",
+          "name": "Report - Full DB snapshot to Excel",
+          "module": "Reporting",
+          "schedule": "On demand",
+          "active": true
+        },
+        {
+          "code": "REP_REFERENCE_LISTS_XLSX",
+          "name": "Report - Reference / option lists to Excel",
+          "module": "Reporting",
+          "schedule": "On demand",
+          "active": true
+        }
+      ],
+      "params": [
+        {
+          "key": "API_RATE_LIMIT_SECONDS",
+          "value": "0.25"
+        },
+        {
+          "key": "ARRIVAL_MAX_FUTURE_DAYS",
+          "value": "14"
+        },
+        {
+          "key": "DEFAULT_ENV",
+          "value": "TST"
+        },
+        {
+          "key": "PROCESSING_MODE",
+          "value": "NEW"
+        },
+        {
+          "key": "PROCESSING_REPROCESS_SCOPE",
+          "value": "REJECTED"
+        },
+        {
+          "key": "SUBMISSION_DRY_RUN",
+          "value": "0"
+        },
+        {
+          "key": "SUBMISSION_ENV",
+          "value": "TST"
+        },
+        {
+          "key": "SUBMISSION_MAX_ROWS",
+          "value": "1"
+        }
+      ]
     }
   }
 }

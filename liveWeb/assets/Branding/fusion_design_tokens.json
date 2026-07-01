@@ -1,0 +1,50 @@
+{
+  "$schema": "https://synovia.digital/fusion/design-tokens.schema.json",
+  "name": "Synovia Fusion — Design Tokens",
+  "version": "1.0.0",
+  "description": "Shared brand + UI tokens for every Fusion solution (portal, reports, decks, Excel exports). Mirrors LiveWeb/app/static/css/style.css :root.",
+  "brand": {
+    "name": "Synovia Fusion",
+    "logos": {
+      "product": "FusionLogo.jpg",
+      "company": "SynoviaLogoHor.jpg"
+    }
+  },
+  "color": {
+    "navy":    {"hex": "#0B1D3A", "rgb": [11, 29, 58],   "use": "primary dark / sidebar / headers / dark KPI value"},
+    "teal":    {"hex": "#00C4B4", "rgb": [0, 196, 180],  "use": "primary brand accent / active nav / links / success-ish"},
+    "teal_deep": {"hex": "#00A99B", "rgb": [0, 169, 155], "use": "link default / hover on teal"},
+    "accent":  {"hex": "#F97316", "rgb": [249, 115, 22], "use": "warning / attention / errors-inline"},
+    "sky":     {"hex": "#0EA5E9", "rgb": [14, 165, 233], "use": "secondary accent / charts / tile edge"},
+    "bg":      {"hex": "#F0F4FF", "rgb": [240, 244, 255],"use": "app background"},
+    "surface": {"hex": "#FFFFFF", "rgb": [255, 255, 255],"use": "cards / panels"},
+    "text":    {"hex": "#1E2A3A", "rgb": [30, 42, 58],   "use": "body text"},
+    "muted":   {"hex": "#6B7A8D", "rgb": [107, 122, 141],"use": "secondary text / labels"},
+    "border":  {"hex": "#D8E0EE", "rgb": [216, 224, 238],"use": "borders / dividers"},
+    "status": {
+      "green":  {"hex": "#198754", "use": "success / healthy"},
+      "amber":  {"hex": "#F97316", "use": "partial / warning"},
+      "rose":   {"hex": "#DC3545", "use": "failure / error"},
+      "violet": {"hex": "#7C3AED", "use": "info / secondary category"}
+    }
+  },
+  "typography": {
+    "family": "'Montserrat', sans-serif",
+    "google_fonts": "https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap",
+    "excel_fallback": "Segoe UI",
+    "weights": {"light": 300, "regular": 400, "medium": 500, "semibold": 600, "bold": 700, "extrabold": 800},
+    "scale_px": {"kpi_value": 28, "page_title": 24, "card_title": 15, "body": 13, "label": 11, "small": 10}
+  },
+  "layout": {
+    "sidebar_width": "220px",
+    "radius": {"sm": "4px", "md": "6px", "card": "10px", "tile": "12px", "pill": "12px"},
+    "shadow": {"card": "0 1px 3px rgba(11,29,58,0.06)", "tile_hover": "0 6px 18px rgba(11,29,58,0.08)"},
+    "transition": "transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease"
+  },
+  "icons": {"set": "Bootstrap Icons 1.11.3", "css": "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"},
+  "css_framework": {"name": "Bootstrap", "version": "5.3.3", "note": "themed via --bs-* overrides to the brand palette"},
+  "kpi_accents": {
+    "c-sky": "#0EA5E9", "c-green": "#198754", "c-amber": "#F97316",
+    "c-rose": "#DC3545", "c-violet": "#7C3AED"
+  }
+}
