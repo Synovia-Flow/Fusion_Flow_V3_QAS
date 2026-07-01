@@ -212,7 +212,12 @@ def build_workbook(cur, database: str, generated_at: datetime):
 
     head_fill = PatternFill("solid", fgColor=HEADER_FILL)
     head_font = Font(bold=True, color=HEADER_FONT)
+    link_font = Font(color="FF0563C1", underline="single")
     wrap_top = Alignment(vertical="top", wrap_text=False)
+
+    def sheet_link(label: str) -> str:
+        """Internal hyperlink to cell A1 of another worksheet (quotes doubled)."""
+        return f"#'{label.replace(chr(39), chr(39) * 2)}'!A1"
 
     def style_header(ws, ncols: int) -> None:
         for ci in range(1, ncols + 1):
@@ -318,6 +323,13 @@ def build_workbook(cur, database: str, generated_at: datetime):
         c.font = head_font
     for row in summary_rows:
         summary.append(row)
+        r = summary.max_row
+        label = row[7]                                  # target worksheet ("<schema>.<table>" or "Zero Records")
+        link = sheet_link(label)
+        for col in (3, 8):                              # Table name + Worksheet cells -> clickable
+            cell = summary.cell(row=r, column=col)
+            cell.hyperlink = link
+            cell.font = link_font
     summary.freeze_panes = f"A{head_row + 1}"
     summary.auto_filter.ref = f"A{head_row}:{get_column_letter(len(header))}{head_row}"
     summary.cell(row=1, column=1).font = Font(bold=True, size=14, color=HEADER_FILL)
