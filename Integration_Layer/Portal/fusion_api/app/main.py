@@ -856,15 +856,21 @@ def tss_operation_payload(
     payload: dict[str, object] | None = None,
     send: bool = False,
     confirm_live: bool = False,
+    manual_step: dict[str, object] | None = None,
 ) -> dict[str, object]:
     profile = load_tss_client_profile(client_code, env_code=env_code)
-    step = resolve_tss_step(
-        str(profile["clientCode"]),
-        endpoint,
-        method,
-        op_type=op_type,
-        route_code=route_code or str(profile.get("defaultRoute") or "A"),
-    )
+    try:
+        step = resolve_tss_step(
+            str(profile["clientCode"]),
+            endpoint,
+            method,
+            op_type=op_type,
+            route_code=route_code or str(profile.get("defaultRoute") or "A"),
+        )
+    except HTTPException:
+        if manual_step is None:
+            raise
+        step = manual_step
     credential = credential_status(profile, env_code=env_code, include_secret=send and confirm_live)
     if not credential:
         raise HTTPException(status_code=404, detail="No TSS credential row found for this portal profile/environment.")
@@ -1430,14 +1436,23 @@ def tss_headers_read(
         return tss_operation_payload(
             client_code=client_code,
             endpoint="/headers",
-            method="POST",
-            op_type="create",
+            method="GET",
+            op_type="read",
             route_code="A",
             env_code=env_code,
             query=query,
             send=send,
             confirm_live=confirm_live,
-        ) | {"note": "Header read is used by mirror_ens.py; CFG route A maps /headers as POST create."}
+            manual_step={
+                "operationCode": "DECLARATION_HEADER_READ",
+                "resourceName": "Declaration Header",
+                "endpoint": "/headers",
+                "httpMethod": "GET",
+                "opType": "read",
+                "source": "Modules.Submission.mirror_ens",
+                "notes": "Mirror reads a submitted ENS header with /headers?reference=ENS...; route A maps create in CFG.API_Process_Map.",
+            },
+        )
     except DbUnavailable as exc:
         raise db_error(exc) from exc
 
