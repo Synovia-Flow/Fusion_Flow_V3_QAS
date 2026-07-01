@@ -5,7 +5,12 @@ from typing import Any
 
 from .file_introspection import clean_cell
 from .mapping_suggestions import TARGET_FIELDS, normalise, target_lookup
-from .tss_submission import CONSIGNMENT_REQUIRED_FIELDS, compact
+from .tss_submission import (
+    CONSIGNMENT_REQUIRED_FIELDS,
+    compact,
+    required_consignment_fields_for_payload,
+    tss_payload_value,
+)
 
 MAX_GOODS_PER_CONSIGNMENT = 99
 GOODS_REQUIRED_FIELDS = (
@@ -28,15 +33,27 @@ CONSIGNMENT_DISPLAY_FIELDS = (
     "destination_country",
     "consignor_eori",
     "consignor_name",
+    "consignor_street_number",
+    "consignor_city",
+    "consignor_postcode",
     "consignor_country",
     "consignee_eori",
     "consignee_name",
+    "consignee_street_number",
+    "consignee_city",
+    "consignee_postcode",
     "consignee_country",
     "importer_eori",
     "importer_name",
+    "importer_street_number",
+    "importer_city",
+    "importer_postcode",
     "importer_country",
     "exporter_eori",
     "exporter_name",
+    "exporter_street_number",
+    "exporter_city",
+    "exporter_postcode",
     "exporter_country",
     "container_indicator",
 )
@@ -73,15 +90,27 @@ FIELD_LABELS = {
     "destination_country": "Destination country",
     "consignor_eori": "Consignor EORI",
     "consignor_name": "Consignor name",
+    "consignor_street_number": "Consignor street and number",
+    "consignor_city": "Consignor city",
+    "consignor_postcode": "Consignor postcode",
     "consignor_country": "Consignor country",
     "consignee_eori": "Consignee EORI",
     "consignee_name": "Consignee name",
+    "consignee_street_number": "Consignee street and number",
+    "consignee_city": "Consignee city",
+    "consignee_postcode": "Consignee postcode",
     "consignee_country": "Consignee country",
     "importer_eori": "Importer EORI",
     "importer_name": "Importer name",
+    "importer_street_number": "Importer street and number",
+    "importer_city": "Importer city",
+    "importer_postcode": "Importer postcode",
     "importer_country": "Importer country",
     "exporter_eori": "Exporter EORI",
     "exporter_name": "Exporter name",
+    "exporter_street_number": "Exporter street and number",
+    "exporter_city": "Exporter city",
+    "exporter_postcode": "Exporter postcode",
     "exporter_country": "Exporter country",
     "container_indicator": "Container indicator",
     "goods_id": "Goods ID",
@@ -223,7 +252,7 @@ def _assign_first(values: dict[str, Any], sources: dict[str, dict[str, Any]], fi
 def _compact_payload(values: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for field in fields:
-        value = compact(values.get(field))
+        value = tss_payload_value(field, values.get(field))
         if value is not None:
             payload[field] = value
     return payload
@@ -323,12 +352,14 @@ def _fields_payload(
             missing_required.append(field)
         for issue in field_issues:
             issues.append({"field": field, "label": FIELD_LABELS.get(field, field), **issue})
+        is_blank = compact(value) is None
         fields.append({
             "field": field,
             "label": FIELD_LABELS.get(field, field),
             "value": compact(value),
             "required": required,
-            "missing": compact(value) is None,
+            "missing": required and is_blank,
+            "blank": is_blank,
             "source": sources.get(field),
             "issues": field_issues,
         })
@@ -552,7 +583,7 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
             values=values,
             sources=sources,
             display_fields=CONSIGNMENT_DISPLAY_FIELDS,
-            required_fields=CONSIGNMENT_REQUIRED_FIELDS,
+            required_fields=required_consignment_fields_for_payload(values),
         )
         goods_payload: list[dict[str, Any]] = []
         goods_has_blockers = False

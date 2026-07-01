@@ -270,7 +270,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(payload_preview["operations"][1]["operationCode"], "SUBMIT_CONSIGNMENT")
         self.assertEqual(payload_preview["operations"][1]["payload"]["declaration_number"], "ENS900000000000001")
         self.assertEqual(payload_preview["goodsItemCount"], 2)
-        self.assertEqual(payload_preview["goodsItems"][0]["gross_mass_kg"], "42.5")
+        self.assertEqual(payload_preview["goodsItems"][0]["gross_mass_kg"], "42.50")
 
     def test_demo_mode_combines_lisburn_field_value_sheet_with_goods_table_sheet(self):
         content = xlsx_workbook_content([
@@ -584,7 +584,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(preview["summary"]["consignmentCount"], 2)
         self.assertEqual(preview["summary"]["goodsItemCount"], 160)
         self.assertEqual(preview["summary"]["splitConsignmentCount"], 2)
-        self.assertEqual(preview["summary"]["missingRequiredCount"], 4)
+        self.assertEqual(preview["summary"]["missingRequiredCount"], 10)
         first, second = preview["consignments"]
         self.assertEqual(first["values"]["consignment_number"], "GVT1606Test3-01")
         self.assertEqual(second["values"]["consignment_number"], "GVT1606Test3-02")
@@ -594,8 +594,75 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(first["goodsItems"][0]["status"], "READY")
         self.assertIn("controlled_goods", first["missingRequired"])
         self.assertIn("consignee_eori", first["missingRequired"])
+        self.assertIn("consignee_city", first["missingRequired"])
+        self.assertIn("consignee_postcode", first["missingRequired"])
         self.assertFalse(first["tssPayloadPreview"]["ready"])
         self.assertEqual(first["tssPayloadPreview"]["goodsItemCount"], 99)
+
+    def test_demo_mode_formats_mass_fields_to_two_decimals_in_tss_payload_preview(self):
+        manifest = "\n".join([
+            "api_field,source_value",
+            "consignment_number,CON-DECIMAL-1",
+            "transport_document_number,TDN-DECIMAL-1",
+            "controlled_goods,no",
+            "consignor_eori,XI111111111000",
+            "consignee_eori,GB222222222000",
+            "importer_eori,XI333333333000",
+            "exporter_eori,XI444444444000",
+            "goods_description,Decimal goods",
+            "type_of_packages,PK",
+            "number_of_packages,1",
+            "package_marks,ADDR",
+            "gross_mass_kg,0.42599999999999999",
+            "net_mass_kg,0.42599999999999999",
+        ]).encode("utf-8")
+
+        payload = portal_main.upload_consignment_preview(
+            client_code="PLE",
+            files=[upload_file("decimal-preview.csv", manifest)],
+            demo_mode=True,
+        )
+
+        consignment = payload["processingPreview"]["consignments"][0]
+        goods_payload = consignment["tssPayloadPreview"]["goodsItems"][0]
+        self.assertEqual(goods_payload["gross_mass_kg"], "0.43")
+        self.assertEqual(goods_payload["net_mass_kg"], "0.43")
+
+    def test_consignee_eori_is_not_required_when_full_consignee_address_is_present(self):
+        manifest = "\n".join([
+            "api_field,source_value",
+            "consignment_number,CON-ADDRESS-1",
+            "transport_document_number,TDN-ADDRESS-1",
+            "controlled_goods,no",
+            "consignor_eori,XI111111111000",
+            "consignee_name,Stewart Miller Limited",
+            "consignee_street_number,17a Cooke Road",
+            "consignee_city,Newry",
+            "consignee_postcode,BT35 8SA",
+            "consignee_country,GB",
+            "importer_eori,XI333333333000",
+            "exporter_eori,XI444444444000",
+            "goods_description,Address covered goods",
+            "type_of_packages,PK",
+            "number_of_packages,1",
+            "package_marks,ADDR",
+            "gross_mass_kg,1.00",
+        ]).encode("utf-8")
+
+        payload = portal_main.upload_consignment_preview(
+            client_code="PLE",
+            files=[upload_file("address-preview.csv", manifest)],
+            demo_mode=True,
+        )
+
+        consignment = payload["processingPreview"]["consignments"][0]
+        self.assertNotIn("consignee_eori", consignment["missingRequired"])
+        self.assertEqual(consignment["status"], "READY")
+        field_lookup = {field["field"]: field for field in consignment["fields"]}
+        self.assertFalse(field_lookup["consignee_eori"]["required"])
+        self.assertTrue(field_lookup["consignee_eori"]["blank"])
+        self.assertFalse(field_lookup["consignee_eori"]["missing"])
+        self.assertEqual(consignment["tssPayloadPreview"]["operations"][0]["payload"]["consignee_postcode"], "BT35 8SA")
 
     def test_demo_mode_keeps_client_file_selection_validation(self):
         with self.assertRaises(HTTPException) as ctx:

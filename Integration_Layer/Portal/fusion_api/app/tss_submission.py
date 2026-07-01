@@ -5,6 +5,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
 CONS_META_FIELDS = {
@@ -24,20 +25,18 @@ CONS_META_FIELDS = {
     "HeaderMovementKey",
 }
 
-# Baseline from the local TSS v2.9.5 notes in the repo. These are not treated
-# as optional: if any are missing we block live submit until mapping/enrichment
-# provides them.
+# Baseline from the local TSS v2.9.5 notes in the repo. Party EORI values are
+# conditional: TSS can accept a full party address when the EORI is unknown.
 CONSIGNMENT_REQUIRED_FIELDS = (
     "declaration_number",
     "consignment_number",
     "goods_description",
     "transport_document_number",
     "controlled_goods",
-    "consignor_eori",
-    "consignee_eori",
-    "importer_eori",
-    "exporter_eori",
 )
+PARTY_PREFIXES = ("consignor", "consignee", "importer", "exporter")
+PARTY_ADDRESS_SUFFIXES = ("name", "street_number", "city", "postcode", "country")
+TSS_TWO_DECIMAL_FIELDS = {"gross_mass_kg", "net_mass_kg"}
 
 
 def compact(value: Any) -> Any:
@@ -45,6 +44,49 @@ def compact(value: Any) -> Any:
         clean = value.strip()
         return clean or None
     return value
+
+
+def tss_decimal_2(value: Any) -> str | None:
+    clean = compact(value)
+    if clean is None:
+        return None
+    text = str(clean).strip().replace(",", "")
+    try:
+        number = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return str(clean)
+    return format(number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "f")
+
+
+def tss_payload_value(field: str, value: Any) -> Any:
+    clean = compact(value)
+    if clean is None:
+        return None
+    if field in TSS_TWO_DECIMAL_FIELDS:
+        return tss_decimal_2(clean)
+    return clean
+
+
+def party_address_fields(prefix: str) -> tuple[str, ...]:
+    return tuple(f"{prefix}_{suffix}" for suffix in PARTY_ADDRESS_SUFFIXES)
+
+
+def has_full_party_address(payload: dict[str, Any], prefix: str) -> bool:
+    return all(compact(payload.get(field)) is not None for field in party_address_fields(prefix))
+
+
+def required_consignment_fields_for_payload(payload: dict[str, Any]) -> set[str]:
+    required = set(CONSIGNMENT_REQUIRED_FIELDS)
+    for prefix in PARTY_PREFIXES:
+        eori_field = f"{prefix}_eori"
+        if compact(payload.get(eori_field)) is not None:
+            continue
+        if has_full_party_address(payload, prefix):
+            required.update(party_address_fields(prefix))
+            continue
+        required.add(eori_field)
+        required.update(field for field in party_address_fields(prefix) if compact(payload.get(field)) is None)
+    return required
 
 
 def normalise(value: Any) -> str:
@@ -91,7 +133,7 @@ def non_empty_payload(row: dict[str, Any], *, op_type: str, ens_value: str | Non
     for key, value in row.items():
         if key in CONS_META_FIELDS:
             continue
-        cleaned = compact(value)
+        cleaned = tss_payload_value(key, value)
         if cleaned is not None:
             payload[key] = cleaned
     if ens_value:
@@ -100,7 +142,7 @@ def non_empty_payload(row: dict[str, Any], *, op_type: str, ens_value: str | Non
 
 
 def missing_required(payload: dict[str, Any], goods_count: int) -> list[str]:
-    missing = [field for field in CONSIGNMENT_REQUIRED_FIELDS if compact(payload.get(field)) is None]
+    missing = [field for field in sorted(required_consignment_fields_for_payload(payload)) if compact(payload.get(field)) is None]
     if goods_count <= 0:
         missing.append("goods_items")
     return missing

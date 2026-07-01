@@ -697,7 +697,140 @@ function previewIssueCount(items = []) {
   return items.reduce((count, item) => count + ((item.issues || []).length), 0);
 }
 
-function PreviewFieldGrid({ fields = [] }) {
+const PREVIEW_NUMERIC_FIELDS = new Set(['gross_mass_kg', 'net_mass_kg', 'item_invoice_amount', 'number_of_packages']);
+const PREVIEW_TWO_DECIMAL_FIELDS = new Set(['gross_mass_kg', 'net_mass_kg']);
+
+function previewInputValue(value) {
+  if (value === null || value === undefined) return '';
+  return String(value);
+}
+
+function isPreviewMissing(value) {
+  return value === null || value === undefined || String(value).trim() === '';
+}
+
+function numericPreviewIssue(fieldName, value) {
+  if (!PREVIEW_NUMERIC_FIELDS.has(fieldName) || isPreviewMissing(value)) return null;
+  const number = Number(String(value).replace(/,/g, ''));
+  if (!Number.isFinite(number)) return { severity: 'error', message: `${fieldName.replaceAll('_', ' ')} must be numeric.` };
+  if (fieldName === 'gross_mass_kg' && number <= 0) return { severity: 'error', message: 'Gross mass must be greater than zero.' };
+  if (fieldName === 'net_mass_kg' && number < 0) return { severity: 'error', message: 'Net mass cannot be negative.' };
+  if (fieldName === 'number_of_packages' && number <= 0) return { severity: 'error', message: 'Number of packages must be greater than zero.' };
+  return null;
+}
+
+function previewIssuesForField(field, value) {
+  const structuralIssues = (field.issues || []).filter((issue) => {
+    const message = String(issue.message || '').toLowerCase();
+    return !(message.includes('required') || message.includes('blank') || message.includes('numeric') || message.includes('greater than zero') || message.includes('cannot be negative'));
+  });
+  const issues = [...structuralIssues];
+  if (field.required && isPreviewMissing(value)) {
+    issues.push({ severity: 'error', message: `${field.label || field.field} is required before TSS processing.` });
+  }
+  const numericIssue = numericPreviewIssue(field.field, value);
+  if (numericIssue) issues.push(numericIssue);
+  return issues;
+}
+
+function editablePreviewField(field, value) {
+  const nextValue = isPreviewMissing(value) ? null : value;
+  const issues = previewIssuesForField(field, nextValue);
+  return {
+    ...field,
+    value: nextValue,
+    missing: Boolean(field.required) && isPreviewMissing(nextValue),
+    blank: isPreviewMissing(nextValue),
+    issues,
+  };
+}
+
+function issuesFromPreviewFields(fields = []) {
+  return fields.flatMap((field) => (field.issues || []).map((issue) => ({ field: field.field, label: field.label, ...issue })));
+}
+
+function missingFromPreviewFields(fields = []) {
+  return fields.filter((field) => field.required && field.missing).map((field) => field.field);
+}
+
+function previewStatusFromFields(fields = []) {
+  const missing = missingFromPreviewFields(fields);
+  const hasErrors = fields.some((field) => (field.issues || []).some((issue) => issue.severity === 'error'));
+  return !missing.length && !hasErrors ? 'READY' : 'NEEDS_REVIEW';
+}
+
+function previewPayloadValue(fieldName, value) {
+  if (isPreviewMissing(value)) return null;
+  if (PREVIEW_TWO_DECIMAL_FIELDS.has(fieldName)) {
+    const number = Number(String(value).replace(/,/g, ''));
+    if (Number.isFinite(number)) return number.toFixed(2);
+  }
+  return value;
+}
+
+function payloadFromPreviewFields(fields = []) {
+  return fields.reduce((payload, field) => {
+    const value = previewPayloadValue(field.field, field.value);
+    if (!isPreviewMissing(value)) payload[field.field] = value;
+    return payload;
+  }, {});
+}
+
+function clonePreviewConsignments(consignments = []) {
+  return JSON.parse(JSON.stringify(consignments || []));
+}
+
+function refreshPreviewConsignment(item) {
+  const goodsItems = (item.goodsItems || []).map((goods) => {
+    const missingRequired = missingFromPreviewFields(goods.fields || []);
+    const issues = issuesFromPreviewFields(goods.fields || []);
+    return {
+      ...goods,
+      missingRequired,
+      issues,
+      status: previewStatusFromFields(goods.fields || []),
+    };
+  });
+  const missingRequired = missingFromPreviewFields(item.fields || []);
+  const issues = issuesFromPreviewFields(item.fields || []);
+  const goodsHasBlockers = goodsItems.some((goods) => goods.status !== 'READY');
+  return {
+    ...item,
+    missingRequired,
+    issues,
+    goodsItems,
+    status: !missingRequired.length && !issues.some((issue) => issue.severity === 'error') && goodsItems.length && !goodsHasBlockers ? 'READY' : 'NEEDS_REVIEW',
+  };
+}
+
+function buildEditablePayloadPreview(selected) {
+  if (!selected) return null;
+  const updatePayload = { op_type: 'update', ...payloadFromPreviewFields(selected.fields || []) };
+  const declarationNumber = updatePayload.declaration_number || selected.values?.declaration_number;
+  const consignmentNumber = updatePayload.consignment_number || selected.values?.consignment_number;
+  const submitPayload = {
+    op_type: 'submit',
+    ...(declarationNumber ? { declaration_number: declarationNumber } : {}),
+    ...(consignmentNumber ? { consignment_number: consignmentNumber } : {}),
+  };
+  const goodsItems = (selected.goodsItems || []).map((goods) => ({
+    ordinal: goods.ordinal,
+    status: goods.status,
+    ...payloadFromPreviewFields(goods.fields || []),
+  }));
+  return {
+    ...(selected.tssPayloadPreview || {}),
+    ready: selected.status === 'READY' && goodsItems.length && goodsItems.every((goods) => goods.status === 'READY'),
+    operations: [
+      { operationCode: 'UPDATE_CONSIGNMENT_WITH_ENS', payload: updatePayload },
+      { operationCode: 'SUBMIT_CONSIGNMENT', payload: submitPayload },
+    ],
+    goodsItems,
+    goodsItemCount: goodsItems.length,
+  };
+}
+
+function PreviewFieldGrid({ fields = [], onChange }) {
   return (
     <div className="preview-field-grid">
       {fields.map((field) => {
@@ -705,11 +838,18 @@ function PreviewFieldGrid({ fields = [] }) {
         const hasWarning = (field.issues || []).some((issue) => issue.severity === 'warning');
         const className = ['preview-field', field.missing ? 'is-missing' : '', hasError ? 'has-error' : '', hasWarning ? 'has-warning' : ''].filter(Boolean).join(' ');
         return (
-          <div className={className} key={field.field}>
+          <label className={className} key={field.field}>
             <span>{field.label}{field.required ? '*' : ''}</span>
-            <strong>{previewDisplay(field.value)}</strong>
+            <input
+              aria-label={field.label || field.field}
+              className="preview-inline-input"
+              type="text"
+              value={previewInputValue(field.value)}
+              placeholder="Missing"
+              onChange={(event) => onChange?.(field.field, event.target.value)}
+            />
             {field.source && <small>{field.source.source || field.source.sourceColumn || field.source.apiField || 'mapped'}</small>}
-          </div>
+          </label>
         );
       })}
     </div>
@@ -770,14 +910,45 @@ function PreviewDetailsModal({ payload, onClose }) {
   const preview = payload?.processingPreview;
   const consignments = preview?.consignments || [];
   const [selectedId, setSelectedId] = useState(consignments[0]?.previewId || '');
+  const [draftConsignments, setDraftConsignments] = useState(() => clonePreviewConsignments(consignments));
 
   useEffect(() => {
     setSelectedId(consignments[0]?.previewId || '');
+    setDraftConsignments(clonePreviewConsignments(consignments));
   }, [payload?.sha256]);
 
   if (!preview) return null;
-  const selected = consignments.find((item) => item.previewId === selectedId) || consignments[0];
+  const editableConsignments = draftConsignments.length ? draftConsignments : consignments;
+  const selected = editableConsignments.find((item) => item.previewId === selectedId) || editableConsignments[0];
   const selectedGoods = selected?.goodsItems || [];
+
+  function updateConsignmentField(fieldName, value) {
+    setDraftConsignments((current) => (current.length ? current : clonePreviewConsignments(consignments)).map((item) => {
+      if (item.previewId !== selected?.previewId) return item;
+      const fields = (item.fields || []).map((field) => (field.field === fieldName ? editablePreviewField(field, value) : field));
+      return refreshPreviewConsignment({
+        ...item,
+        values: { ...(item.values || {}), [fieldName]: isPreviewMissing(value) ? null : value },
+        fields,
+      });
+    }));
+  }
+
+  function updateGoodsField(goodsOrdinal, fieldName, value) {
+    setDraftConsignments((current) => (current.length ? current : clonePreviewConsignments(consignments)).map((item) => {
+      if (item.previewId !== selected?.previewId) return item;
+      const goodsItems = (item.goodsItems || []).map((goods) => {
+        if (goods.ordinal !== goodsOrdinal) return goods;
+        const fields = (goods.fields || []).map((field) => (field.field === fieldName ? editablePreviewField(field, value) : field));
+        return {
+          ...goods,
+          values: { ...(goods.values || {}), [fieldName]: isPreviewMissing(value) ? null : value },
+          fields,
+        };
+      });
+      return refreshPreviewConsignment({ ...item, goodsItems });
+    }));
+  }
   const summary = preview.summary || {};
   const splitLabel = summary.splitConsignmentCount ? `${summary.splitConsignmentCount} split parts` : 'No split needed';
   const rowModeText = preview.rowMode === 'api_field_value'
@@ -814,7 +985,7 @@ function PreviewDetailsModal({ payload, onClose }) {
 
         <div className="preview-modal-body">
           <aside className="preview-consignment-list" aria-label="Preview consignments">
-            {consignments.map((item) => (
+            {editableConsignments.map((item) => (
               <button className={`preview-consignment-tab ${item.previewId === selected?.previewId ? 'is-selected' : ''}`} type="button" key={item.previewId} onClick={() => setSelectedId(item.previewId)}>
                 <span>{item.values?.consignment_number || item.previewId}</span>
                 <strong>{item.goodsItemCount} goods</strong>
@@ -842,7 +1013,7 @@ function PreviewDetailsModal({ payload, onClose }) {
               )}
 
               <PreviewIssueList title="Consignment fields needing attention" issues={selected.issues || []} missingRequired={selected.missingRequired || []} />
-              <PreviewFieldGrid fields={selected.fields || []} />
+              <PreviewFieldGrid fields={selected.fields || []} onChange={updateConsignmentField} />
 
               <div className="preview-goods-header">
                 <div>
@@ -868,7 +1039,21 @@ function PreviewDetailsModal({ payload, onClose }) {
                           {PREVIEW_GOODS_COLUMNS.map((column) => {
                             const field = fieldLookup[column.field];
                             const value = column.field === 'ordinal' ? goods.ordinal : (column.field === 'status' ? goods.status : field?.value);
-                            return <td className={field?.missing ? 'is-missing' : ''} key={column.field}>{previewDisplay(value)}</td>;
+                            if (column.field === 'ordinal' || column.field === 'status') {
+                              return <td className={field?.missing ? 'is-missing' : ''} key={column.field}>{previewDisplay(value)}</td>;
+                            }
+                            return (
+                              <td className={field?.missing ? 'is-missing' : ''} key={column.field}>
+                                <input
+                                  aria-label={`${column.label} row ${goods.ordinal}`}
+                                  className="preview-table-input"
+                                  type="text"
+                                  value={previewInputValue(value)}
+                                  placeholder="Missing"
+                                  onChange={(event) => updateGoodsField(goods.ordinal, column.field, event.target.value)}
+                                />
+                              </td>
+                            );
                           })}
                           <td>
                             {(goods.missingRequired || []).length > 0 && <span className="goods-missing-list">{goods.missingRequired.join(', ')}</span>}
@@ -881,7 +1066,7 @@ function PreviewDetailsModal({ payload, onClose }) {
                 </table>
               </div>
 
-              <PreviewPayloadPanel payloadPreview={selected.tssPayloadPreview} />
+              <PreviewPayloadPanel payloadPreview={buildEditablePayloadPreview(selected)} />
             </div>
           )}
         </div>
