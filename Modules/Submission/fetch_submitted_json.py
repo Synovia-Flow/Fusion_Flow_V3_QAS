@@ -28,14 +28,15 @@ import traceback
 from pathlib import Path
 
 try:
-    from .submission_db import SubmissionDb, load_db_config, DEFAULT_INI, REPO_ROOT, now_utc
+    from .submission_db import SubmissionDb, load_db_config, DEFAULT_INI, REPO_ROOT, now_utc, ENS_READBACK_FIELDS
     from .tss_client import TssClient
 except Exception:  # pragma: no cover
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from submission_db import SubmissionDb, load_db_config, DEFAULT_INI, REPO_ROOT, now_utc  # type: ignore
+    from submission_db import SubmissionDb, load_db_config, DEFAULT_INI, REPO_ROOT, now_utc, ENS_READBACK_FIELDS  # type: ignore
     from tss_client import TssClient  # type: ignore
 
 ENDPOINT = "headers"
+FIELDS = ",".join(ENS_READBACK_FIELDS)   # header GET requires a fields= list (min one)
 
 
 def _safe(name: str) -> str:
@@ -80,7 +81,7 @@ def run(ini_path: Path = DEFAULT_INI, output_override: str | None = None) -> int
             mk = (r.get("MovementKey") or "").strip()
             decl = (r.get("declaration_number") or "").strip()
             try:
-                result = api.call("GET", f"{ENDPOINT}?reference={decl}", None)
+                result = api.call("GET", f"{ENDPOINT}?reference={decl}&fields={FIELDS}", None)
                 db.log_call(process="MONITORING", resource="Declaration Header", op_type="read",
                             movement_key=mk, declaration_number=decl, result=result)
 

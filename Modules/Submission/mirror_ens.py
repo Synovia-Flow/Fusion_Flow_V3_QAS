@@ -19,14 +19,15 @@ import traceback
 from pathlib import Path
 
 try:
-    from .submission_db import SubmissionDb, load_db_config, DEFAULT_INI, now_utc
+    from .submission_db import SubmissionDb, load_db_config, DEFAULT_INI, now_utc, ENS_READBACK_FIELDS
     from .tss_client import TssClient
 except Exception:  # pragma: no cover
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from submission_db import SubmissionDb, load_db_config, DEFAULT_INI, now_utc  # type: ignore
+    from submission_db import SubmissionDb, load_db_config, DEFAULT_INI, now_utc, ENS_READBACK_FIELDS  # type: ignore
     from tss_client import TssClient  # type: ignore
 
 ENDPOINT = "headers"
+FIELDS = ",".join(ENS_READBACK_FIELDS)   # header GET requires a fields= list (min one)
 
 
 def _truthy(s: str) -> bool:
@@ -80,8 +81,8 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
             decl = (r.get("declaration_number") or "").strip()
             try:
                 db.transition("ENS_HEADER", f"MK={mk}", "RECONCILING", "RECONCILING")
-                # TSS header GET is by query param: /tss_api/headers?reference=ENS... (not a path segment)
-                result = client_api.call("GET", f"{ENDPOINT}?reference={decl}", None)
+                # TSS header GET is by query params: ?reference=ENS...&fields=... (fields REQUIRED)
+                result = client_api.call("GET", f"{ENDPOINT}?reference={decl}&fields={FIELDS}", None)
                 db.log_call(process="RECONCILING", resource="Declaration Header", op_type="read",
                             movement_key=mk, declaration_number=decl, result=result)
 
@@ -91,18 +92,23 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                     db.commit()
                     continue
 
-                if not result.get("ok"):
-                    db.log_error("MIRROR", f"MK={mk} decl={decl}: {result.get('error')}", "TSS")
+                rec = unwrap_record(TssClient.parse_json(result))
+                # TSS signals a read failure inside result (status=failure / error{}), even on 2xx.
+                bad = (not result.get("ok")) or str(rec.get("status") or "").lower() == "failure" or "error" in rec
+                if bad:
+                    msg = ((rec.get("error") or {}).get("message") if isinstance(rec.get("error"), dict)
+                           else rec.get("error")) or result.get("error") or "read failed"
+                    db.log_error("MIRROR", f"MK={mk} decl={decl}: {msg}", "TSS")
                     failed += 1
-                    db.commit()
+                    db.commit()          # leave STG SUBMITTED for retry
                     continue
 
-                rec = unwrap_record(TssClient.parse_json(result))
                 obj = {c: rec.get(c) for c in mirror_cols if c in rec}
                 obj.update({
                     "Declaration_Number": decl, "ClientCode": client, "MovementKey": mk,
                     "StgID": r.get("StgID"), "SubmissionID": r.get("SubmissionID"),
-                    "Tss_Status": rec.get("status") or rec.get("tss_status") or "Submitted",
+                    "Tss_Status": rec.get("status") or "Submitted",
+                    "Tss_Error_Message": rec.get("error_message"),
                     "RawJson": json.dumps(rec, default=str)[:1_000_000],
                     "IsLive": 1, "FetchExecutionID": db.execution_id, "FetchedAt": now_utc(),
                 })
