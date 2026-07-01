@@ -2,11 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { getAdminSettings, getApiDocsUrl, getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings } from './api';
 
 const DEFAULT_SESSION = {
-  tenantCode: 'PLE',
-  tenantName: 'Primeline Express',
+  tenantCode: 'SYNOVIA',
+  tenantName: 'Synovia',
   username: 'synovia',
   role: 'CentralAdmin',
+  mode: 'DEMO_ADMIN',
 };
+const DEFAULT_OPERATIONAL_CLIENT_CODE = 'PLE';
 
 const PORTAL_CLIENTS = [
   { tenantCode: 'PLE', tenantName: 'Primeline Express' },
@@ -46,16 +48,22 @@ function clientOptionFor(clientCode) {
 }
 
 function sessionFallback(clientCode = DEFAULT_SESSION.tenantCode) {
+  if (clientCode === DEFAULT_SESSION.tenantCode) return { ...DEFAULT_SESSION };
   const client = clientOptionFor(clientCode);
   return {
     ...DEFAULT_SESSION,
+    mode: 'CLIENT_SESSION',
     tenantCode: client.tenantCode,
     tenantName: client.tenantName,
   };
 }
 
-function demoEnsForClient(clientCode = DEFAULT_SESSION.tenantCode) {
-  return DEMO_ENS_BY_CLIENT[clientCode] || DEMO_ENS_BY_CLIENT.PLE;
+function isSynoviaSession(session) {
+  return (session?.tenantCode || '').toUpperCase() === DEFAULT_SESSION.tenantCode;
+}
+
+function demoEnsForClient(clientCode = DEFAULT_OPERATIONAL_CLIENT_CODE) {
+  return DEMO_ENS_BY_CLIENT[clientCode] || DEMO_ENS_BY_CLIENT[DEFAULT_OPERATIONAL_CLIENT_CODE];
 }
 
 
@@ -445,7 +453,27 @@ function TssConnectionStrip({ connection }) {
     </div>
   );
 }
-function DashboardPage({ onNavigate, connection }) {
+function OperationalContextPanel({ activeClientCode, onClientChange, isDemoAdmin }) {
+  if (!isDemoAdmin) return null;
+  const activeClient = clientOptionFor(activeClientCode);
+  return (
+    <div className="operational-context-panel" aria-label="Operational client context">
+      <div>
+        <span>Synovia demo context</span>
+        <strong>{activeClient.tenantName}</strong>
+        <small>Preview only. DB off / TSS off.</small>
+      </div>
+      <label>
+        <span>Client</span>
+        <select value={activeClient.tenantCode} onChange={(event) => onClientChange(event.target.value)}>
+          {PORTAL_CLIENTS.map((client) => <option key={client.tenantCode} value={client.tenantCode}>{client.tenantName}</option>)}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function DashboardPage({ onNavigate, connection, activeClientCode, onClientChange, isDemoAdmin }) {
   return (
     <section className="dashboard-page" aria-label="Dashboard">
       <div className="welcome-block">
@@ -455,6 +483,7 @@ function DashboardPage({ onNavigate, connection }) {
         </div>
         <p>Follow the steps below to prepare and send consignments to TSS.</p>
       </div>
+      <OperationalContextPanel activeClientCode={activeClientCode} onClientChange={onClientChange} isDemoAdmin={isDemoAdmin} />
       <TssConnectionStrip connection={connection} />
       <div className="action-panel" aria-label="Workflow actions">
         <div className="action-column">
@@ -860,15 +889,21 @@ function PreviewDetailsModal({ payload, onClose }) {
     </div>
   );
 }
-function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session }) {
+function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClientCode, forceDemoMode = false }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [demoMode, setDemoMode] = useState(false);
-  const activeClientCode = connection?.portalClientCode || session?.tenantCode || DEFAULT_SESSION.tenantCode;
-  const demoEns = demoEnsForClient(activeClientCode);
+  const [demoMode, setDemoMode] = useState(Boolean(forceDemoMode));
+  const effectiveClientCode = activeClientCode || connection?.portalClientCode || DEFAULT_OPERATIONAL_CLIENT_CODE;
+  const demoEns = demoEnsForClient(effectiveClientCode);
   const [headerDeclarationNumber, setHeaderDeclarationNumber] = useState('');
   const [previewState, setPreviewState] = useState({ status: 'idle', payload: null, error: '' });
   const [previewDetailsOpen, setPreviewDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    if (forceDemoMode) {
+      setDemoMode(true);
+    }
+  }, [forceDemoMode]);
 
   useEffect(() => {
     if (demoMode) {
@@ -967,9 +1002,9 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, session })
 
       <div className={`demo-mode-panel ${demoMode ? 'is-active' : ''}`}>
         <label className="demo-toggle">
-          <input type="checkbox" checked={demoMode} onChange={(event) => { setDemoMode(event.target.checked); setPreviewState({ status: 'idle', payload: null, error: '' }); setPreviewDetailsOpen(false); }} />
+          <input type="checkbox" checked={demoMode} disabled={forceDemoMode} onChange={(event) => { if (forceDemoMode) return; setDemoMode(event.target.checked); setPreviewState({ status: 'idle', payload: null, error: '' }); setPreviewDetailsOpen(false); }} />
           <span className="demo-switch" aria-hidden="true" />
-          <span>Demo mode</span>
+          <span>{forceDemoMode ? 'Demo mode (Synovia admin)' : 'Demo mode'}</span>
         </label>
         <div className="demo-ens-summary">
           <span>{demoMode ? 'Demo ENS selected' : 'Manual ENS'}</span>
@@ -1076,7 +1111,7 @@ function StatusBadge({ status }) {
   return <span className={`status-badge ${status.toLowerCase().replace('_', '-')}`}>{status.replace('_', ' ')}</span>;
 }
 
-function ViewConsignmentsPage({ onBack, rows, session, connection, onQueueForTss }) {
+function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueForTss }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
   const sourceRows = rows.length ? rows : CONSIGNMENTS;
@@ -1125,7 +1160,7 @@ function ViewConsignmentsPage({ onBack, rows, session, connection, onQueueForTss
       </div>
 
       <div className="summary-rail" aria-label="Consignment summary">
-        <div><span>ClientCode</span><strong>{session.tenantCode}</strong></div>
+        <div><span>ClientCode</span><strong>{clientCode}</strong></div>
         <div><span>File Rule</span><strong>{connectionFileText(connection)}</strong></div>
         <div><span>TSS</span><strong>{credentialText(connection)}</strong></div>
         <div><span>Route</span><strong>{routeText(connection)}</strong></div>
@@ -1226,6 +1261,7 @@ export default function App() {
   const [view, setView] = useState('login');
   const [isDarkTheme, setIsDarkTheme] = useState(false);
   const [session, setSession] = useState(sessionFallback(DEFAULT_SESSION.tenantCode));
+  const [activeClientCode, setActiveClientCode] = useState(DEFAULT_OPERATIONAL_CLIENT_CODE);
   const [connection, setConnection] = useState(null);
   const [consignmentRows, setConsignmentRows] = useState(CONSIGNMENTS);
   const [settingsPayload, setSettingsPayload] = useState(null);
@@ -1236,7 +1272,7 @@ export default function App() {
   useEffect(() => {
     if (!isAuthenticated) return undefined;
     let cancelled = false;
-    const clientCode = session.tenantCode || DEFAULT_SESSION.tenantCode;
+    const clientCode = activeClientCode || DEFAULT_OPERATIONAL_CLIENT_CODE;
 
     async function loadPortalData() {
       setApiStatus('loading');
@@ -1252,12 +1288,15 @@ export default function App() {
         if (cancelled) return;
         const activeConnection = (connectionPayload.connections || [])[0] || null;
         const fallback = sessionFallback(clientCode);
-        setSession({
-          tenantCode: activeConnection?.portalClientCode || fallback.tenantCode,
-          tenantName: activeConnection?.clientName || sessionPayload.tenantName || fallback.tenantName,
-          username: sessionPayload.username || DEFAULT_SESSION.username,
-          role: sessionPayload.role || DEFAULT_SESSION.role,
-        });
+        if (!isSynoviaSession(session)) {
+          setSession({
+            tenantCode: activeConnection?.portalClientCode || fallback.tenantCode,
+            tenantName: activeConnection?.clientName || sessionPayload.tenantName || fallback.tenantName,
+            username: sessionPayload.username || DEFAULT_SESSION.username,
+            role: sessionPayload.role || DEFAULT_SESSION.role,
+            mode: 'CLIENT_SESSION',
+          });
+        }
         setConnection(activeConnection);
         setConsignmentRows((consignmentPayload.consignments || []).map(normalizeConsignment));
         setSettingsPayload(settingsPayload);
@@ -1266,7 +1305,9 @@ export default function App() {
         setApiError(dashboardPayload?.counts ? '' : 'Dashboard counts unavailable');
       } catch (error) {
         if (cancelled) return;
-        setSession(sessionFallback(clientCode));
+        if (!isSynoviaSession(session)) {
+          setSession(sessionFallback(clientCode));
+        }
         setConnection(null);
         setConsignmentRows(CONSIGNMENTS);
         setSettingsPayload(null);
@@ -1279,7 +1320,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, session.tenantCode]);
+  }, [isAuthenticated, activeClientCode, session.tenantCode]);
 
   function navigate(nextView) {
     setView(nextView);
@@ -1303,12 +1344,15 @@ export default function App() {
       throw error;
     }
     const activeSession = payload.session || sessionFallback(DEFAULT_SESSION.tenantCode);
+    const nextClientCode = payload.defaultClientCode || payload.connection?.portalClientCode || (activeSession.tenantCode === DEFAULT_SESSION.tenantCode ? DEFAULT_OPERATIONAL_CLIENT_CODE : activeSession.tenantCode) || DEFAULT_OPERATIONAL_CLIENT_CODE;
     setSession({
       tenantCode: activeSession.tenantCode || DEFAULT_SESSION.tenantCode,
       tenantName: activeSession.tenantName || DEFAULT_SESSION.tenantName,
       username: activeSession.username || credentials?.username?.trim() || DEFAULT_SESSION.username,
       role: activeSession.role || DEFAULT_SESSION.role,
+      mode: activeSession.mode || (activeSession.tenantCode === DEFAULT_SESSION.tenantCode ? 'DEMO_ADMIN' : 'CLIENT_SESSION'),
     });
+    setActiveClientCode(nextClientCode);
     setConnection(payload.connection || null);
     setIsAuthenticated(true);
     setApiStatus('online');
@@ -1318,6 +1362,7 @@ export default function App() {
   function handleLogout() {
     setIsAuthenticated(false);
     setSession(sessionFallback(DEFAULT_SESSION.tenantCode));
+    setActiveClientCode(DEFAULT_OPERATIONAL_CLIENT_CODE);
     setConnection(null);
     setConsignmentRows(CONSIGNMENTS);
     setSettingsPayload(null);
@@ -1328,7 +1373,7 @@ export default function App() {
   }
 
   function handlePreviewUpload(files, options = {}) {
-    return previewConsignmentUpload({ clientCode: session.tenantCode, files, ...options });
+    return previewConsignmentUpload({ clientCode: activeClientCode, files, ...options });
   }
 
   async function handleSaveSettings(payload) {
@@ -1338,7 +1383,7 @@ export default function App() {
   }
 
   function handleQueueForTss(row) {
-    return prepareTssConsignmentSubmit({ clientCode: session.tenantCode, consignmentRowId: row.consignmentRowId });
+    return prepareTssConsignmentSubmit({ clientCode: activeClientCode, consignmentRowId: row.consignmentRowId });
   }
 
   const mainClass = isAuthenticated ? `page-main app-main ${view}-main` : 'page-main login-main';
@@ -1348,9 +1393,9 @@ export default function App() {
       <AppBar session={session} isAuthenticated={isAuthenticated} onToggleDrawer={() => setDrawerOpen((value) => !value)} onLogout={handleLogout} />
       <main className={mainClass}>
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
-        {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} />}
-        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} session={session} />}
-        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} session={session} connection={connection} onQueueForTss={handleQueueForTss} />}
+        {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} activeClientCode={activeClientCode} onClientChange={setActiveClientCode} isDemoAdmin={isSynoviaSession(session)} />}
+        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} forceDemoMode={isSynoviaSession(session)} />}
+        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} onQueueForTss={handleQueueForTss} />}
         {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}

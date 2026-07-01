@@ -474,6 +474,48 @@ button:disabled { cursor: default; }
   font-weight: 400;
 }
 
+.operational-context-panel {
+  width: min(1028px, calc(100vw - 56px));
+  min-height: 72px;
+  margin: -8px 0 18px;
+  border: 1px solid rgba(20, 184, 166, .26);
+  border-radius: 12px;
+  background: rgba(20, 184, 166, .08);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 16px;
+}
+.operational-context-panel span,
+.operational-context-panel small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.operational-context-panel span { text-transform: uppercase; }
+.operational-context-panel strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 18px;
+}
+.operational-context-panel label {
+  display: grid;
+  gap: 6px;
+}
+.operational-context-panel select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid rgba(37, 99, 235, .22);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  padding: 0 12px;
+  font-weight: 700;
+}
+
 .action-panel {
   width: min(1028px, calc(100vw - 56px));
   min-height: 192px;
@@ -1553,6 +1595,11 @@ button:disabled { cursor: default; }
 .app-shell[data-theme="dark"] .consignments-table th,
 .app-shell[data-theme="dark"] .consignments-table td { border-color: rgba(148, 163, 184, .18); }
 
+.app-shell[data-theme="dark"] .operational-context-panel {
+  background: rgba(20, 184, 166, .12);
+  border-color: rgba(45, 212, 191, .24);
+}
+.app-shell[data-theme="dark"] .operational-context-panel select { background: #101827; border-color: var(--field-border); color: var(--text); }
 .app-shell[data-theme="dark"] .demo-toggle,
 .app-shell[data-theme="dark"] .demo-ens-summary strong { color: var(--text); }
 .app-shell[data-theme="dark"] .demo-ens-summary span,
@@ -1560,6 +1607,7 @@ button:disabled { cursor: default; }
 .app-shell[data-theme="dark"] .demo-safety-chip { background: rgba(34, 197, 94, .16); color: #86efac; }
 @media (max-width: 900px) {
   .connection-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operational-context-panel { grid-template-columns: 1fr; align-items: stretch; }
   .demo-mode-panel { grid-template-columns: 1fr; align-items: stretch; }
   .demo-safety-chip { width: max-content; }
 }

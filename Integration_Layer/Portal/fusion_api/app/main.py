@@ -1026,12 +1026,22 @@ def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, ob
             }
 
         if env_app_login_matches(username, password):
-            profile = load_portal_profile("PLE")
+            default_profile = load_portal_profile("PLE")
             return {
                 "authenticated": True,
                 "source": "FLOW_V1_USER",
-                "session": session_payload(profile, username),
-                "connection": public_connection_payload(profile),
+                "session": {
+                    "tenantCode": "SYNOVIA",
+                    "tenantName": "Synovia",
+                    "username": username,
+                    "role": "CentralAdmin",
+                    "mode": "DEMO_ADMIN",
+                },
+                "connection": public_connection_payload(default_profile),
+                "defaultClientCode": "PLE",
+                "demoMode": True,
+                "databaseWrite": False,
+                "tssWrite": False,
             }
     except DbUnavailable as exc:
         raise db_error(exc) from exc

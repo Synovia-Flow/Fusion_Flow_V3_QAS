@@ -1,3 +1,4 @@
+import os
 import unittest
 import zipfile
 from html import escape
@@ -77,6 +78,40 @@ def upload_file(filename: str, content: bytes = CSV_CONTENT) -> UploadFile:
         filename=filename,
         headers=Headers({"content-type": content_type}),
     )
+
+
+class PortalAuthTests(unittest.TestCase):
+    def test_flow_v1_login_returns_synovia_demo_session_not_primeline_tenant(self):
+        original_query_one = portal_main.query_one
+        old_user = os.environ.get("FLOW_V1_USER")
+        old_password = os.environ.get("FLOW_V1_PASSWORD")
+        try:
+            portal_main.query_one = lambda *args, **kwargs: None
+            os.environ["FLOW_V1_USER"] = "synovia-test"
+            os.environ["FLOW_V1_PASSWORD"] = "Password2025!"
+
+            payload = portal_main.auth_login({"username": "synovia-test", "password": "Password2025!"})
+        finally:
+            portal_main.query_one = original_query_one
+            if old_user is None:
+                os.environ.pop("FLOW_V1_USER", None)
+            else:
+                os.environ["FLOW_V1_USER"] = old_user
+            if old_password is None:
+                os.environ.pop("FLOW_V1_PASSWORD", None)
+            else:
+                os.environ["FLOW_V1_PASSWORD"] = old_password
+
+        self.assertTrue(payload["authenticated"])
+        self.assertEqual(payload["source"], "FLOW_V1_USER")
+        self.assertEqual(payload["session"]["tenantCode"], "SYNOVIA")
+        self.assertEqual(payload["session"]["tenantName"], "Synovia")
+        self.assertEqual(payload["session"]["mode"], "DEMO_ADMIN")
+        self.assertEqual(payload["defaultClientCode"], "PLE")
+        self.assertEqual(payload["connection"]["portalClientCode"], "PLE")
+        self.assertTrue(payload["demoMode"])
+        self.assertFalse(payload["databaseWrite"])
+        self.assertFalse(payload["tssWrite"])
 
 
 class UploadPreviewSelectionTests(unittest.TestCase):
