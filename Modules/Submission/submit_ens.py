@@ -41,8 +41,8 @@ def extract_declaration_number(payload) -> str | None:
         if isinstance(rec, list):
             rec = rec[0] if rec else {}
     if isinstance(rec, dict):
-        for k in ("declaration_number", "declarationNumber", "ens_number", "header_id",
-                  "headerId", "id", "number"):
+        for k in ("declaration_number", "declarationNumber", "reference", "ens_number",
+                  "header_id", "headerId", "id", "number"):
             v = rec.get(k)
             if v:
                 return str(v)

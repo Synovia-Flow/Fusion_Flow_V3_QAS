@@ -32,7 +32,7 @@ PRS.BKD_ENS_Header_Submission (VALIDATED)
 | `SUBMISSION_ENV` | `TST` | TSS environment (`PRD`\|`TST`) |
 | `SUBMISSION_DRY_RUN` | `1` | `1` = log only (no call); `0` = submit |
 | `SUBMISSION_MOVEMENT_KEY` | *(blank)* | Optional single movement |
-| `SUBMISSION_API_BASE_PATH` | `/x_fhmrc_tss_api/v1` | Path prefix before the endpoint |
+| `SUBMISSION_API_BASE_PATH` | `/x_fhmrc_tss_api/v1/tss_api` | Path prefix before the endpoint |
 
 ## Run (scheduler just runs the scripts)
 

@@ -80,7 +80,8 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
             decl = (r.get("declaration_number") or "").strip()
             try:
                 db.transition("ENS_HEADER", f"MK={mk}", "RECONCILING", "RECONCILING")
-                result = client_api.call("GET", f"{ENDPOINT}/{decl}", None)
+                # TSS header GET is by query param: /tss_api/headers?reference=ENS... (not a path segment)
+                result = client_api.call("GET", f"{ENDPOINT}?reference={decl}", None)
                 db.log_call(process="RECONCILING", resource="Declaration Header", op_type="read",
                             movement_key=mk, declaration_number=decl, result=result)
 
