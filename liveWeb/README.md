@@ -83,8 +83,6 @@ python liveWeb\tools\export_blueprint.py
   and writes `blueprint.json`. Every query is guarded, so inactive clients degrade to
   an onboarding placeholder. Secret-named params are masked.
 
-<<<<<<< HEAD
-=======
 ### Render environment (txt env)
 
 - `render.env.example` (committed, placeholders) is the uploadable template. On Render:
@@ -92,12 +90,41 @@ python liveWeb\tools\export_blueprint.py
   `DB_PASSWORD` as a **secret**.
 - Your real values come from `make_env.py` (writes the gitignored `liveWeb/.env`,
   same `KEY=VALUE` format — upload that file directly).
-- Or declare them in the blueprint: `render.yaml` has a commented API-service block
-  with the `DB_*` vars (`sync: false` → Render prompts for them).
+- Or declare them in the blueprint: `render.yaml` has the `DB_*` vars on the live
+  service (`sync: false` → Render prompts for them).
 
->>>>>>> 13e2a99ce13f90845febbfc80110a65d3f222301
-Because the site is static, "live" means: run `export_blueprint.py` (locally, or as a
-scheduled job / Render cron), commit the refreshed `blueprint.json`, and Render
-auto-deploys. For real-time, the same query layer can be exposed as a tiny read-only
-Render **web service** the portal fetches from — the front-end already fetches
-`blueprint.json` at load and would just point at that endpoint instead.
+Because the site is static, "live" can also mean: run `export_blueprint.py` (locally,
+or as a Render cron), commit the refreshed `blueprint.json`, and Render auto-deploys —
+the low-infra alternative to the API service below.
+
+## Real-time: the live API service (`app.py`)
+
+`app.py` is a small Flask service that serves the **same portal** plus the live
+blueprint from the DB:
+
+| Route | Returns |
+|-------|---------|
+| `GET /` + `/<file>` | the portal + assets |
+| `GET /api/blueprint` | live blueprint built from the DB (30s cache); **falls back** to the committed `blueprint.json` (tagged `source:"static-fallback"`) if the DB is unreachable, so the page always loads |
+| `GET /api/health` | liveness probe |
+
+The front-end tries `/api/blueprint` first, then `blueprint.json`, then its inline
+copy — so the exact same `index.html` works as a static site **or** behind this API.
+
+Run locally:
+```powershell
+python liveWeb\tools\make_env.py     # creates liveWeb\.env
+python liveWeb\app.py                 # http://localhost:8080  (live if the DB is reachable)
+```
+
+Deploy to Render (Frankfurt) — pick ONE service in `render.yaml`:
+- **`synovia-flow-3-portal`** (static) — simplest; no DB needed; refresh via
+  `export_blueprint.py` + commit.
+- **`synovia-flow-3-live`** (Docker) — real-time `/api/blueprint`. The `Dockerfile`
+  bundles the **Microsoft ODBC Driver 18** (pyodbc needs it — not in Render's stock
+  image). Set the `DB_*` env (upload `.env` or the `sync:false` prompts). **The Azure
+  SQL firewall must allow this service's outbound IPs** (Render → Settings shows them),
+  and set `DB_DRIVER={ODBC Driver 18 for SQL Server}`.
+
+> A scheduled `export_blueprint.py` (Render cron) + commit is the low-infra
+> alternative if you'd rather not open the DB firewall to the web service.

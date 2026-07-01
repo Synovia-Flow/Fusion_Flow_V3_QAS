@@ -500,8 +500,9 @@ $('#loginForm').addEventListener('submit',e=>{
   setTimeout(()=>{try{$('#splash').remove();}catch(_){}}, 800);
 });
 
-/* try live blueprint, fall back to inline */
-fetch('blueprint.json',{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject()).then(j=>{BP=j;boot();}).catch(()=>boot());
+/* data source: live API -> static blueprint.json -> inline fallback */
+function load(url,next){return fetch(url,{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject()).then(j=>{BP=j;boot();}).catch(next);}
+load('/api/blueprint',()=>load('blueprint.json',()=>boot()));
 </script>
 </body>
 </html>

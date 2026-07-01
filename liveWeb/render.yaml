@@ -22,31 +22,32 @@ services:
         source: /*
         destination: /index.html
 
-# ---------------------------------------------------------------------------
-# OPTIONAL: read-only API service (the "live DB link" as an endpoint). Uncomment
-# to have Render provision it; the DB connection is declared here (sync:false =
-# Render prompts you for the value on deploy, DB_PASSWORD kept as a secret).
-# Alternatively upload liveWeb/.env via Environment -> "Add from .env".
-# ---------------------------------------------------------------------------
-#  - type: web
-#    name: synovia-flow-3-api
-#    runtime: python
-#    region: frankfurt
-#    rootDir: liveWeb
-#    buildCommand: pip install pyodbc flask gunicorn
-#    startCommand: gunicorn app:app
-#    envVars:
-#      - key: DB_SERVER
-#        sync: false
-#      - key: DB_NAME
-#        value: Fusion_Flow_V3_QAS
-#      - key: DB_USER
-#        sync: false
-#      - key: DB_PASSWORD
-#        sync: false          # set as a secret in the Render dashboard
-#      - key: DB_DRIVER
-#        value: "{ODBC Driver 17 for SQL Server}"
-#      - key: DB_ENCRYPT
-#        value: "yes"
-#      - key: DB_TRUST
-#        value: "no"
+  # -------------------------------------------------------------------------
+  # LIVE edition: serves the SAME portal plus /api/blueprint straight from the
+  # DB (Docker image bundles the Microsoft ODBC driver for pyodbc). Deploy THIS
+  # instead of the static site above for live data. Requires the Azure SQL
+  # firewall to allow this service's outbound IPs. DB_PASSWORD is a secret;
+  # sync:false values are prompted on deploy (or upload liveWeb/.env).
+  # -------------------------------------------------------------------------
+  - type: web
+    name: synovia-flow-3-live
+    runtime: docker
+    region: frankfurt
+    rootDir: liveWeb
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: DB_SERVER
+        sync: false
+      - key: DB_NAME
+        value: Fusion_Flow_V3_QAS
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_DRIVER
+        value: "{ODBC Driver 18 for SQL Server}"
+      - key: DB_ENCRYPT
+        value: "yes"
+      - key: DB_TRUST
+        value: "no"
