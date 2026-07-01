@@ -21,7 +21,7 @@ later module phases.
 | 0 | `000_chg_schema.sql` | `CHG` change-management schema (`Deployment`, `Change_Log`) — deploy audit |
 | 1 | `001_create_schemas.sql` | The 11 schemas: CFG, ING, EXC, LOG, PRS, STG, API, CTL, ARC, SRV, BKD |
 | 2 | `002_cfg_tables.sql` | CFG tables + FKs + indexes |
-| 3 | `003_seed_cfg.sql` | Seed: parameters (incl. integration + documentation roots), clients (BKD active; CWF + PLE inactive), credentials (refs only), per-client folder paths, email rules, API version, BKD Route A process map, 35 choice fields, status vocabulary |
+| 3 | `003_seed_cfg.sql` | Seed: parameters (incl. integration + documentation roots), clients (BKD active; CWD + PLE inactive), credentials (refs only), per-client folder paths, email rules, API version, BKD Route A process map, 35 choice fields, status vocabulary |
 | 4 | `004_exc_log_tables.sql` | EXC spine (`Execution`, `Transaction`, `Error`, `Data_Processing_Enhancement`) + LOG (`Process_Log`, `Error_Log`, `API_Trace`) |
 | 5 | `005_ing_tables.sql` | ING ingestion landing (`Inbound_File`, `Raw_Record`, `Source_Email`) |
 | 6 | `006_seed_graph_params.sql` | Seed Microsoft Graph app config into `CFG.Application_Parameters` (client id, tenant, mailbox, secret **reference**) |
@@ -43,6 +43,7 @@ later module phases.
 | 22 | `022_cfg_value_translation.sql` | Local value translation: `CFG.Value_Translation` lets a **specific file** (or a whole client/field) DEFINE the output code for an incoming value, consulted before the choice-value resolver (most-specific `SourceFile` wins over `'*'`; `MatchMode` CI/EXACT/NORM). Seeds BKD ENS `arrival_port 'Belfast Port'→GBAUBELBELBEL` and `movement_type 'RoRo Accompanied ICS2'→3a`. Applied in `process_engine.py` (`TranslationResolver`). |
 | 23 | `023_cfg_db_snapshot_job.sql` | Registers the full-DB snapshot report: seeds `DB_SNAPSHOT_OUTPUT_DIR` and the `REP_DB_SNAPSHOT_XLSX` job. Fed by `Modules/Global/export_db_snapshot.py` — every base table to one `.xlsx` (a tab per populated table, one "Zero Records" tab, a Summary tab, and a Column Analysis tab). |
 | 24 | `024_cfg_reference_lists_job.sql` | Registers the reference/option-lists export (`REP_REFERENCE_LISTS_XLSX`). Fed by `Modules/Global/export_reference_lists.py` — curated CFG option lists to a separate `.xlsx`, one tab per list (Vocabulary = `Status_Vocabulary`, Clients, Jobs, Choice Fields/Map, Translations, Processing Profiles/Field Map, Carriers, Ingestion Sources, API Versions/Process Map, TSS Environments, Parameters) + an Index of links; secret values masked. |
+| 25 | `025_cfg_alignment_cleanup.sql` | Alignment cleanup: deactivates the superseded `PRS_PROCESS_BKD` / `PRS_STAGE_BKD_ENS` jobs (engine is the live path); consolidates CountryWide to a single code **CWD** (removes the `CWF` duplicate + its empty schema across all CFG tables); standardises `DEFAULT_ENV` → `TST` (matches `CFG.TSS_Environment`); and reconciles the vocabulary — `STAGED` = pre-validation submission staging (SortOrder 45), new `STG_MATERIALISED` (60) for the STG-schema step, and widens the BKD ENS `Fusion_Status` CHECKs to the full movement lifecycle. |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 

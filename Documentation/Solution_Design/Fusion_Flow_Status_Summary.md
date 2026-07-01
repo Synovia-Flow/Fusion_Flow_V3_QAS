@@ -20,25 +20,23 @@ deployed schema is mirrored to `Documentation/DB_Schema.md` on every deploy run.
 | **CTL** | Control |
 | **ARC** | Archive of reconciled terminal records |
 | **SRV** | Serve — cross-client views |
-| **BKD** | Birkdale client schema (CWF / PLE follow the same pattern) |
+| **BKD** | Birkdale client schema (CWD / PLE follow the same pattern) |
 | **CHG** | Deploy audit — `Deployment`, `Change_Log` |
 
 ---
 
 ## 2. Database migration set (canonical, `Configuration/SQL/`)
 
-All 23 scripts (000–022) are idempotent and now consolidated in `Configuration/SQL/`
-as the single source of truth. Deploy with `--source Configuration/SQL` (copies to
-`Archive/<run-stamp>/`, leaving the canonical copy intact).
+All 26 scripts (000–025) are idempotent and consolidated in `Configuration/SQL/`
+as the single source of truth. Stage pending scripts with `stage_queue.py`, then
+`deploy.py` (moves to `Archive/<run-stamp>/`, logs CHG, regenerates `DB_Schema.md`).
 
 | # | File | Deployed? |
 |---|------|-----------|
-| 000–016, 020 | schemas, CFG tables/seed, EXC/LOG, ING, PRS, jobs, BKD ENS tables, choice map/sync/align, error views | ✅ deployed |
-| 017–019 | choice-value widen, commodity-code table, processing map/field-map/carrier | ✅ deployed |
-| **021** | reprocess columns (`ReprocessCount`/`ResolvedAt`/`ResolvedByExecutionID`) + resolved view + reprocess job | ⏳ **pending deploy** |
-| **022** | `CFG.Value_Translation` local translation overrides + BKD seeds | ⏳ **pending deploy** |
+| 000–024 | schemas, CFG seed, EXC/LOG, ING, PRS, jobs, BKD ENS tables, choice map/sync/align, processing map, error views, reprocess, value translation, snapshot + reference-list jobs | ✅ deployed |
+| **025** | alignment cleanup: deactivate superseded jobs, consolidate CountryWide → CWD, `DEFAULT_ENV`→`TST`, vocabulary reconcile + widened `Fusion_Status` CHECKs | ⏳ **pending deploy** |
 
-> The live DB is at **020**. Running the deploy tool applies 021 + 022 and regenerates `DB_Schema.md`.
+> The live DB is at **024**. Staging + deploying 025 applies the cleanup and regenerates `DB_Schema.md`.
 
 ---
 
@@ -55,7 +53,9 @@ as the single source of truth. Deploy with `--source Configuration/SQL` (copies 
 | `REF_FETCH_COMMODITY_CODES` | Global | Refresh ~35k commodity codes → `CFG.Commodity_Code_Cache` | `fetch_commodity_codes` |
 | `PRS_ENGINE_BKD_ENS` | Processing | Config-driven engine: ING → PRS for new BKD ENS rows | `process_engine` |
 | `PRS_REPROCESS_BKD_ENS` | Processing | Re-run already-processed BKD ENS rows, close off resolved errors | `reprocess_engine` |
-| `PRS_PROCESS_BKD` | Processing | Legacy BKD processing entry (superseded by the engine) | — |
+| `REP_DB_SNAPSHOT_XLSX` | Reporting | Full DB → Excel (tab per table, Zero Records, Summary, Column Analysis) | `export_db_snapshot` |
+| `REP_REFERENCE_LISTS_XLSX` | Reporting | Curated CFG option lists → Excel (Vocabulary etc. + Index) | `export_reference_lists` |
+| ~~`PRS_PROCESS_BKD`~~ / ~~`PRS_STAGE_BKD_ENS`~~ | Processing | **Deactivated (025)** — superseded by the engine | — |
 
 All runners are **CLI-free** — driven by `CFG.Application_Parameters`. The scheduler
 just runs `python <script>.py`.
@@ -65,17 +65,23 @@ just runs `python <script>.py`.
 ## 4. Status models
 
 ### 4a. `Fusion_Status` — the per-movement lifecycle (PRS tables)
-`STAGED → VALIDATED → SUBMITTED`, with `REJECTED` (validation failed, reason held)
-and `CANCELLED`. Reprocess moves `REJECTED → VALIDATED` in place and stamps
-`ResolvedAt` so the record leaves the error views.
+`STAGED → VALIDATED → STG_MATERIALISED → READY → SUBMITTING → SUBMITTED`, with
+`REJECTED` (validation failed, reason held) and `CANCELLED`. Here **`STAGED` means
+staged into the client submission table pre-validation** (aligned to the vocabulary
+in migration 025). Reprocess moves `REJECTED → VALIDATED` in place and stamps
+`ResolvedAt` so the record leaves the error views. The `Fusion_Status` CHECK now
+allows the full movement lifecycle (a consistent subset of the vocabulary), not
+just five values.
 
 ### 4b. `CFG.Status_Vocabulary` — the full shared process model
 The end-to-end model every module reports against (terminal/exception flagged):
 
-`INGESTED → NORMALISED → ENRICHED → CONSTRUCTED → VALIDATED` (or `REJECTED`)
-`→ STAGED → READY → LINKED → SUBMITTING → SUBMITTED → ACKNOWLEDGED / IN_PROGRESS
+`INGESTED → NORMALISED → ENRICHED → CONSTRUCTED → STAGED → VALIDATED` (or `REJECTED`)
+`→ STG_MATERIALISED → READY → LINKED → SUBMITTING → SUBMITTED → ACKNOWLEDGED / IN_PROGRESS
 → RECONCILED` (or `MISMATCH`) `→ ARCHIVED`. Exception states: `ERROR`, `ON_HOLD`,
-`CANCELLED`.
+`CANCELLED`. Reference-data refresh: `SYNCING → SYNCED` / `SYNC_FAILED`.
+`STAGED` = staged into the submission table (pre-validation, SortOrder 45);
+`STG_MATERIALISED` = validated record materialised into the STG schema (60).
 
 ---
 
@@ -136,7 +142,8 @@ mapping, add a row with that file's name — it takes precedence.
 
 ## 8. Next-phase candidates
 
-1. **Deploy 021 + 022**, then reprocess the 8 rejected BKD ENS movements to VALIDATED.
-2. Onboard CWF / PLE: seed their `Processing_Profile` + `Field_Map` (no code change).
-3. Build the **STG promotion** step (VALIDATED → `STG`) and the TSS **submission** module (Route A).
+1. **Deploy 025** (alignment cleanup).
+2. Onboard CWD / PLE: seed their `Processing_Profile` + `Field_Map` (no code change).
+3. Build the **STG promotion** step (VALIDATED → `STG_MATERIALISED` into the STG schema)
+   and the TSS **submission** module (Route A), using the now-widened `Fusion_Status`.
 4. Reconcile any orphaned `SYNCING` executions.
