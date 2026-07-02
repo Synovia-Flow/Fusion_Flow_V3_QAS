@@ -1,34 +1,10 @@
-# Render blueprint — Synovia Flow 3 live portal (static site, Frankfurt).
+# Render blueprint — Synovia Flow 3 live portal (Docker web service, Frankfurt).
 # Deploy: Render Dashboard → New → Blueprint → point at this repo. Render reads
-# this file, serves the liveWeb/ folder as a static site in the Frankfurt region.
+# this file and provisions the live portal + /api/blueprint straight from the DB
+# (the Docker image bundles the Microsoft ODBC driver for pyodbc). Requires the
+# Azure SQL firewall to allow this service's outbound IPs. DB_PASSWORD is a
+# secret; sync:false values are prompted on deploy (or upload liveWeb/.env).
 services:
-  - type: web
-    name: synovia-flow-3-portal
-    runtime: static
-    region: frankfurt
-    rootDir: liveWeb
-    staticPublishPath: .
-    pullRequestPreviewsEnabled: true
-    buildCommand: ""
-    headers:
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
-      - path: /*
-        name: Referrer-Policy
-        value: strict-origin-when-cross-origin
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-
-  # -------------------------------------------------------------------------
-  # LIVE edition: serves the SAME portal plus /api/blueprint straight from the
-  # DB (Docker image bundles the Microsoft ODBC driver for pyodbc). Deploy THIS
-  # instead of the static site above for live data. Requires the Azure SQL
-  # firewall to allow this service's outbound IPs. DB_PASSWORD is a secret;
-  # sync:false values are prompted on deploy (or upload liveWeb/.env).
-  # -------------------------------------------------------------------------
   - type: web
     name: synovia-flow-3-live
     runtime: docker
