@@ -1,0 +1,112 @@
+# Render blueprint - Fusion Flow V3 QAS live platform (Frankfurt).
+# ONE Docker image (repo-root Dockerfile) drives every service below; they differ
+# only by dockerCommand. Deploy: Render Dashboard -> New -> Blueprint -> point at
+# this repo (Render auto-detects this file at the repo root).
+#
+#   synovia-flow-3-live   web     the portal + API (gunicorn app:app)         -> Dockerfile CMD
+#   ff-cron-ingestion     cron    pull + load raw ENS / sales orders          every 30m, UK business hrs
+#   ff-cron-processing    cron    transform + validate staged rows (PRS)      after ingestion
+#   ff-cron-mirror        cron    refresh the TSS live mirror (read-back)      hourly
+#   ff-cron-ref-choice    cron    refresh TSS choice values                    weekly
+#   ff-worker             worker  drains EXC.Job_Queue (portal /api/enqueue)   always-on
+#
+# Submission WRITE jobs (promote/submit/update/cancel) are intentionally NOT on a
+# schedule - they run per-movement from the portal (/api/action or /api/enqueue) so a
+# human stays in the loop. All DB_* come from the shared env group; DB_PASSWORD is a
+# secret (sync:false -> prompted on first deploy, or upload liveWeb/.env).
+
+envVarGroups:
+  - name: fusion-db
+    envVars:
+      - key: DB_SERVER
+        sync: false
+      - key: DB_NAME
+        value: Fusion_Flow_V3_QAS
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_DRIVER
+        value: "{ODBC Driver 18 for SQL Server}"
+      - key: DB_ENCRYPT
+        value: "yes"
+      - key: DB_TRUST
+        value: "no"
+
+services:
+  # --- Web: the live portal + API ------------------------------------------
+  - type: web
+    name: synovia-flow-3-live
+    runtime: docker
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - fromGroup: fusion-db
+      # Portal action/enqueue buttons run real jobs/TSS calls - OFF by default.
+      # Set to 1 to let the portal trigger promote/submit/update/cancel/reprocess.
+      - key: PORTAL_ACTIONS_ENABLED
+        value: "0"
+
+  # --- Background worker: drains the job queue ------------------------------
+  - type: worker
+    name: ff-worker
+    runtime: docker
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python Modules/Global/job_worker.py
+    envVars:
+      - fromGroup: fusion-db
+      - key: WORKER_POLL_SECONDS
+        value: "10"
+
+  # --- Cron: ingestion cycle (pull + load raw) -----------------------------
+  # Every 30 min during UK business hours. Schedule is UTC (05-19 UTC ~ 06-20 BST).
+  - type: cron
+    name: ff-cron-ingestion
+    runtime: docker
+    region: frankfurt
+    schedule: "*/30 5-19 * * 1-5"
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python Modules/Ingestion/run_ingestion.py
+    envVars:
+      - fromGroup: fusion-db
+
+  # --- Cron: processing engine (transform + validate) ----------------------
+  - type: cron
+    name: ff-cron-processing
+    runtime: docker
+    region: frankfurt
+    schedule: "10,40 5-19 * * 1-5"
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python Modules/Processing/process_engine.py
+    envVars:
+      - fromGroup: fusion-db
+
+  # --- Cron: refresh the TSS live mirror (read-back, all live movements) ----
+  - type: cron
+    name: ff-cron-mirror
+    runtime: docker
+    region: frankfurt
+    schedule: "0 * * * *"
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python Modules/Submission/mirror_ens.py
+    envVars:
+      - fromGroup: fusion-db
+
+  # --- Cron: refresh TSS choice values (reference data) ---------------------
+  - type: cron
+    name: ff-cron-ref-choice
+    runtime: docker
+    region: frankfurt
+    schedule: "0 3 * * 1"
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: python Modules/Global/fetch_choice_values.py
+    envVars:
+      - fromGroup: fusion-db

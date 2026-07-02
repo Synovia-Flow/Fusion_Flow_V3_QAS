@@ -381,8 +381,9 @@ def validate(rec: dict, fmap: list[dict], resolver: ChoiceResolver,
     return reasons
 
 
-def run(ini_path: Path = DEFAULT_INI, mode: str | None = None) -> int:
-    db = ProcessingDb.connect(load_db_config(ini_path), dry_run=False)
+def run(ini_path: Path = DEFAULT_INI, mode: str | None = None,
+        overrides: dict[str, str] | None = None) -> int:
+    db = ProcessingDb.connect(load_db_config(ini_path), dry_run=False, overrides=overrides)
     client = (db.fetch_parameter("PROCESSING_CLIENT", "BKD") or "BKD").strip().upper()
     entity = (db.fetch_parameter("PROCESSING_ENTITY", "ENS_HEADER") or "ENS_HEADER").strip().upper()
     db.dry_run = (db.fetch_parameter("PROCESSING_DRY_RUN", "0") or "0").strip().lower() in ("1", "true", "yes", "on")

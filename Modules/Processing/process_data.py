@@ -94,12 +94,33 @@ parse_arrival_to_utc = mapping.parse_arrival_to_utc
 # =============================================================================
 # Config (identical shape to ingest.py)
 # =============================================================================
+def _config_from_env() -> dict[str, str] | None:
+    """DB config from DB_* env vars (Render / container). Returns None when DB_SERVER
+    isn't set, so local runs fall back to the .ini. Same var names the portal uses."""
+    if not os.environ.get("DB_SERVER"):
+        return None
+    return {
+        "server": os.environ.get("DB_SERVER", ""),
+        "database": os.environ.get("DB_NAME", ""),
+        "user": os.environ.get("DB_USER", ""),
+        "password": os.environ.get("DB_PASSWORD", ""),
+        "driver": os.environ.get("DB_DRIVER", "{ODBC Driver 18 for SQL Server}"),
+        "encrypt": os.environ.get("DB_ENCRYPT", "yes"),
+        "trust_server_certificate": os.environ.get("DB_TRUST", "no"),
+    }
+
+
 def load_db_config(ini_path: Path) -> dict[str, str]:
-    """Read the [database] section from the gitignored connection .ini."""
+    """DB config from DB_* env (Render) if set, else the [database] section of the
+    gitignored connection .ini (local)."""
+    env = _config_from_env()
+    if env:
+        return env
     if not ini_path.exists():
         raise FileNotFoundError(
-            f"Connection file not found: {ini_path}. "
-            f"Copy Fusion_Flow_QAS.example.ini to Fusion_Flow_QAS.ini and set the password."
+            f"Connection file not found: {ini_path} (and DB_SERVER not set). "
+            f"Copy Fusion_Flow_QAS.example.ini to Fusion_Flow_QAS.ini and set the password, "
+            f"or set the DB_* environment variables."
         )
     parser = configparser.ConfigParser()
     parser.read(ini_path, encoding="utf-8")
@@ -150,19 +171,25 @@ def split_go_batches(script: str) -> list[str]:
 class ProcessingDb:
     """Thin pyodbc adapter for the execution spine, logging, DPE and PRS writes."""
 
-    def __init__(self, connection: Any, dry_run: bool = False):
+    def __init__(self, connection: Any, dry_run: bool = False,
+                 overrides: dict[str, str] | None = None):
         self.conn = connection
         self.dry_run = dry_run
+        # Per-run scope overrides consulted by fetch_parameter() before CFG, so a
+        # caller can scope a single run (movement / mode) without mutating the shared
+        # CFG.Application_Parameters that concurrent or scheduled runs also read.
+        self.overrides: dict[str, str] = dict(overrides or {})
         self.execution_id: int | None = None
         self.transaction_id: str | None = None
         self.enhancement_count = 0
         self._col_cache: dict[str, list[str]] = {}
 
     @classmethod
-    def connect(cls, db: dict[str, str], dry_run: bool = False) -> "ProcessingDb":
+    def connect(cls, db: dict[str, str], dry_run: bool = False,
+                overrides: dict[str, str] | None = None) -> "ProcessingDb":
         import pyodbc  # lazy: only needed when actually talking to the DB
         conn = pyodbc.connect(build_connection_string(db), autocommit=False)
-        return cls(conn, dry_run=dry_run)
+        return cls(conn, dry_run=dry_run, overrides=overrides)
 
     # --- low-level helpers --------------------------------------------------
     def _query(self, sql: str, *params: Any) -> list[dict[str, Any]]:
@@ -188,6 +215,9 @@ class ProcessingDb:
         return rows[0] if rows else None
 
     def fetch_parameter(self, key: str, default: str = "") -> str:
+        if key in self.overrides:                      # per-run scope wins over shared CFG
+            v = self.overrides[key]
+            return v if v is not None else default
         rows = self._query(
             "SELECT ParameterValue FROM CFG.Application_Parameters "
             "WHERE ParameterKey = ? AND IsActive = 1", key)

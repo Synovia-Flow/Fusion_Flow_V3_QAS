@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -49,11 +50,31 @@ ENS_READBACK_FIELDS = [
 ]
 
 
+def _config_from_env() -> dict[str, str] | None:
+    """DB config from DB_* env vars (Render / container). Returns None when DB_SERVER
+    isn't set, so local runs fall back to the .ini. Same var names the portal uses."""
+    if not os.environ.get("DB_SERVER"):
+        return None
+    return {
+        "server": os.environ.get("DB_SERVER", ""),
+        "database": os.environ.get("DB_NAME", ""),
+        "user": os.environ.get("DB_USER", ""),
+        "password": os.environ.get("DB_PASSWORD", ""),
+        "driver": os.environ.get("DB_DRIVER", "{ODBC Driver 18 for SQL Server}"),
+        "encrypt": os.environ.get("DB_ENCRYPT", "yes"),
+        "trust_server_certificate": os.environ.get("DB_TRUST", "no"),
+    }
+
+
 def load_db_config(ini_path: Path) -> dict[str, str]:
+    env = _config_from_env()          # env (Render) wins; else the gitignored .ini (local)
+    if env:
+        return env
     if not ini_path.exists():
         raise FileNotFoundError(
-            f"Connection file not found: {ini_path}. Copy Fusion_Flow_QAS.example.ini "
-            f"to Fusion_Flow_QAS.ini and set the password.")
+            f"Connection file not found: {ini_path} (and DB_SERVER not set). Copy "
+            f"Fusion_Flow_QAS.example.ini to Fusion_Flow_QAS.ini and set the password, "
+            f"or set the DB_* environment variables.")
     cp = configparser.ConfigParser()
     cp.read(ini_path, encoding="utf-8")
     if "database" not in cp:
@@ -77,9 +98,15 @@ def _conn_str(db: dict[str, str]) -> str:
 
 
 class SubmissionDb:
-    def __init__(self, conn: Any, dry_run: bool = False):
+    def __init__(self, conn: Any, dry_run: bool = False,
+                 overrides: dict[str, str] | None = None):
         self.conn = conn
         self.dry_run = dry_run
+        # Per-run scope overrides. When set, param() returns these INSTEAD of the
+        # shared CFG.Application_Parameters row, so a caller (e.g. the portal running
+        # one movement) can scope a run without mutating global config that a
+        # concurrent run / scheduled batch also reads. Empty => pure CFG behaviour.
+        self.overrides: dict[str, str] = dict(overrides or {})
         self.execution_id: int | None = None
         self.transaction_id: str | None = None
         self.env_code: str = "TST"
@@ -87,9 +114,11 @@ class SubmissionDb:
         self._cols: dict[str, list[str]] = {}
 
     @classmethod
-    def connect(cls, db: dict[str, str], dry_run: bool = False) -> "SubmissionDb":
+    def connect(cls, db: dict[str, str], dry_run: bool = False,
+                overrides: dict[str, str] | None = None) -> "SubmissionDb":
         import pyodbc
-        return cls(pyodbc.connect(_conn_str(db), autocommit=False), dry_run=dry_run)
+        return cls(pyodbc.connect(_conn_str(db), autocommit=False),
+                   dry_run=dry_run, overrides=overrides)
 
     # --- low level ----------------------------------------------------------
     def q(self, sql: str, *params: Any) -> list[dict[str, Any]]:
@@ -115,6 +144,9 @@ class SubmissionDb:
         return self._cols[key]
 
     def param(self, key: str, default: str = "") -> str:
+        if key in self.overrides:                      # per-run scope wins over shared CFG
+            v = self.overrides[key]
+            return v if v is not None else default
         rows = self.q("SELECT ParameterValue FROM CFG.Application_Parameters "
                       "WHERE ParameterKey = ? AND IsActive = 1", key)
         return rows[0]["ParameterValue"] if rows and rows[0]["ParameterValue"] is not None else default

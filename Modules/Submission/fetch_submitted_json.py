@@ -43,8 +43,9 @@ def _safe(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", (name or "").strip()) or "unknown"
 
 
-def run(ini_path: Path = DEFAULT_INI, output_override: str | None = None) -> int:
-    db = SubmissionDb.connect(load_db_config(ini_path))
+def run(ini_path: Path = DEFAULT_INI, output_override: str | None = None,
+        overrides: dict[str, str] | None = None) -> int:
+    db = SubmissionDb.connect(load_db_config(ini_path), overrides=overrides)
     client = (db.param("SUBMISSION_CLIENT", "BKD") or "BKD").strip().upper()
     env = (db.param("SUBMISSION_ENV", "TST") or "TST").strip().upper()
     base_path = (db.param("SUBMISSION_API_BASE_PATH", "/x_fhmrc_tss_api/v1/tss_api") or "").strip()

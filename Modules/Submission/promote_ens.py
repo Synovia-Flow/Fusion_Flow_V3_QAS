@@ -22,8 +22,8 @@ except Exception:  # pragma: no cover
 CLIENT_DEFAULT, ENTITY_DEFAULT = "BKD", "ENS_HEADER"
 
 
-def run(ini_path: Path = DEFAULT_INI) -> int:
-    db = SubmissionDb.connect(load_db_config(ini_path))
+def run(ini_path: Path = DEFAULT_INI, overrides: dict[str, str] | None = None) -> int:
+    db = SubmissionDb.connect(load_db_config(ini_path), overrides=overrides)
     client = (db.param("SUBMISSION_CLIENT", CLIENT_DEFAULT) or CLIENT_DEFAULT).strip().upper()
     env = (db.param("SUBMISSION_ENV", "TST") or "TST").strip().upper()
     target_mk = (db.param("SUBMISSION_MOVEMENT_KEY", "") or "").strip()

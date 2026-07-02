@@ -9,6 +9,13 @@ Clients / Submissions / Admin. Montserrat throughout; refreshed "Flow 3" palette
 Static and self-contained — no build step, no framework, no external JS. It loads
 Montserrat from Google Fonts (with a system fallback) and renders all charts by hand.
 
+> **Deploying the full platform (portal + jobs + worker)?** Use the repo-root
+> **`render.yaml`** and **`Dockerfile`**, not the ones in this folder. The root image
+> bundles `Modules/` so the portal's action/enqueue buttons, the cron jobs and the
+> background worker all work. `liveWeb/render.yaml` here deploys only the read-only
+> portal (portal + `/api/blueprint`); its image has no `Modules/`, so `/api/action`
+> and `/api/enqueue` won't run there. See the repo root `README`/`render.yaml`.
+
 ## Structure
 
 | File | Purpose |

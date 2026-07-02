@@ -33,8 +33,8 @@ def _truthy(s: str) -> bool:
     return (s or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def run(ini_path: Path = DEFAULT_INI) -> int:
-    db = SubmissionDb.connect(load_db_config(ini_path))
+def run(ini_path: Path = DEFAULT_INI, overrides: dict[str, str] | None = None) -> int:
+    db = SubmissionDb.connect(load_db_config(ini_path), overrides=overrides)
     client = (db.param("SUBMISSION_CLIENT", "BKD") or "BKD").strip().upper()
     env = (db.param("SUBMISSION_ENV", "TST") or "TST").strip().upper()
     dry_run = _truthy(db.param("SUBMISSION_DRY_RUN", "1"))

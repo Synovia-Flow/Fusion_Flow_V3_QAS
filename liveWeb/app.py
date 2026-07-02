@@ -43,14 +43,18 @@ _cache = {"ts": 0.0, "data": None}
 
 # Portal actions run real jobs / TSS calls, so they are OFF unless explicitly enabled.
 ACTIONS_ON = os.environ.get("PORTAL_ACTIONS_ENABLED", "").lower() in ("1", "true", "yes", "on")
-# verb -> (runner module, the CFG param that scopes it to one movement)
+# verb -> (runner module, the param that scopes it to one movement, extra per-run overrides)
+# Passed to run(overrides=...) as an in-memory scope the runner reads INSTEAD of the
+# shared CFG.Application_Parameters, so concurrent portal actions (and a scheduled batch
+# running at the same time) can't clobber each other's scope.
 VERB = {
-    "promote":   ("promote_ens", "SUBMISSION_MOVEMENT_KEY"),
-    "submit":    ("submit_ens", "SUBMISSION_MOVEMENT_KEY"),
-    "mirror":    ("mirror_ens", "SUBMISSION_MOVEMENT_KEY"),
-    "update":    ("update_ens", "SUBMISSION_MOVEMENT_KEY"),
-    "cancel":    ("cancel_ens", "SUBMISSION_MOVEMENT_KEY"),
-    "reprocess": ("reprocess_engine", "PROCESSING_MOVEMENT_KEY"),
+    "promote":   ("promote_ens",      "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "submit":    ("submit_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "mirror":    ("mirror_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "update":    ("update_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "cancel":    ("cancel_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    # reprocess runs the processing engine in REPROCESS mode for the one movement.
+    "reprocess": ("reprocess_engine", "PROCESSING_MOVEMENT_KEY", {"PROCESSING_MODE": "REPROCESS"}),
 }
 EDITABLE = {"movement_type", "type_of_passive_transport", "identity_no_of_transport",
             "nationality_of_transport", "conveyance_ref", "arrival_date_time", "arrival_port",
@@ -110,22 +114,14 @@ def api_action(verb):
     mk = (request.args.get("mk") or (request.get_json(silent=True) or {}).get("mk") or "").strip()
     if not mk:
         return jsonify({"ok": False, "error": "mk (MovementKey) required"}), 400
-    module_name, mk_param = VERB[verb]
+    module_name, mk_param, extra = VERB[verb]
+    # Per-run scope passed straight into the runner — NO shared CFG mutation, so two
+    # concurrent actions (or a scheduled batch) can't overwrite each other's movement key.
+    overrides = {mk_param: mk, **extra}
     conn = _connect(); cur = conn.cursor()
-
-    def getp(k):
-        r = cur.execute("SELECT ParameterValue FROM CFG.Application_Parameters WHERE ParameterKey=?", k).fetchone()
-        return r[0] if r else None
-
-    def setp(k, v):
-        cur.execute("UPDATE CFG.Application_Parameters SET ParameterValue=? WHERE ParameterKey=?", v, k)
-
-    old_mk, old_max = getp(mk_param), getp("SUBMISSION_MAX_ROWS")
     try:
-        setp(mk_param, mk)
-        setp("SUBMISSION_MAX_ROWS", "1")
         mod = importlib.import_module(module_name)
-        code = mod.run()
+        code = mod.run(overrides=overrides)
         row = cur.execute("SELECT Fusion_Status, Tss_Status, declaration_number "
                           "FROM STG.BKD_ENS_Header WHERE MovementKey=?", mk).fetchone()
         status = {"fusion": row[0], "tss": row[1], "decl": row[2]} if row else None
@@ -133,9 +129,33 @@ def api_action(verb):
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "verb": verb, "mk": mk, "error": str(e)}), 500
     finally:
-        if old_mk is not None:
-            setp(mk_param, old_mk)
-        setp("SUBMISSION_MAX_ROWS", old_max if old_max is not None else "0")
+        conn.close()
+
+
+@app.route("/api/enqueue/<verb>", methods=["POST"])
+def api_enqueue(verb):
+    """Queue a job for the background worker instead of running it in the web process.
+    Writes a PENDING row to EXC.Job_Queue; Modules/Global/job_worker.py polls it, runs
+    the same runner with per-run scope, and records the outcome. Use this for batches or
+    long runs so the request returns immediately (202). Same PORTAL_ACTIONS_ENABLED gate."""
+    if not ACTIONS_ON:
+        return jsonify({"ok": False, "disabled": True,
+                        "error": "Portal actions are disabled. Set PORTAL_ACTIONS_ENABLED=1 on the service."}), 403
+    if verb not in VERB:
+        abort(404)
+    mk = (request.args.get("mk") or (request.get_json(silent=True) or {}).get("mk") or "").strip()
+    if not mk:
+        return jsonify({"ok": False, "error": "mk (MovementKey) required"}), 400
+    conn = _connect(); cur = conn.cursor()
+    try:
+        row = cur.execute(
+            "INSERT INTO EXC.Job_Queue (Verb, MovementKey, Status, RequestedBy) "
+            "OUTPUT INSERTED.QueueID VALUES (?, ?, 'PENDING', ?)",
+            verb, mk, (request.headers.get("X-Forwarded-For") or "portal")[:100]).fetchone()
+        return jsonify({"ok": True, "queued": True, "queueId": int(row[0]), "verb": verb, "mk": mk}), 202
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
         conn.close()
 
 

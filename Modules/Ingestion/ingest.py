@@ -44,12 +44,33 @@ MODULE_NAME = "INGESTION"
 # =============================================================================
 # Config
 # =============================================================================
+def _config_from_env() -> dict[str, str] | None:
+    """DB config from DB_* env vars (Render / container). Returns None when DB_SERVER
+    isn't set, so local runs fall back to the .ini. Same var names the portal uses."""
+    if not os.environ.get("DB_SERVER"):
+        return None
+    return {
+        "server": os.environ.get("DB_SERVER", ""),
+        "database": os.environ.get("DB_NAME", ""),
+        "user": os.environ.get("DB_USER", ""),
+        "password": os.environ.get("DB_PASSWORD", ""),
+        "driver": os.environ.get("DB_DRIVER", "{ODBC Driver 18 for SQL Server}"),
+        "encrypt": os.environ.get("DB_ENCRYPT", "yes"),
+        "trust_server_certificate": os.environ.get("DB_TRUST", "no"),
+    }
+
+
 def load_db_config(ini_path: Path) -> dict[str, str]:
-    """Read the [database] section from the gitignored connection .ini."""
+    """DB config from DB_* env (Render) if set, else the [database] section of the
+    gitignored connection .ini (local)."""
+    env = _config_from_env()
+    if env:
+        return env
     if not ini_path.exists():
         raise FileNotFoundError(
-            f"Connection file not found: {ini_path}. "
-            f"Copy Fusion_Flow_QAS.example.ini to Fusion_Flow_QAS.ini and set the password."
+            f"Connection file not found: {ini_path} (and DB_SERVER not set). "
+            f"Copy Fusion_Flow_QAS.example.ini to Fusion_Flow_QAS.ini and set the password, "
+            f"or set the DB_* environment variables."
         )
     parser = configparser.ConfigParser()
     parser.read(ini_path, encoding="utf-8")
