@@ -1630,16 +1630,16 @@ button:disabled { cursor: default; }
 .preview-details-button .material-symbols-outlined { font-size: 18px; }
 .preview-modal-backdrop {
   position: fixed;
-  inset: 0;
+  inset: var(--appbar-height) 0 0;
   z-index: 60;
   background: rgba(15, 23, 42, .48);
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 16px 24px 24px;
 }
 .preview-modal {
   width: min(1480px, calc(100vw - 48px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - var(--appbar-height) - 40px);
   overflow: hidden;
   border-radius: 10px;
   background: #fff;
@@ -2094,7 +2094,7 @@ button:disabled { cursor: default; }
 }
 @media (max-width: 900px) {
   .preview-modal-backdrop { padding: 10px; }
-  .preview-modal { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
+  .preview-modal { width: calc(100vw - 20px); max-height: calc(100vh - var(--appbar-height) - 20px); }
   .preview-summary-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; }
   .preview-modal-body { grid-template-columns: 1fr; }
   .preview-consignment-list {
