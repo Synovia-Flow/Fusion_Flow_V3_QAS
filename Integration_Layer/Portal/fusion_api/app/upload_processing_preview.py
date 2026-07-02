@@ -24,6 +24,7 @@ GOODS_ATTENTION_FIELDS = GOODS_REQUIRED_FIELDS + ("net_mass_kg", "commodity_code
 CONTROLLED_GOODS_ASSUMPTION = {
     "source": "assumption",
     "label": "ASSUMPTION",
+    "assumption": True,
     "reason": "No controlled_goods value was mapped from the source file; defaulted to no for preview.",
 }
 
@@ -142,6 +143,16 @@ FIELD_NAME_COLUMNS = ("api_field", "field", "target_field", "api field", "target
 _PREFIX_RE = re.compile(r"^(prs)?(consignment|goodsitem|goods_item|goods|item|items)[._\-\s:]+", re.I)
 _GOODS_INDEX_RE = re.compile(r"(?:goods(?:_item)?|item|items)[._\-\s\[]*(\d+)", re.I)
 _TRAILING_INDEX_RE = re.compile(r"(?:^|[._\-\s])(?:line|row|item)[._\-\s]*(\d+)(?:$|[._\-\s])", re.I)
+
+
+def _assumption_source(source: str, reason: str, **extra: Any) -> dict[str, Any]:
+    return {
+        "source": source,
+        "label": "ASSUMPTION",
+        "assumption": True,
+        "reason": reason,
+        **extra,
+    }
 
 
 def _column_lookup(row: dict[str, Any]) -> dict[str, str]:
@@ -356,7 +367,7 @@ def _fields_payload(
         if required and compact(value) is None:
             missing_required.append(field)
         source = sources.get(field)
-        if (source or {}).get("source") == "assumption":
+        if (source or {}).get("assumption") or (source or {}).get("source") == "assumption":
             field_issues.append({
                 "severity": "warning",
                 "message": (source or {}).get("reason") or f"{FIELD_LABELS.get(field, field)} was assumed for preview.",
@@ -471,14 +482,21 @@ def _split_groups(groups: list[dict[str, Any]], demo_ens: dict[str, Any] | None)
         base_sources = dict(group.get("sources") or {})
         if demo_ens and compact(base_values.get("declaration_number")) is None:
             base_values["declaration_number"] = demo_ens.get("declaration_number") or demo_ens.get("declarationNumber")
-            base_sources["declaration_number"] = {"source": "demoEns"}
+            base_sources["declaration_number"] = _assumption_source(
+                "demoEns",
+                "Demo ENS supplied by Synovia demo mode; confirm before live TSS processing.",
+            )
         _apply_consignment_assumptions(base_values, base_sources)
         goods_items = list(group.get("goods") or [])
         if compact(base_values.get("goods_description")) is None and goods_items:
             first_description = goods_items[0].get("values", {}).get("goods_description")
             if compact(first_description) is not None:
                 base_values["goods_description"] = first_description
-                base_sources["goods_description"] = goods_items[0].get("sources", {}).get("goods_description", {"source": "firstGoodsItem"})
+                base_sources["goods_description"] = _assumption_source(
+                    "firstGoodsItem",
+                    "No consignment description was mapped; copied the first goods item description for preview.",
+                    originalSource=goods_items[0].get("sources", {}).get("goods_description"),
+                )
         chunks = [goods_items[index:index + MAX_GOODS_PER_CONSIGNMENT] for index in range(0, len(goods_items), MAX_GOODS_PER_CONSIGNMENT)] or [[]]
         part_count = len(chunks)
         group_key = clean_cell(group.get("groupKey"))
@@ -489,10 +507,17 @@ def _split_groups(groups: list[dict[str, Any]], demo_ens: dict[str, Any] | None)
             if part_count > 1:
                 values["original_consignment_number"] = original_number
                 values["consignment_number"] = f"{original_number}-{part_index:02d}"
-                sources["consignment_number"] = {"source": "splitRule", "originalValue": original_number}
+                sources["consignment_number"] = _assumption_source(
+                    "splitRule",
+                    f"Generated split consignment reference from {original_number} because TSS allows {MAX_GOODS_PER_CONSIGNMENT} goods rows per consignment.",
+                    originalValue=original_number,
+                )
             elif compact(values.get("consignment_number")) is None:
                 values["consignment_number"] = original_number
-                sources["consignment_number"] = {"source": "previewGenerated"}
+                sources["consignment_number"] = _assumption_source(
+                    "previewGenerated",
+                    "Generated a preview consignment reference because no consignment reference was mapped.",
+                )
             output.append({
                 "values": values,
                 "sources": sources,
@@ -527,7 +552,16 @@ def _merge_default_groups(data_groups: list[dict[str, Any]], default_groups: lis
             default_values = default.get("values") or {}
             default_sources = default.get("sources") or {}
             for field, value in default_values.items():
-                _assign_first(group["values"], group["sources"], field, value, default_sources.get(field, {"source": "workbookDefault"}))
+                _assign_first(
+                    group["values"],
+                    group["sources"],
+                    field,
+                    value,
+                    default_sources.get(
+                        field,
+                        _assumption_source("workbookDefault", "Workbook default applied because this field was not present on the data row."),
+                    ),
+                )
             if not group.get("goods") and default.get("goods"):
                 group["goods"].extend(default.get("goods") or [])
     return data_groups

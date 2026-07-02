@@ -733,10 +733,14 @@ function previewIssuesForField(field, value) {
   return issues;
 }
 
+function isAssumptionSource(source) {
+  return Boolean(source?.assumption || source?.source === 'assumption');
+}
+
 function editablePreviewField(field, value) {
   const nextValue = isPreviewMissing(value) ? null : value;
   const issues = previewIssuesForField(field, nextValue);
-  const source = field.source?.source === 'assumption' && nextValue !== field.value
+  const source = isAssumptionSource(field.source) && nextValue !== field.value
     ? { source: 'manualEdit', label: 'EDITED', reason: 'Edited in preview.' }
     : field.source;
   return {
@@ -836,7 +840,7 @@ function buildEditablePayloadPreview(selected) {
 
 function previewSourceLabel(source) {
   if (!source) return '';
-  if (source.source === 'assumption') return source.reason || source.label || 'Assumed default';
+  if (isAssumptionSource(source)) return source.reason || source.label || 'Assumed default';
   if (source.source === 'manualEdit') return source.reason || 'Edited in preview.';
   return source.source || source.sourceColumn || source.apiField || 'mapped';
 }
@@ -847,7 +851,7 @@ function PreviewFieldGrid({ fields = [], onChange }) {
       {fields.map((field) => {
         const hasError = (field.issues || []).some((issue) => issue.severity === 'error');
         const hasWarning = (field.issues || []).some((issue) => issue.severity === 'warning');
-        const isAssumption = field.source?.source === 'assumption';
+        const isAssumption = isAssumptionSource(field.source);
         const className = ['preview-field', field.missing ? 'is-missing' : '', hasError ? 'has-error' : '', hasWarning ? 'has-warning' : '', isAssumption ? 'has-assumption' : ''].filter(Boolean).join(' ');
         return (
           <label className={className} key={field.field}>

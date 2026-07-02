@@ -179,6 +179,44 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertIn("processingPreview", payload)
         self.assertFalse(payload["processingPreview"]["summary"]["databaseWrite"])
         self.assertFalse(payload["processingPreview"]["summary"]["tssWrite"])
+        consignment = payload["processingPreview"]["consignments"][0]
+        declaration_field = next(field for field in consignment["fields"] if field["field"] == "declaration_number")
+        self.assertEqual(declaration_field["source"]["source"], "demoEns")
+        self.assertTrue(declaration_field["source"]["assumption"])
+
+    def test_demo_mode_labels_generated_preview_values_as_assumptions(self):
+        manifest = "\n".join([
+            "api_field,source_value",
+            "transport_document_number,TDN-GENERATED-1",
+            "controlled_goods,no",
+            "consignor_eori,XI111111111000",
+            "consignee_eori,GB222222222000",
+            "importer_eori,XI333333333000",
+            "exporter_eori,XI444444444000",
+            "PRS.Goods_Item[1].goods_description,Goods-only description",
+            "PRS.Goods_Item[1].type_of_packages,PK",
+            "PRS.Goods_Item[1].number_of_packages,1",
+            "PRS.Goods_Item[1].package_marks,ADDR",
+            "PRS.Goods_Item[1].gross_mass_kg,10.00",
+        ]).encode("utf-8")
+
+        payload = portal_main.upload_consignment_preview(
+            client_code="PLE",
+            files=[upload_file("generated-assumptions.csv", manifest)],
+            demo_mode=True,
+        )
+
+        consignment = payload["processingPreview"]["consignments"][0]
+        fields = {field["field"]: field for field in consignment["fields"]}
+        self.assertEqual(consignment["values"]["consignment_number"], "PREVIEW-001")
+        self.assertEqual(consignment["values"]["goods_description"], "Goods-only description")
+        self.assertEqual(fields["declaration_number"]["source"]["source"], "demoEns")
+        self.assertTrue(fields["declaration_number"]["source"]["assumption"])
+        self.assertEqual(fields["consignment_number"]["source"]["source"], "previewGenerated")
+        self.assertTrue(fields["consignment_number"]["source"]["assumption"])
+        self.assertEqual(fields["goods_description"]["source"]["source"], "firstGoodsItem")
+        self.assertTrue(fields["goods_description"]["source"]["assumption"])
+        self.assertEqual(fields["goods_description"]["source"]["originalSource"]["apiField"], "PRS.Goods_Item[1].goods_description")
 
     def test_demo_mode_maps_api_field_value_manifest_to_consignment_and_goods(self):
         manifest = "\n".join([
@@ -382,6 +420,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(consignment["values"]["controlled_goods"], "no")
         controlled_field = next(field for field in consignment["fields"] if field["field"] == "controlled_goods")
         self.assertEqual(controlled_field["source"]["source"], "assumption")
+        self.assertTrue(controlled_field["source"]["assumption"])
         self.assertEqual(consignment["goodsItems"][0]["values"]["package_marks"], "6PC073421A")
         self.assertEqual(consignment["goodsItems"][1]["values"]["package_marks"], "8KS000880A")
         self.assertEqual(consignment["goodsItems"][0]["status"], "READY")
@@ -591,6 +630,9 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         first, second = preview["consignments"]
         self.assertEqual(first["values"]["consignment_number"], "GVT1606Test3-01")
         self.assertEqual(second["values"]["consignment_number"], "GVT1606Test3-02")
+        split_field = next(field for field in first["fields"] if field["field"] == "consignment_number")
+        self.assertEqual(split_field["source"]["source"], "splitRule")
+        self.assertTrue(split_field["source"]["assumption"])
         self.assertEqual(first["split"]["originalConsignmentNumber"], "GVT1606Test3")
         self.assertEqual(first["goodsItemCount"], 99)
         self.assertEqual(second["goodsItemCount"], 61)
@@ -599,6 +641,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(first["values"]["controlled_goods"], "no")
         controlled_field = next(field for field in first["fields"] if field["field"] == "controlled_goods")
         self.assertEqual(controlled_field["source"]["source"], "assumption")
+        self.assertTrue(controlled_field["source"]["assumption"])
         self.assertIn("consignee_eori", first["missingRequired"])
         self.assertIn("consignee_city", first["missingRequired"])
         self.assertIn("consignee_postcode", first["missingRequired"])
