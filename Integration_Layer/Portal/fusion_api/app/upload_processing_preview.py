@@ -21,6 +21,11 @@ GOODS_REQUIRED_FIELDS = (
     "goods_description",
 )
 GOODS_ATTENTION_FIELDS = GOODS_REQUIRED_FIELDS + ("net_mass_kg", "commodity_code")
+CONTROLLED_GOODS_ASSUMPTION = {
+    "source": "assumption",
+    "label": "ASSUMPTION",
+    "reason": "No controlled_goods value was mapped from the source file; defaulted to no for preview.",
+}
 
 CONSIGNMENT_DISPLAY_FIELDS = (
     "declaration_number",
@@ -350,6 +355,12 @@ def _fields_payload(
         field_issues = _field_issue(scope, field, value, required)
         if required and compact(value) is None:
             missing_required.append(field)
+        source = sources.get(field)
+        if (source or {}).get("source") == "assumption":
+            field_issues.append({
+                "severity": "warning",
+                "message": (source or {}).get("reason") or f"{FIELD_LABELS.get(field, field)} was assumed for preview.",
+            })
         for issue in field_issues:
             issues.append({"field": field, "label": FIELD_LABELS.get(field, field), **issue})
         is_blank = compact(value) is None
@@ -360,7 +371,7 @@ def _fields_payload(
             "required": required,
             "missing": required and is_blank,
             "blank": is_blank,
-            "source": sources.get(field),
+            "source": source,
             "issues": field_issues,
         })
     return fields, missing_required, issues
@@ -447,6 +458,12 @@ def _wide_row_preview(rows: list[dict[str, Any]], *, source_sheet: str | None = 
     return list(groups.values()), unmatched, matched
 
 
+def _apply_consignment_assumptions(values: dict[str, Any], sources: dict[str, dict[str, Any]]) -> None:
+    if compact(values.get("controlled_goods")) is None:
+        values["controlled_goods"] = "no"
+        sources["controlled_goods"] = dict(CONTROLLED_GOODS_ASSUMPTION)
+
+
 def _split_groups(groups: list[dict[str, Any]], demo_ens: dict[str, Any] | None) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
     for group_index, group in enumerate(groups, 1):
@@ -455,6 +472,7 @@ def _split_groups(groups: list[dict[str, Any]], demo_ens: dict[str, Any] | None)
         if demo_ens and compact(base_values.get("declaration_number")) is None:
             base_values["declaration_number"] = demo_ens.get("declaration_number") or demo_ens.get("declarationNumber")
             base_sources["declaration_number"] = {"source": "demoEns"}
+        _apply_consignment_assumptions(base_values, base_sources)
         goods_items = list(group.get("goods") or [])
         if compact(base_values.get("goods_description")) is None and goods_items:
             first_description = goods_items[0].get("values", {}).get("goods_description")

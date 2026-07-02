@@ -1926,6 +1926,30 @@ button:disabled { cursor: default; }
   border-color: #fde68a;
   background: #fffbeb;
 }
+.preview-field.has-assumption {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+.preview-source-assumption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.preview-source-assumption em {
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+.preview-source-assumption span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .preview-goods-table-wrap {
   border: 1px solid #dbe4ef;
   border-radius: 8px;
@@ -2090,6 +2114,14 @@ button:disabled { cursor: default; }
 .app-shell[data-theme="dark"] .preview-split-note {
   background: rgba(30, 64, 175, .22);
   border-color: rgba(96, 165, 250, .4);
+  color: #bfdbfe;
+}
+.app-shell[data-theme="dark"] .preview-field.has-assumption {
+  background: rgba(30, 64, 175, .2);
+  border-color: rgba(96, 165, 250, .45);
+}
+.app-shell[data-theme="dark"] .preview-source-assumption em {
+  background: rgba(96, 165, 250, .22);
   color: #bfdbfe;
 }
 @media (max-width: 900px) {

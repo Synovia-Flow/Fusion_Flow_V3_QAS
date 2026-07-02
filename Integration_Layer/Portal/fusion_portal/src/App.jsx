@@ -736,11 +736,15 @@ function previewIssuesForField(field, value) {
 function editablePreviewField(field, value) {
   const nextValue = isPreviewMissing(value) ? null : value;
   const issues = previewIssuesForField(field, nextValue);
+  const source = field.source?.source === 'assumption' && nextValue !== field.value
+    ? { source: 'manualEdit', label: 'EDITED', reason: 'Edited in preview.' }
+    : field.source;
   return {
     ...field,
     value: nextValue,
     missing: Boolean(field.required) && isPreviewMissing(nextValue),
     blank: isPreviewMissing(nextValue),
+    source,
     issues,
   };
 }
@@ -830,13 +834,21 @@ function buildEditablePayloadPreview(selected) {
   };
 }
 
+function previewSourceLabel(source) {
+  if (!source) return '';
+  if (source.source === 'assumption') return source.reason || source.label || 'Assumed default';
+  if (source.source === 'manualEdit') return source.reason || 'Edited in preview.';
+  return source.source || source.sourceColumn || source.apiField || 'mapped';
+}
+
 function PreviewFieldGrid({ fields = [], onChange }) {
   return (
     <div className="preview-field-grid">
       {fields.map((field) => {
         const hasError = (field.issues || []).some((issue) => issue.severity === 'error');
         const hasWarning = (field.issues || []).some((issue) => issue.severity === 'warning');
-        const className = ['preview-field', field.missing ? 'is-missing' : '', hasError ? 'has-error' : '', hasWarning ? 'has-warning' : ''].filter(Boolean).join(' ');
+        const isAssumption = field.source?.source === 'assumption';
+        const className = ['preview-field', field.missing ? 'is-missing' : '', hasError ? 'has-error' : '', hasWarning ? 'has-warning' : '', isAssumption ? 'has-assumption' : ''].filter(Boolean).join(' ');
         return (
           <label className={className} key={field.field}>
             <span>{field.label}{field.required ? '*' : ''}</span>
@@ -848,7 +860,12 @@ function PreviewFieldGrid({ fields = [], onChange }) {
               placeholder="Missing"
               onChange={(event) => onChange?.(field.field, event.target.value)}
             />
-            {field.source && <small>{field.source.source || field.source.sourceColumn || field.source.apiField || 'mapped'}</small>}
+            {field.source && (
+              <small className={isAssumption ? 'preview-source-assumption' : ''}>
+                {isAssumption && <em>ASSUMPTION</em>}
+                <span>{previewSourceLabel(field.source)}</span>
+              </small>
+            )}
           </label>
         );
       })}
