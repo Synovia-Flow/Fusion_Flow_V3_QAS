@@ -47,11 +47,30 @@ TITLE_FILL = "0F243E"
 # --------------------------------------------------------------------------- #
 # Connection
 # --------------------------------------------------------------------------- #
+def _config_from_env() -> dict[str, str] | None:
+    """DB config from DB_* env vars (Render / container / venv); None if DB_SERVER unset."""
+    if not os.environ.get("DB_SERVER"):
+        return None
+    return {
+        "server": os.environ.get("DB_SERVER", ""),
+        "database": os.environ.get("DB_NAME", ""),
+        "user": os.environ.get("DB_USER", ""),
+        "password": os.environ.get("DB_PASSWORD", ""),
+        "driver": os.environ.get("DB_DRIVER", "{ODBC Driver 18 for SQL Server}"),
+        "encrypt": os.environ.get("DB_ENCRYPT", "yes"),
+        "trust_server_certificate": os.environ.get("DB_TRUST", "no"),
+    }
+
+
 def load_db_config(ini_path: Path) -> dict[str, str]:
+    env = _config_from_env()          # env wins; else the gitignored .ini (local)
+    if env:
+        return env
     if not ini_path.exists():
         raise FileNotFoundError(
-            f"Connection file not found: {ini_path}. "
-            f"Copy Fusion_Flow_QAS.example.ini to Fusion_Flow_QAS.ini and set the password.")
+            f"Connection file not found: {ini_path} (and DB_SERVER not set). "
+            f"Copy Fusion_Flow_QAS.example.ini to Fusion_Flow_QAS.ini and set the password, "
+            f"or set the DB_* environment variables.")
     parser = configparser.ConfigParser()
     parser.read(ini_path, encoding="utf-8")
     if "database" not in parser:
