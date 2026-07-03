@@ -449,8 +449,8 @@ function LoginCard({ onLogin }) {
         </label>
         {loginState.status === 'error' && <div className="login-error">{loginState.error}</div>}
         <button className="submit-button" type="submit" disabled={isCheckingLogin} aria-busy={isCheckingLogin}>
-          {isCheckingLogin && <span className="button-spinner" aria-hidden="true" />}
           <span>{isCheckingLogin ? 'Checking' : 'Login'}</span>
+          {isCheckingLogin && <span className="button-spinner" aria-hidden="true" />}
         </button>
         <button className="forgot-button" type="button">Forgot password?</button>
       </form>
