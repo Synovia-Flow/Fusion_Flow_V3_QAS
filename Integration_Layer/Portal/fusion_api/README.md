@@ -30,6 +30,19 @@ $env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QA
 - `POST /api/uploads/consignments/preview`
 
 `preview` intentionally does not write to DB yet. It accepts one or more `files`, selects the portal-required attachment ordinal for the current client, hashes only that selected file, inspects CSV/XLSX headers, proposes safe target mappings for review, and returns the target landing path (`ING.Inbound_File` / `ING.Raw_Record`) so the write path can be added deliberately.
+### Optional Scanned PDF OCR
+
+Native-text PDFs are parsed locally with `pypdf`. Scanned/image-only PDFs are not sent anywhere unless OCR is explicitly configured. To enable optional OCR for scanned invoices, set Azure Document Intelligence credentials in the runtime environment:
+
+```powershell
+$env:PDF_OCR_ENABLED='true'
+$env:PDF_OCR_AZURE_ENDPOINT='https://<resource>.cognitiveservices.azure.com'
+$env:PDF_OCR_AZURE_KEY='<document-intelligence-key>'
+```
+
+Supported aliases are `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` and `AZURE_DOCUMENT_INTELLIGENCE_KEY`. Optional tuning keys are `PDF_OCR_AZURE_MODEL_ID` (default `prebuilt-layout`), `PDF_OCR_AZURE_API_VERSION` (default `2024-11-30`), `PDF_OCR_AZURE_FEATURES`, `PDF_OCR_REQUEST_TIMEOUT_SECONDS`, `PDF_OCR_POLL_TIMEOUT_SECONDS`, and `PDF_OCR_POLL_INTERVAL_SECONDS`.
+
+If OCR is not configured, scanned PDFs still return detected filename/metadata references such as ENS, SUP, or S-ORD numbers plus safe PDF metadata (title, author, producer, dates where available), but no PRS consignment/goods rows are fabricated from image-only content.
 
 ## Portal/TSS Prepared Routes
 
@@ -40,7 +53,7 @@ $env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QA
 - `GET /api/tss/readiness` or `?client_code=PLE` - reports login/connection/file-rule state and whether a real PRS consignment can run the ENS-before-submit dry-run.
 - `GET /api/tss/route-plan?client_code=PLE`
 - `GET /api/tss/route-plan?client_code=CWD`
-- `POST /api/tss/connections/test?client_code=PLE`
+- `GET /api/tss/connections/test?client_code=PLE`
 - `POST /api/tss/consignments/{consignment_row_id}/update-ens-plan?client_code=PLE` or `client_code=CWD`
 - `POST /api/tss/consignments/{consignment_row_id}/submit?client_code=PLE&dry_run=true` or `client_code=CWD`
 

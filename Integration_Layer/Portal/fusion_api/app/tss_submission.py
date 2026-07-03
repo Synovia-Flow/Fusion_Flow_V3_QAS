@@ -36,7 +36,7 @@ CONSIGNMENT_REQUIRED_FIELDS = (
 )
 PARTY_PREFIXES = ("consignor", "consignee", "importer", "exporter")
 PARTY_ADDRESS_SUFFIXES = ("name", "street_number", "city", "postcode", "country")
-TSS_TWO_DECIMAL_FIELDS = {"gross_mass_kg", "net_mass_kg"}
+TSS_TWO_DECIMAL_FIELDS = {"gross_mass_kg", "net_mass_kg", "item_invoice_amount"}
 
 
 def compact(value: Any) -> Any:

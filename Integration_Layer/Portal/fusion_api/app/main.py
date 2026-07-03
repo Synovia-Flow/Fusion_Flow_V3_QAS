@@ -375,7 +375,7 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
     tss_rows = [
         settings_row("BASE_URL", "Production URL", env_by_code.get("PRD", {}).get("BaseUrl"), "Production TSS API base URL.", "CFG.TSS_Environment", "url"),
         settings_row("TEST_URL", "Test URL", env_by_code.get("TST", {}).get("BaseUrl"), "Test/QAS TSS API base URL.", "CFG.TSS_Environment", "url"),
-        settings_row("ENVIRONMENT", "Environment", profile.get("preferredEnvCode"), "Active TSS target for this tenant. Login credentials currently select the tenant/environment.", "CFG.TSS_Credential", "select", choices=[{"value": "PRD", "label": "Production"}, {"value": "TST", "label": "Test/QAS"}], editable=False),
+        settings_row("ENVIRONMENT", "Environment", profile.get("preferredEnvCode"), "Active TSS target for this tenant. Saved from Settings by activating the matching CFG.TSS_Credential row.", "CFG.TSS_Credential", "select", choices=[{"value": "PRD", "label": "Production"}, {"value": "TST", "label": "Test/QAS"}]),
         settings_row("USERNAME", "User", (credential or {}).get("tssUsername"), "TSS API username for this tenant.", "CFG.TSS_Credential"),
         settings_row("PASSWORD", "Password", "", "TSS API password for this tenant.", "CFG.TSS_Credential", "password", is_secret=True, placeholder="Configured" if (credential or {}).get("hasPassword") else "Not configured"),
         settings_row("ACT_AS", "Act as", profile.get("actAsSysId"), "Optional customer_account_sys_id for delegated TSS calls.", "CFG.Clients"),
@@ -462,7 +462,6 @@ SOURCE_CONFIG_KEYS = {
 FOLDER_PATH_KEYS = {"INBOUND", "PROCESS", "FAIL", "ARCHIVE", "ENS_SOURCE"}
 SECRET_UPDATE_KEYS = {("TSS_API", "PASSWORD"), ("GRAPH", "TENANT_ID"), ("GRAPH", "CLIENT_ID"), ("GRAPH", "CLIENT_SECRET")}
 READ_ONLY_SETTING_KEYS = {
-    ("TSS_API", "ENVIRONMENT"),
     ("INGEST_AUTO", "ATTACHMENT_TO_MAP"),
     ("INGEST_AUTO", "TARGET_RAW"),
     ("NOTIFY", "ENS_RECEIVED_ENABLED"),
@@ -602,6 +601,32 @@ def save_admin_settings_payload(profile: dict[str, object], updates: object) -> 
                 raise HTTPException(status_code=422, detail="TSS test URL cannot be blank.")
             execute("UPDATE CFG.TSS_Environment SET BaseUrl = ? WHERE EnvCode = 'TST'", [value])
             saved.append(setting_id)
+        elif (section, key) == ("TSS_API", "ENVIRONMENT"):
+            selected_env = value.upper()
+            if selected_env not in {"PRD", "TST"}:
+                raise HTTPException(status_code=422, detail="TSS environment must be PRD or TST.")
+            credential_exists = query_one(
+                """
+                SELECT TOP 1 1 AS Found
+                FROM CFG.TSS_Credential
+                WHERE ClientCode = ? AND EnvCode = ?
+                """,
+                [tss_client, selected_env],
+            )
+            if not credential_exists:
+                raise HTTPException(status_code=409, detail="No CFG.TSS_Credential row exists for this tenant/environment.")
+            execute(
+                """
+                UPDATE CFG.TSS_Credential
+                SET IsActive = CASE WHEN EnvCode = ? THEN 1 ELSE 0 END,
+                    UpdatedAt = SYSUTCDATETIME()
+                WHERE ClientCode = ? AND EnvCode IN ('PRD', 'TST')
+                """,
+                [selected_env, tss_client],
+            )
+            preferred_env = selected_env
+            profile["preferredEnvCode"] = selected_env
+            saved.append(setting_id)
         elif (section, key) == ("TSS_API", "USERNAME"):
             if not value:
                 raise HTTPException(status_code=422, detail="TSS username cannot be blank.")
@@ -665,7 +690,7 @@ def save_admin_settings_payload(profile: dict[str, object], updates: object) -> 
         else:
             ignored.append(setting_id)
 
-    result = admin_settings_payload(profile)
+    result = admin_settings_payload(load_portal_profile(str(profile["portalClientCode"])))
     result.update({
         "savedCount": len(saved),
         "savedSettings": saved,
@@ -1229,7 +1254,7 @@ def tss_route_plan(client_code: str = Query("PLE"), env_code: str | None = Query
         raise db_error(exc) from exc
 
 
-@app.post("/api/tss/connections/test")
+@app.get("/api/tss/connections/test")
 def test_tss_connection(client_code: str = Query("PLE"), env_code: str | None = Query(None)) -> dict[str, object]:
     try:
         profile = load_tss_client_profile(client_code, env_code=env_code)
@@ -1244,7 +1269,9 @@ def test_tss_connection(client_code: str = Query("PLE"), env_code: str | None = 
     if not credential.get("baseUrl"):
         raise HTTPException(status_code=409, detail="TSS environment has no BaseUrl configured.")
 
-    url = str(credential["baseUrl"]).rstrip("/") + "/choice_values/country"
+    api_base_path = tss_api_base_path()
+    test_endpoint = "/choice_values/country"
+    url = join_tss_url(credential["baseUrl"], api_base_path, test_endpoint)
     token = base64.b64encode(f"{credential['tssUsername']}:{credential['password']}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(url, headers={"Authorization": f"Basic {token}", "Accept": "application/json"})
     http_status: int | None = None
@@ -1280,6 +1307,8 @@ def test_tss_connection(client_code: str = Query("PLE"), env_code: str | None = 
         "envCode": credential["envCode"],
         "httpStatus": http_status,
         "result": result,
+        "apiBasePath": api_base_path,
+        "endpoint": test_endpoint,
         "detail": detail,
         "checkedAt": checked_at,
     }
@@ -1972,6 +2001,36 @@ def consignments(
         params.extend([like, like, like, like, like, like])
 
     try:
+        tracking_join = ""
+        tracking_status = "CAST(NULL AS nvarchar(50))"
+        tracking_group = ""
+        if object_exists("PRS.BKD_ENS_Header_Tracking"):
+            tracking_join = """
+            OUTER APPLY (
+                SELECT TOP 1 Tss_Status
+                FROM PRS.BKD_ENS_Header_Tracking t
+                WHERE t.ClientCode = c.ClientCode AND t.MovementKey = c.MovementKey
+                ORDER BY t.UpdatedAt DESC, t.TrackingID DESC
+            ) tracking
+            """
+            tracking_status = "tracking.Tss_Status"
+            tracking_group = ", tracking.Tss_Status"
+
+        staging_join = ""
+        staging_status = "CAST(NULL AS nvarchar(50))"
+        staging_group = ""
+        if object_exists("STG.BKD_ENS_Header"):
+            staging_join = """
+            OUTER APPLY (
+                SELECT TOP 1 Tss_Status
+                FROM STG.BKD_ENS_Header stg
+                WHERE stg.ClientCode = c.ClientCode AND stg.MovementKey = c.MovementKey
+                ORDER BY stg.UpdatedAt DESC, stg.StgID DESC
+            ) staging
+            """
+            staging_status = "staging.Tss_Status"
+            staging_group = ", staging.Tss_Status"
+
         rows = query_all(
             f"""
             SELECT TOP {top}
@@ -1979,6 +2038,15 @@ def consignments(
                 c.EnsHeaderRowID,
                 c.ClientCode,
                 COALESCE(c.Status, h.Status, 'DRAFT') AS Status,
+                COALESCE(
+                    {tracking_status},
+                    {staging_status},
+                    CASE
+                        WHEN COALESCE(c.Status, h.Status) IN ('READY', 'VALIDATED') THEN 'READY_FOR_TSS'
+                        WHEN COALESCE(c.Status, h.Status) IN ('NEEDS_REVIEW', 'FAILED', 'ERROR', 'REJECTED') THEN 'BLOCKED'
+                        ELSE 'PENDING_TSS'
+                    END
+                ) AS TssStatus,
                 c.RejectReason,
                 c.MovementKey,
                 COALESCE(c.declaration_number, h.declaration_number) AS DeclarationNumber,
@@ -1994,12 +2062,15 @@ def consignments(
             FROM PRS.Consignment c
             LEFT JOIN PRS.ENS_Header h ON h.EnsHeaderRowID = c.EnsHeaderRowID
             LEFT JOIN PRS.Goods_Item g ON g.ConsignmentRowID = c.ConsignmentRowID
+            {tracking_join}
+            {staging_join}
             WHERE {' AND '.join(where)}
             GROUP BY
                 c.ConsignmentRowID, c.EnsHeaderRowID, c.ClientCode, c.Status, h.Status,
                 c.RejectReason, c.MovementKey, c.declaration_number, h.declaration_number,
                 c.consignment_number, c.trader_reference, c.transport_document_number,
                 c.goods_description, c.consignee_name, c.destination_country, c.UpdatedAt
+                {tracking_group}{staging_group}
             ORDER BY c.UpdatedAt DESC, c.ConsignmentRowID DESC
             """,
             params,
@@ -2009,16 +2080,52 @@ def consignments(
 
     return {"clientCode": code, "consignments": rows}
 
-
 @app.get("/api/consignments/{consignment_row_id}")
 def consignment_detail(consignment_row_id: int) -> dict[str, object]:
     try:
-        row = query_one(
+        tracking_join = ""
+        tracking_status = "CAST(NULL AS nvarchar(50))"
+        if object_exists("PRS.BKD_ENS_Header_Tracking"):
+            tracking_join = """
+            OUTER APPLY (
+                SELECT TOP 1 Tss_Status
+                FROM PRS.BKD_ENS_Header_Tracking t
+                WHERE t.ClientCode = c.ClientCode AND t.MovementKey = c.MovementKey
+                ORDER BY t.UpdatedAt DESC, t.TrackingID DESC
+            ) tracking
             """
+            tracking_status = "tracking.Tss_Status"
+
+        staging_join = ""
+        staging_status = "CAST(NULL AS nvarchar(50))"
+        if object_exists("STG.BKD_ENS_Header"):
+            staging_join = """
+            OUTER APPLY (
+                SELECT TOP 1 Tss_Status
+                FROM STG.BKD_ENS_Header stg
+                WHERE stg.ClientCode = c.ClientCode AND stg.MovementKey = c.MovementKey
+                ORDER BY stg.UpdatedAt DESC, stg.StgID DESC
+            ) staging
+            """
+            staging_status = "staging.Tss_Status"
+
+        row = query_one(
+            f"""
             SELECT
-                c.*, h.declaration_number AS HeaderDeclarationNumber, h.arrival_date_time AS HeaderArrivalDateTime
+                c.*, h.declaration_number AS HeaderDeclarationNumber, h.arrival_date_time AS HeaderArrivalDateTime,
+                COALESCE(
+                    {tracking_status},
+                    {staging_status},
+                    CASE
+                        WHEN COALESCE(c.Status, h.Status) IN ('READY', 'VALIDATED') THEN 'READY_FOR_TSS'
+                        WHEN COALESCE(c.Status, h.Status) IN ('NEEDS_REVIEW', 'FAILED', 'ERROR', 'REJECTED') THEN 'BLOCKED'
+                        ELSE 'PENDING_TSS'
+                    END
+                ) AS TssStatus
             FROM PRS.Consignment c
             LEFT JOIN PRS.ENS_Header h ON h.EnsHeaderRowID = c.EnsHeaderRowID
+            {tracking_join}
+            {staging_join}
             WHERE c.ConsignmentRowID = ?
             """,
             [consignment_row_id],
@@ -2042,7 +2149,6 @@ def consignment_detail(consignment_row_id: int) -> dict[str, object]:
         raise HTTPException(status_code=404, detail=f"ConsignmentRowID {consignment_row_id} was not found.")
     return {"consignment": row, "goodsItems": goods}
 
-
 def selected_file_ordinal(profile: dict[str, object]) -> int:
     return required_file_ordinal(profile)
 
@@ -2058,7 +2164,7 @@ DEMO_UPLOAD_PROFILES: dict[str, dict[str, object]] = {
         "requiresEnsBeforeSubmit": True,
         "fileSelection": {
             "requiredFileOrdinal": 1,
-            "acceptedExtensions": ".xlsx,.xls,.csv",
+            "acceptedExtensions": ".xlsx,.xls,.csv,.pdf",
             "targetLandingTable": "ING.Inbound_File / ING.Raw_Record",
             "targetCanonicalRoot": "PRS.Consignment / PRS.Goods_Item",
             "notes": "Birkdale demo maps the first uploaded file.",
@@ -2092,7 +2198,7 @@ def demo_upload_profile(value: str) -> dict[str, object]:
         "requiresEnsBeforeSubmit": True,
         "fileSelection": {
             "requiredFileOrdinal": 1,
-            "acceptedExtensions": ".xlsx,.xls,.csv",
+            "acceptedExtensions": ".xlsx,.xls,.csv,.pdf",
             "targetLandingTable": "ING.Inbound_File / ING.Raw_Record",
             "targetCanonicalRoot": "PRS.Consignment / PRS.Goods_Item",
             "notes": "Generic demo maps the first uploaded file.",

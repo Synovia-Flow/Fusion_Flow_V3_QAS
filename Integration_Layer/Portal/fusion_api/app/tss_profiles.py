@@ -15,7 +15,7 @@ FALLBACK_PORTAL_PROFILES: dict[str, dict[str, object]] = {
         "requiresEnsBeforeSubmit": True,
         "fileSelection": {
             "requiredFileOrdinal": 1,
-            "acceptedExtensions": ".xlsx,.xls,.csv",
+            "acceptedExtensions": ".xlsx,.xls,.csv,.pdf",
             "targetLandingTable": "ING.Inbound_File / ING.Raw_Record",
             "targetCanonicalRoot": "PRS.Consignment / PRS.Goods_Item",
             "notes": "Primeline maps the first attached file.",
@@ -30,7 +30,7 @@ FALLBACK_PORTAL_PROFILES: dict[str, dict[str, object]] = {
         "requiresEnsBeforeSubmit": True,
         "fileSelection": {
             "requiredFileOrdinal": 2,
-            "acceptedExtensions": ".xlsx,.xls,.csv",
+            "acceptedExtensions": ".xlsx,.xls,.csv,.pdf",
             "targetLandingTable": "ING.Inbound_File / ING.Raw_Record",
             "targetCanonicalRoot": "PRS.Consignment / PRS.Goods_Item",
             "notes": "Countrywide maps the second attached file.",

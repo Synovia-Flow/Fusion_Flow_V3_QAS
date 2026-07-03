@@ -5,3 +5,4 @@ python-tds>=1.17,<2
 pyOpenSSL>=24,<26
 certifi>=2025.1
 python-multipart>=0.0.9,<1
+pypdf>=5.0,<7

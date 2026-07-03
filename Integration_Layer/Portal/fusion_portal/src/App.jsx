@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminSettings, getApiDocsUrl, getConsignments, getControlTower, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings } from './api';
+import { getAdminSettings, getApiDocsUrl, getConsignmentDetail, getConsignments, getControlTower, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings, testTssConnection } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'SYNOVIA',
@@ -11,12 +11,6 @@ const DEFAULT_SESSION = {
 const DEFAULT_OPERATIONAL_CLIENT_CODE = 'PLE';
 const MASTER_LIVE_URL = 'https://synovia-flow-3-live.onrender.com/';
 const MASTER_LIVE_EMBED_URL = '/master-live/index.html';
-
-const ENVIRONMENT_MODES = [
-  { value: 'DEMO', label: 'DEMO' },
-  { value: 'PRODUCTION', label: 'PRODUCTION' },
-  { value: 'TEST', label: 'TEST' },
-];
 
 function normalizeEnvironmentMode(value) {
   const normalized = String(value || '').trim().toUpperCase();
@@ -138,7 +132,6 @@ function readStoredPortalSession() {
       view: normalizeStoredPortalView(parsed.view),
       settingsSection: normalizeStoredSettingsSection(parsed.settingsSection),
       environmentMode: normalizeEnvironmentMode(parsed.environmentMode || 'DEMO'),
-      environmentModeTouched: Boolean(parsed.environmentModeTouched),
     };
   } catch {
     storage.removeItem(PORTAL_SESSION_STORAGE_KEY);
@@ -158,7 +151,6 @@ function writeStoredPortalSession(payload) {
       view: normalizeStoredPortalView(payload.view),
       settingsSection: normalizeStoredSettingsSection(payload.settingsSection),
       environmentMode: normalizeEnvironmentMode(payload.environmentMode || 'DEMO'),
-      environmentModeTouched: Boolean(payload.environmentModeTouched),
       savedAt: new Date().toISOString(),
     }));
   } catch {
@@ -275,6 +267,69 @@ function routeText(connection) {
   return updateIndex > -1 && submitIndex > -1 && updateIndex < submitIndex ? 'ENS update before submit' : 'Route needs review';
 }
 
+const TSS_STATUS_OPTIONS = [
+  'READY_FOR_TSS',
+  'PENDING_TSS',
+  'QUEUED_FOR_TSS',
+  'SUBMITTED',
+  'ACCEPTED',
+  'REJECTED',
+  'FAILED',
+  'BLOCKED',
+  'NOT_READY',
+];
+const TSS_READY_STATUSES = new Set(['READY_FOR_TSS', 'QUEUED_FOR_TSS', 'SUBMITTED', 'ACCEPTED']);
+
+function normalizeStatusText(value, fallback = 'PENDING_TSS') {
+  const text = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return text || fallback;
+}
+
+function deriveTssStatus(row) {
+  const explicit = row?.TssStatus ?? row?.Tss_Status ?? row?.tssStatus ?? row?.tss_status;
+  if (explicit) return normalizeStatusText(explicit);
+  const fusionStatus = normalizeStatusText(row?.Status ?? row?.status, 'DRAFT');
+  if (['READY', 'VALIDATED'].includes(fusionStatus)) return 'READY_FOR_TSS';
+  if (['NEEDS_REVIEW', 'FAILED', 'ERROR', 'REJECTED'].includes(fusionStatus)) return 'BLOCKED';
+  if (['INGESTED', 'DRAFT', 'PENDING'].includes(fusionStatus)) return 'PENDING_TSS';
+  return 'PENDING_TSS';
+}
+
+function readRecordValue(record, keys, fallback = '') {
+  const keyList = Array.isArray(keys) ? keys : [keys];
+  for (const key of keyList) {
+    const value = record?.[key];
+    if (value !== null && value !== undefined && value !== '') return value;
+  }
+  return fallback;
+}
+
+function buildConsignmentDraft(row, detail = null) {
+  return {
+    consignmentNumber: String(readRecordValue(detail, ['consignment_number', 'ConsignmentNumber'], row?.consignmentNumber || '')),
+    declarationNumber: String(readRecordValue(detail, ['declaration_number', 'DeclarationNumber', 'HeaderDeclarationNumber'], row?.declarationNumber || '')),
+    traderReference: String(readRecordValue(detail, ['trader_reference', 'TraderReference'], row?.traderReference || '')),
+    transportDocumentNumber: String(readRecordValue(detail, ['transport_document_number', 'TransportDocumentNumber'], row?.transportDocumentNumber || '')),
+    goodsDescription: String(readRecordValue(detail, ['goods_description', 'GoodsDescription'], row?.goodsDescription || '')),
+    consigneeName: String(readRecordValue(detail, ['consignee_name', 'ConsigneeName'], row?.consigneeName || '')),
+    destinationCountry: String(readRecordValue(detail, ['destination_country', 'DestinationCountry'], row?.destinationCountry || '')),
+    tssStatus: deriveTssStatus(detail || row),
+  };
+}
+
+function applyConsignmentDraft(row, draft) {
+  return {
+    ...row,
+    consignmentNumber: draft.consignmentNumber.trim() || row.consignmentNumber,
+    declarationNumber: draft.declarationNumber.trim() || null,
+    traderReference: draft.traderReference.trim(),
+    transportDocumentNumber: draft.transportDocumentNumber.trim(),
+    goodsDescription: draft.goodsDescription.trim(),
+    consigneeName: draft.consigneeName.trim(),
+    destinationCountry: draft.destinationCountry.trim().toUpperCase(),
+    tssStatus: draft.tssStatus,
+  };
+}
 function normalizeConsignment(row) {
   const consignmentRowId = row.ConsignmentRowID ?? row.consignmentRowID ?? row.consignmentRowId;
   return {
@@ -292,6 +347,7 @@ function normalizeConsignment(row) {
     goodsItems: Number(row.GoodsItems ?? row.goodsItems ?? 0),
     grossMassKg: formatNumber(row.GrossMassKg ?? row.grossMassKg),
     status: row.Status ?? row.status ?? 'DRAFT',
+    tssStatus: deriveTssStatus(row),
     source: 'PRS.Consignment',
     updatedAt: row.UpdatedAt ?? row.updatedAt ?? '',
   };
@@ -473,7 +529,7 @@ function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [
   );
 }
 
-function AppBar({ session, isAuthenticated, environmentMode, onEnvironmentModeChange, onToggleDrawer, onLogout }) {
+function AppBar({ session, isAuthenticated, environmentMode, onToggleDrawer, onLogout }) {
   return (
     <header className="appbar">
       <div className="appbar-left">
@@ -483,12 +539,9 @@ function AppBar({ session, isAuthenticated, environmentMode, onEnvironmentModeCh
         <img className="appbar-logo" src="/assets/SynoviaFlowLogo_white.png" alt="Synovia Flow" />
       </div>
 
-      <div className={`environment-selector ${environmentMode.toLowerCase()}`} aria-label="Environment selector">
-        <span>TSS Environment</span>
+      <div className={`environment-indicator ${environmentMode.toLowerCase()}`} aria-label="Current TSS environment from Settings">
+        <span>TSS Env</span>
         <strong>{environmentMode}</strong>
-        <select value={environmentMode} onChange={(event) => onEnvironmentModeChange(event.target.value)} aria-label="Select environment mode">
-          {ENVIRONMENT_MODES.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
-        </select>
       </div>
 
       {isAuthenticated ? (
@@ -671,7 +724,7 @@ function SettingsInput({ row, value, onChange }) {
   );
 }
 
-function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSaveSettings }) {
+function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSaveSettings, onTestTssApi }) {
   const isSettingsLoading = !settings;
   const sections = useMemo(() => (
     settings?.sections?.length ? settings.sections : SETTINGS_NAV_SECTIONS.map((section) => ({ ...section, rows: [] }))
@@ -681,6 +734,9 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSave
   const [saveState, setSaveState] = useState('idle');
   const [saveError, setSaveError] = useState('');
   const isSavingSettings = saveState === 'saving';
+  const [testState, setTestState] = useState({ status: 'idle', result: null, error: '' });
+  const isTestingApi = testState.status === 'testing';
+  const isTssApiSection = selectedSection?.id === 'TSS_API';
 
   useEffect(() => {
     const nextDraft = {};
@@ -694,8 +750,17 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSave
     setSaveError('');
   }, [settings]);
 
+  useEffect(() => {
+    setTestState({ status: 'idle', result: null, error: '' });
+  }, [activeSection]);
+
   function draftKey(row) {
     return `${selectedSection.id}.${row.key}`;
+  }
+
+  function draftValueFor(sectionId, key) {
+    const row = sections.find((section) => section.id === sectionId)?.rows?.find((item) => item.key === key);
+    return draft[`${sectionId}.${key}`] ?? row?.value ?? '';
   }
 
   function updateRow(row, value) {
@@ -730,6 +795,18 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSave
     } catch (error) {
       setSaveState('changed');
       setSaveError(error.message);
+    }
+  }
+
+  async function testTssApi() {
+    if (!onTestTssApi || !settings || isTestingApi || saveState === 'changed') return;
+    const envCode = String(draftValueFor('TSS_API', 'ENVIRONMENT') || '').toUpperCase();
+    setTestState({ status: 'testing', result: null, error: '' });
+    try {
+      const result = await onTestTssApi({ clientCode: settings.portalClientCode || settings.clientCode, envCode });
+      setTestState({ status: 'success', result, error: '' });
+    } catch (error) {
+      setTestState({ status: 'error', result: null, error: error.message });
     }
   }
 
@@ -768,10 +845,25 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSave
               <h2>{selectedSection.label}</h2>
               <p>{selectedSection.description || 'Settings prepared for this tenant.'}</p>
             </div>
-            <span className="settings-mode-chip">{settings?.writeMode === 'db_write_existing_cfg' ? 'DB backed' : settings?.writeMode === 'draft_only' ? 'Draft only' : 'Ready'}</span>
+            <div className="settings-panel-actions">
+              {isTssApiSection && (
+                <button className="settings-test-api" type="button" onClick={testTssApi} disabled={isSettingsLoading || isSavingSettings || isTestingApi || saveState === 'changed'} aria-busy={isTestingApi} title={saveState === 'changed' ? 'Save settings before testing the API.' : 'Run a GET against the configured TSS API credentials.'}>
+                  {!isTestingApi && <MaterialIcon>cloud_sync</MaterialIcon>}
+                  <span>{isTestingApi ? 'Testing API' : 'Test API'}</span>
+                  {isTestingApi && <LoadingSpinner className="button-spinner" />}
+                </button>
+              )}
+              <span className="settings-mode-chip">{settings?.writeMode === 'db_write_existing_cfg' ? 'DB backed' : settings?.writeMode === 'draft_only' ? 'Draft only' : 'Ready'}</span>
+            </div>
           </div>
 
           {saveError && <div className="settings-save-error">{saveError}</div>}
+          {isTssApiSection && testState.status !== 'idle' && testState.status !== 'testing' && (
+            <div className={`settings-api-test-result ${testState.status === 'success' ? 'is-success' : 'is-error'}`}>
+              <strong>{testState.status === 'success' ? `TSS API ${testState.result?.result || 'checked'}` : 'TSS API test failed'}</strong>
+              <span>{testState.status === 'success' ? `GET ${testState.result?.endpoint || '/choice_values/country'} - ${testState.result?.envCode || draftValueFor('TSS_API', 'ENVIRONMENT')} - HTTP ${testState.result?.httpStatus ?? 'no response'}` : testState.error}</span>
+            </div>
+          )}
           <div className="settings-grid">
             {isSettingsLoading && <div className="settings-empty">Loading configuration from CFG...</div>}
             {!isSettingsLoading && (selectedSection.rows || []).map((row) => (
@@ -1414,6 +1506,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
                 </>
               )}
               {previewState.payload.detectedStructure?.warning && <span>{previewState.payload.detectedStructure.warning}</span>}
+              {(previewState.payload.detectedStructure?.pdfDetectedReferences || []).length > 0 && (
+                <span>PDF refs: {(previewState.payload.detectedStructure.pdfDetectedReferences || []).map((item) => `${item.type} ${item.value}`).join(', ')}</span>
+              )}
+              {previewState.payload.detectedStructure?.pdfRequiresOcr && <span>OCR required before automatic consignment/goods mapping.</span>}
               {(previewState.payload.detectedStructure?.columns || []).length > 0 && (
                 <span>Columns: {(previewState.payload.detectedStructure.columns || []).slice(0, 8).map((column) => column.name).join(', ')}{(previewState.payload.detectedStructure.columns || []).length > 8 ? '...' : ''}</span>
               )}
@@ -1781,11 +1877,145 @@ function MasterLivePage({ onBack }) {
     </section>
   );
 }
-function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueForTss }) {
+function ConsignmentDetailModal({ row, onClose, onSave }) {
+  const [detailState, setDetailState] = useState({ status: 'loading', payload: null, error: '' });
+  const [draft, setDraft] = useState(() => buildConsignmentDraft(row));
+
+  useEffect(() => {
+    let cancelled = false;
+    setDraft(buildConsignmentDraft(row));
+    if (!row?.consignmentRowId) {
+      setDetailState({ status: 'ready', payload: null, error: '' });
+      return () => { cancelled = true; };
+    }
+
+    setDetailState({ status: 'loading', payload: null, error: '' });
+    getConsignmentDetail(row.consignmentRowId)
+      .then((payload) => {
+        if (cancelled) return;
+        setDetailState({ status: 'ready', payload, error: '' });
+        setDraft(buildConsignmentDraft(row, payload?.consignment));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setDetailState({ status: 'error', payload: null, error: error.message });
+      });
+
+    return () => { cancelled = true; };
+  }, [row]);
+
+  function updateDraft(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function saveDraft() {
+    onSave(applyConsignmentDraft(row, draft));
+    onClose();
+  }
+
+  const goodsItems = detailState.payload?.goodsItems || [];
+  const currentTssStatus = draft.tssStatus || deriveTssStatus(row);
+
+  return (
+    <div className="preview-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="consignment-detail-modal" role="dialog" aria-modal="true" aria-label="Consignment detail">
+        <header className="preview-modal-header consignment-detail-modal-header">
+          <div>
+            <span className="preview-eyebrow">PRS.Consignment</span>
+            <h2>{draft.consignmentNumber || row.consignmentNumber}</h2>
+            <p>{row.movementKey || 'Movement pending'} / {row.transportDocumentNumber || 'Document pending'}</p>
+          </div>
+          <div className="consignment-modal-status">
+            <span>TSS Status</span>
+            <StatusBadge status={currentTssStatus} />
+          </div>
+          <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close consignment detail">
+            <MaterialIcon>close</MaterialIcon>
+          </button>
+        </header>
+
+        <div className="consignment-detail-body">
+          <div className="consignment-detail-meta">
+            <div><span>ConsignmentRowID</span><strong>{row.consignmentRowId || '-'}</strong></div>
+            <div><span>EnsHeaderRowID</span><strong>{row.ensHeaderRowId || '-'}</strong></div>
+            <div><span>PRS Status</span><StatusBadge status={row.status || 'DRAFT'} /></div>
+            <div><span>Goods Items</span><strong>{row.goodsItems || goodsItems.length || 0}</strong></div>
+          </div>
+
+          {detailState.status === 'loading' && (
+            <div className="consignment-detail-loading"><LoadingSpinner /><span>Loading detail...</span></div>
+          )}
+          {detailState.status === 'error' && (
+            <div className="action-feedback is-error consignment-detail-error">
+              <strong>Detail API unavailable</strong>
+              <span>{detailState.error}</span>
+            </div>
+          )}
+
+          <div className="consignment-edit-grid">
+            <label><span>Consignment</span><input value={draft.consignmentNumber} onChange={(event) => updateDraft('consignmentNumber', event.target.value)} /></label>
+            <label><span>Declaration</span><input value={draft.declarationNumber} onChange={(event) => updateDraft('declarationNumber', event.target.value)} /></label>
+            <label><span>Trader Ref</span><input value={draft.traderReference} onChange={(event) => updateDraft('traderReference', event.target.value)} /></label>
+            <label><span>Transport Document</span><input value={draft.transportDocumentNumber} onChange={(event) => updateDraft('transportDocumentNumber', event.target.value)} /></label>
+            <label className="wide"><span>Goods Description</span><input value={draft.goodsDescription} onChange={(event) => updateDraft('goodsDescription', event.target.value)} /></label>
+            <label><span>Consignee</span><input value={draft.consigneeName} onChange={(event) => updateDraft('consigneeName', event.target.value)} /></label>
+            <label><span>Destination</span><input value={draft.destinationCountry} onChange={(event) => updateDraft('destinationCountry', event.target.value)} /></label>
+            <label><span>TSS Status</span><select value={currentTssStatus} onChange={(event) => updateDraft('tssStatus', event.target.value)}>{TSS_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label>
+          </div>
+
+          <section className="consignment-goods-panel" aria-label="Goods items">
+            <div className="consignment-goods-heading">
+              <div>
+                <span>PRS.Goods_Item</span>
+                <h3>{goodsItems.length || row.goodsItems || 0} rows</h3>
+              </div>
+            </div>
+            <div className="control-table-wrap">
+              <table className="control-table consignment-goods-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Status</th>
+                    <th>Commodity</th>
+                    <th>Description</th>
+                    <th>Gross kg</th>
+                    <th>Net kg</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {goodsItems.length ? goodsItems.map((goods, index) => (
+                    <tr key={goods.GoodsItemRowID || index}>
+                      <td>{goods.GoodsItemOrdinal || index + 1}</td>
+                      <td><StatusBadge status={goods.Status || 'PENDING'} /></td>
+                      <td>{controlDisplay(goods.commodity_code)}</td>
+                      <td>{controlDisplay(goods.goods_description)}</td>
+                      <td>{controlDisplay(goods.gross_mass_kg)}</td>
+                      <td>{controlDisplay(goods.net_mass_kg)}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan="6" className="control-empty-cell">No goods detail loaded</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <footer className="consignment-detail-footer">
+          <button className="outline-action" type="button" onClick={onClose}>Cancel</button>
+          <button className="primary-action blue" type="button" onClick={saveDraft}><MaterialIcon>save</MaterialIcon><span>Save Detail</span></button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueForTss, onUpdateConsignment }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
   const sourceRows = rows.length ? rows : CONSIGNMENTS;
   const [selectedId, setSelectedId] = useState(sourceRows[0]?.id || '');
+  const [detailOpen, setDetailOpen] = useState(false);
   const [tssState, setTssState] = useState({ status: 'idle', rowId: '', payload: null, error: '' });
 
   useEffect(() => {
@@ -1797,7 +2027,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
     return sourceRows.filter((row) => {
-      const matchesStatus = status === 'ALL' || row.status === status;
+      const matchesStatus = status === 'ALL' || deriveTssStatus(row) === status;
       const haystack = `${row.consignmentNumber} ${row.traderReference} ${row.transportDocumentNumber} ${row.goodsDescription} ${row.consigneeName}`.toLowerCase();
       return matchesStatus && (!value || haystack.includes(value));
     });
@@ -1805,16 +2035,26 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
 
   const selected = filtered.find((row) => row.id === selectedId) || filtered[0] || sourceRows[0] || CONSIGNMENTS[0];
 
+  function applyLocalUpdate(updatedRow) {
+    if (status !== 'ALL' && deriveTssStatus(updatedRow) !== status) setStatus('ALL');
+    setSelectedId(updatedRow.id);
+    onUpdateConsignment?.(updatedRow);
+  }
+
   async function handleQueueForTss() {
     if (!selected?.consignmentRowId || !onQueueForTss) return;
     setTssState({ status: 'loading', rowId: selected.id, payload: null, error: '' });
     try {
       const payload = await onQueueForTss(selected);
+      const nextTssStatus = payload?.plan?.ready ? 'READY_FOR_TSS' : 'BLOCKED';
+      applyLocalUpdate({ ...selected, tssStatus: nextTssStatus });
       setTssState({ status: 'ready', rowId: selected.id, payload, error: '' });
     } catch (error) {
       setTssState({ status: 'error', rowId: selected.id, payload: null, error: error.message });
     }
   }
+
+  const tssReadyCount = sourceRows.filter((row) => TSS_READY_STATUSES.has(deriveTssStatus(row))).length;
 
   return (
     <section className="consignments-page" aria-label="View consignments">
@@ -1825,7 +2065,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
         </button>
         <div>
           <h1>View Consignments</h1>
-          <p>Review PRS consignments, goods-item counts, validation state, and TSS readiness.</p>
+          <p>Review PRS consignments, goods-item counts, TSS status, and submission readiness.</p>
         </div>
       </div>
 
@@ -1836,7 +2076,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
         <div><span>Route</span><strong>{routeText(connection)}</strong></div>
         <div><span>PRS.Consignment</span><strong>{sourceRows.length}</strong></div>
         <div><span>Goods Items</span><strong>{sourceRows.reduce((total, row) => total + row.goodsItems, 0)}</strong></div>
-        <div><span>Ready / Validated</span><strong>{sourceRows.filter((row) => ['READY', 'VALIDATED'].includes(row.status)).length}</strong></div>
+        <div><span>TSS Ready</span><strong>{tssReadyCount}</strong></div>
       </div>
 
       <div className="consignment-workspace">
@@ -1847,13 +2087,10 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search consignment, trader ref, document..." />
             </label>
             <label className="compact-select">
-              <span>Status</span>
+              <span>TSS Status</span>
               <select value={status} onChange={(event) => setStatus(event.target.value)}>
                 <option value="ALL">All</option>
-                <option value="VALIDATED">Validated</option>
-                <option value="READY">Ready</option>
-                <option value="NEEDS_REVIEW">Needs review</option>
-                <option value="INGESTED">Ingested</option>
+                {TSS_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
               </select>
             </label>
           </div>
@@ -1867,7 +2104,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
                   <th>Trader Ref</th>
                   <th>Goods</th>
                   <th>Gross Mass</th>
-                  <th>Status</th>
+                  <th>TSS Status</th>
                   <th>Updated</th>
                 </tr>
               </thead>
@@ -1879,7 +2116,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
                     <td>{row.traderReference}</td>
                     <td>{row.goodsItems}</td>
                     <td>{row.grossMassKg}</td>
-                    <td><StatusBadge status={row.status} /></td>
+                    <td><StatusBadge status={deriveTssStatus(row)} /></td>
                     <td>{row.updatedAt}</td>
                   </tr>
                 ))}
@@ -1894,7 +2131,10 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
               <span>PRS.Consignment</span>
               <h2>{selected.consignmentNumber}</h2>
             </div>
-            <StatusBadge status={selected.status} />
+            <div className="detail-status-stack">
+              <span>TSS Status</span>
+              <StatusBadge status={deriveTssStatus(selected)} />
+            </div>
           </div>
           <dl className="detail-grid">
             <div><dt>EnsHeaderRowID</dt><dd>{selected.ensHeaderRowId}</dd></div>
@@ -1902,7 +2142,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
             <div><dt>Declaration</dt><dd>{selected.declarationNumber || 'Pending'}</dd></div>
             <div><dt>Consignee</dt><dd>{selected.consigneeName}</dd></div>
             <div><dt>Destination</dt><dd>{selected.destinationCountry}</dd></div>
-            <div><dt>Source</dt><dd>{selected.source}</dd></div>
+            <div><dt>PRS Status</dt><dd><StatusBadge status={selected.status} /></dd></div>
           </dl>
           <div className="hierarchy-box">
             <div><MaterialIcon>account_tree</MaterialIcon><span>PRS.ENS_Header</span></div>
@@ -1910,7 +2150,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
             <div><MaterialIcon>subdirectory_arrow_right</MaterialIcon><span>{selected.goodsItems} PRS.Goods_Item rows</span></div>
           </div>
           <div className="detail-actions">
-            <button className="primary-action blue" type="button"><MaterialIcon>visibility</MaterialIcon><span>Open Detail</span></button>
+            <button className="primary-action blue" type="button" onClick={() => setDetailOpen(true)}><MaterialIcon>visibility</MaterialIcon><span>Open Detail</span></button>
             <button className="outline-action" type="button" onClick={handleQueueForTss} disabled={tssState.status === 'loading'} aria-busy={tssState.status === 'loading'}>{tssState.status === 'loading' ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>send</MaterialIcon>}<span>{tssState.status === 'loading' ? 'Checking TSS Route' : 'Queue for TSS'}</span></button>
           </div>
           {tssState.status !== 'idle' && tssState.rowId === selected.id && (
@@ -1927,12 +2167,16 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
                 </>
               )}
             </div>
-          )}        </aside>
+          )}
+        </aside>
       </div>
+
+      {detailOpen && selected && (
+        <ConsignmentDetailModal row={selected} onClose={() => setDetailOpen(false)} onSave={applyLocalUpdate} />
+      )}
     </section>
   );
 }
-
 export default function App() {
   const storedPortalSession = useMemo(() => readStoredPortalSession(), []);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1948,14 +2192,12 @@ export default function App() {
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
   const [environmentMode, setEnvironmentMode] = useState(() => normalizeEnvironmentMode(storedPortalSession?.environmentMode || import.meta.env?.VITE_PORTAL_MODE || 'DEMO'));
-  const [environmentModeTouched, setEnvironmentModeTouched] = useState(() => Boolean(storedPortalSession?.environmentModeTouched));
   useEffect(() => {
-    if (environmentModeTouched) return;
     const settingsMode = environmentModeFromSettings(settingsPayload);
     if (settingsMode) {
       setEnvironmentMode(settingsMode);
     }
-  }, [environmentModeTouched, settingsPayload]);
+  }, [settingsPayload]);
   useEffect(() => {
     if (!isAuthenticated) return;
     writeStoredPortalSession({
@@ -1964,9 +2206,8 @@ export default function App() {
       view,
       settingsSection,
       environmentMode,
-      environmentModeTouched,
     });
-  }, [isAuthenticated, session, activeClientCode, view, settingsSection, environmentMode, environmentModeTouched]);
+  }, [isAuthenticated, session, activeClientCode, view, settingsSection, environmentMode]);
 
   useEffect(() => {
     if (!isAuthenticated) return undefined;
@@ -2024,11 +2265,6 @@ export default function App() {
     };
   }, [isAuthenticated, activeClientCode, session.tenantCode]);
 
-  function handleEnvironmentModeChange(nextMode) {
-    setEnvironmentModeTouched(true);
-    setEnvironmentMode(normalizeEnvironmentMode(nextMode));
-  }
-
   function navigate(nextView) {
     setView(nextView);
     setDrawerOpen(false);
@@ -2070,7 +2306,6 @@ export default function App() {
       view: 'dashboard',
       settingsSection,
       environmentMode,
-      environmentModeTouched,
     });
     navigate('dashboard');
   }
@@ -2098,22 +2333,37 @@ export default function App() {
     return nextSettings;
   }
 
+  async function handleTestTssApi({ clientCode, envCode }) {
+    const testClientCode = clientCode || activeClientCode;
+    const result = await testTssConnection({ clientCode: testClientCode, envCode });
+    const [connectionPayload, nextSettings] = await Promise.all([
+      getTssConnections(testClientCode, envCode),
+      getAdminSettings(testClientCode),
+    ]);
+    setConnection((connectionPayload.connections || [])[0] || null);
+    setSettingsPayload(nextSettings);
+    return result;
+  }
+
   function handleQueueForTss(row) {
     return prepareTssConsignmentSubmit({ clientCode: activeClientCode, consignmentRowId: row.consignmentRowId });
   }
 
+  function handleConsignmentUpdate(updatedRow) {
+    setConsignmentRows((currentRows) => currentRows.map((row) => (row.id === updatedRow.id ? { ...row, ...updatedRow } : row)));
+  }
   const mainClass = isAuthenticated ? `page-main app-main ${view}-main` : 'page-main login-main';
 
   return (
     <div className="app-shell" data-theme={isDarkTheme ? 'dark' : 'light'} data-environment-mode={environmentMode.toLowerCase()} data-api-status={apiStatus} data-api-error={apiError}>
-      <AppBar session={session} isAuthenticated={isAuthenticated} environmentMode={environmentMode} onEnvironmentModeChange={handleEnvironmentModeChange} onToggleDrawer={() => setDrawerOpen((value) => !value)} onLogout={handleLogout} />
+      <AppBar session={session} isAuthenticated={isAuthenticated} environmentMode={environmentMode} onToggleDrawer={() => setDrawerOpen((value) => !value)} onLogout={handleLogout} />
       <main className={mainClass}>
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} activeClientCode={activeClientCode} onClientChange={setActiveClientCode} isDemoAdmin={isSynoviaSession(session)} />}
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} environmentMode={environmentMode} forceDemoMode={environmentMode === 'DEMO'} />}
-        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} onQueueForTss={handleQueueForTss} />}
+        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} onQueueForTss={handleQueueForTss} onUpdateConsignment={handleConsignmentUpdate} />}
         {isAuthenticated && view === 'controlTower' && <ControlTowerPage onBack={() => navigate('dashboard')} clientCode={activeClientCode} connection={connection} />}
-        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} />}
+        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} onTestTssApi={handleTestTssApi} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
       <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || SETTINGS_NAV_SECTIONS} settingsSection={settingsSection} session={session} apiStatus={apiStatus} environmentMode={environmentMode} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />

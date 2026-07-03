@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .file_introspection import clean_cell
+from .file_introspection import ASSUMPTION_META_KEY, clean_cell
 from .mapping_suggestions import TARGET_FIELDS, normalise, target_lookup
 from .tss_submission import (
     CONSIGNMENT_REQUIRED_FIELDS,
@@ -436,7 +436,12 @@ def _wide_row_preview(rows: list[dict[str, Any]], *, source_sheet: str | None = 
         goods: dict[str, Any] = {}
         goods_sources: dict[str, dict[str, Any]] = {}
         row_matched = 0
+        assumption_sources = row.get(ASSUMPTION_META_KEY) or {}
+        if not isinstance(assumption_sources, dict):
+            assumption_sources = {}
         for source_column, raw_value in row.items():
+            if str(source_column).startswith("_"):
+                continue
             value = clean_cell(raw_value)
             if not value:
                 continue
@@ -445,6 +450,11 @@ def _wide_row_preview(rows: list[dict[str, Any]], *, source_sheet: str | None = 
                 continue
             table_name, target_column = target
             source = {"rowNumber": row_number, "sourceColumn": source_column, **({"sourceSheet": source_sheet} if source_sheet else {})}
+            assumption = assumption_sources.get(target_column) or assumption_sources.get(source_column)
+            if isinstance(assumption, dict):
+                original_source = dict(source)
+                source.update(assumption)
+                source["originalSource"] = original_source
             matched += 1
             row_matched += 1
             if table_name == "PRS.Consignment":

@@ -7,6 +7,7 @@ from io import BytesIO
 from fastapi import HTTPException, UploadFile
 from starlette.datastructures import Headers
 
+from app import file_introspection
 from app import main as portal_main
 from app.tss_profiles import fallback_profile
 
@@ -72,7 +73,13 @@ def xlsx_workbook_content(sheets: list[tuple[str, list[list[str]]]]) -> bytes:
     return buffer.getvalue()
 
 def upload_file(filename: str, content: bytes = CSV_CONTENT) -> UploadFile:
-    content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if filename.lower().endswith(".xlsx") else "text/csv"
+    lower_name = filename.lower()
+    if lower_name.endswith(".xlsx"):
+        content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    elif lower_name.endswith(".pdf"):
+        content_type = "application/pdf"
+    else:
+        content_type = "text/csv"
     return UploadFile(
         BytesIO(content),
         filename=filename,
@@ -426,6 +433,411 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(consignment["goodsItems"][0]["status"], "READY")
         self.assertTrue(consignment["tssPayloadPreview"]["ready"])
 
+    def test_demo_mode_maps_text_pdf_invoice_to_consignment_and_goods(self):
+        pdf_text = """
+Email: sales@frisco.co.uk
+Currency: Pound Sterling
+Invoiced To: Murdock T/A Newry Building Suppies Ltd Shipment Detail: Invoice No. 0000814877
+N.W. (Kg): 39.426 Invoice Date: 05/12/2025
+G.W. (Kg): 40 Terms: DAP
+Pieces: 2 ctns Customer Ref: PO000187695
+Email: Customer EORI: XI203964318000
+Code Description Qty Price Origin HS Code SKU Weight (Kg) Line Total
+94160 Shelf Bracket 350x300mm WHT 20 GBP1.43 India 8302419000 0.163 GBP28.60
+94080 Shelf Bracket 200x150mm WHT 10 GBP0.45 India 8302419000 0.088 GBP4.50
+Rampart Road, Greenbank Ind Estate, , , Newry,
+Belfast, BT34 2QU, Great Britain
+Address:
+T: +44 1 992 443 010Unit 14 Pindar Road, Hoddesdon, EN11 0DE, UK
+EORI: GB152338719000 / XI152338719000
+"""
+        original_extract = file_introspection.extract_pdf_text_pages
+        original_metadata = file_introspection.extract_pdf_metadata
+        try:
+            file_introspection.extract_pdf_text_pages = lambda _content: [pdf_text, "Registered in England No: 01551925"]
+            file_introspection.extract_pdf_metadata = lambda _content: {}
+            payload = portal_main.upload_consignment_preview(
+                client_code="PLE",
+                files=[upload_file("frisco-invoice.pdf", b"%PDF-1.7")],
+                demo_mode=True,
+            )
+        finally:
+            file_introspection.extract_pdf_text_pages = original_extract
+            file_introspection.extract_pdf_metadata = original_metadata
+
+        self.assertEqual(payload["detectedStructure"]["format"], "pdf")
+        self.assertNotIn(file_introspection.ASSUMPTION_META_KEY, [column["name"] for column in payload["detectedStructure"]["columns"]])
+        preview = payload["processingPreview"]
+        self.assertEqual(preview["summary"]["consignmentCount"], 1)
+        self.assertEqual(preview["summary"]["goodsItemCount"], 2)
+        self.assertEqual(preview["summary"]["missingRequiredCount"], 0)
+        consignment = preview["consignments"][0]
+        self.assertEqual(consignment["values"]["consignment_number"], "PO000187695")
+        self.assertEqual(consignment["values"]["transport_document_number"], "PO000187695")
+        self.assertEqual(consignment["values"]["consignor_name"], "Frisco UK Sales Ltd")
+        self.assertEqual(consignment["values"]["consignor_street_number"], "Unit 14 Pindar Road")
+        self.assertEqual(consignment["values"]["consignor_city"], "Hoddesdon")
+        self.assertEqual(consignment["values"]["consignor_postcode"], "EN11 0DE")
+        self.assertEqual(consignment["values"]["consignee_eori"], "XI203964318000")
+        self.assertEqual(consignment["values"]["consignee_street_number"], "Rampart Road, Greenbank Ind Estate, , , Newry")
+        self.assertEqual(consignment["values"]["consignee_city"], "Belfast")
+        self.assertEqual(consignment["values"]["consignee_postcode"], "BT34 2QU")
+        self.assertEqual(consignment["values"]["exporter_eori"], "GB152338719000")
+        consignment_fields = {field["field"]: field for field in consignment["fields"]}
+        self.assertTrue(consignment_fields["consignor_name"]["source"]["assumption"])
+        self.assertTrue(consignment_fields["consignor_postcode"]["source"]["assumption"])
+        goods = consignment["goodsItems"][0]
+        self.assertEqual(goods["values"]["goods_description"], "Shelf Bracket 350x300mm WHT")
+        self.assertEqual(goods["values"]["commodity_code"], "8302419000")
+        self.assertEqual(goods["values"]["number_of_packages"], "20")
+        self.assertEqual(goods["values"]["gross_mass_kg"], "3.26")
+        self.assertEqual(goods["values"]["item_invoice_amount"], "28.60")
+        self.assertEqual(goods["values"]["item_invoice_currency"], "GBP")
+        goods_fields = {field["field"]: field for field in goods["fields"]}
+        self.assertTrue(goods_fields["net_mass_kg"]["source"]["assumption"])
+        self.assertEqual(consignment["tssPayloadPreview"]["goodsItems"][0]["gross_mass_kg"], "3.26")
+    def test_demo_mode_maps_pdf_continuation_page_goods_to_previous_invoice(self):
+        first_page = """
+Commercial Invoice
+Seller: Goodman Bros
+Commercial Invoice Number CI-0002463501223 828718
+Shipper's EORI Number GB189435365000
+Receiver's EORI Number IE4531617P000
+Buyer: Timemark Ltd
+No. of Packages: 1
+Shipment Weight: 165 Gross kg
+Currency Code GBP
+Product Code Description Qty Price Origin Comm. Code Weight Line Total
+RING001 Stainless Steel Ring 1 £4.00 India 7113190000 0.10 £4.00
+"""
+        continuation_page = """
+CHAIN001 Initial Alphabet Charm 2 £5.00 India 7113190000 0.50 £10.00
+"""
+        original_extract = file_introspection.extract_pdf_text_pages
+        original_metadata = file_introspection.extract_pdf_metadata
+        try:
+            file_introspection.extract_pdf_text_pages = lambda _content: [first_page, continuation_page]
+            file_introspection.extract_pdf_metadata = lambda _content: {}
+            payload = portal_main.upload_consignment_preview(
+                client_code="PLE",
+                files=[upload_file("goodman-continuation.pdf", b"%PDF-1.7")],
+                demo_mode=True,
+            )
+        finally:
+            file_introspection.extract_pdf_text_pages = original_extract
+            file_introspection.extract_pdf_metadata = original_metadata
+
+        preview = payload["processingPreview"]
+        self.assertEqual(preview["summary"]["consignmentCount"], 1)
+        self.assertEqual(preview["summary"]["goodsItemCount"], 2)
+        consignment = preview["consignments"][0]
+        self.assertEqual(consignment["values"]["consignment_number"], "CI-0002463501223 828718")
+        self.assertEqual(consignment["goodsItems"][1]["values"]["goods_description"], "Initial Alphabet Charm")
+        self.assertEqual(consignment["goodsItems"][1]["values"]["gross_mass_kg"], "1")
+        continuation_fields = {field["field"]: field for field in consignment["goodsItems"][1]["fields"]}
+        self.assertTrue(continuation_fields["goods_description"]["source"]["assumption"])
+    def test_demo_mode_maps_goodman_reversed_pdf_metrics_and_address(self):
+        pdf_text = """
+Commercial Invoice
+Seller:
+Goodman Bros
+11-12 Regal Road
+Wisbech
+United Kingdom
+Cambridgeshire
+PE13 2RQ
+Commercial Invoice Number CI-0002333101223 828718
+invoices@goodman-bros.com Shipper's EORI Number GB189435365000www.goodman-bros.com
+Receiver's EORI Number IE4531617P000
+Buyer:
+Timemark Ltd
+A6 Calmount Park Delivery City Ballymount
+No. of Packages: 1
+D12RD88 Shipping Company: Customer Own
+Ballymount Total Weight 0.30 Nett kg
+Dublin 12 Shipment Weight: 165 Gross kg
+Ireland
+PriceDiscountPriceWeightQtyCountry of OriginDescriptionComm. CodeProduct DescriptionProduct Code
+75.600%6.300.30012.00United Statesear-piercing
+contents7113190000Inverness Stainless Steel 3mm
+' AB' CZIN-1163C
+"""
+        original_extract = file_introspection.extract_pdf_text_pages
+        original_metadata = file_introspection.extract_pdf_metadata
+        try:
+            file_introspection.extract_pdf_text_pages = lambda _content: [pdf_text]
+            file_introspection.extract_pdf_metadata = lambda _content: {}
+            payload = portal_main.upload_consignment_preview(
+                client_code="PLE",
+                files=[upload_file("goodman-reversed.pdf", b"%PDF-1.7")],
+                demo_mode=True,
+            )
+        finally:
+            file_introspection.extract_pdf_text_pages = original_extract
+            file_introspection.extract_pdf_metadata = original_metadata
+
+        consignment = payload["processingPreview"]["consignments"][0]
+        self.assertEqual(consignment["values"]["consignor_city"], "Wisbech")
+        self.assertEqual(consignment["values"]["consignor_postcode"], "PE13 2RQ")
+        self.assertEqual(consignment["values"]["exporter_eori"], "GB189435365000")
+        goods = consignment["goodsItems"][0]
+        self.assertEqual(goods["values"]["number_of_packages"], "12")
+        self.assertEqual(goods["values"]["package_marks"], "CZIN-1163C")
+        self.assertEqual(goods["values"]["gross_mass_kg"], "0.3")
+        self.assertEqual(goods["values"]["country_of_origin"], "US")
+        self.assertEqual(goods["values"]["item_invoice_amount"], "75.6")
+        tss_goods = consignment["tssPayloadPreview"]["goodsItems"][0]
+        self.assertEqual(tss_goods["gross_mass_kg"], "0.30")
+        self.assertEqual(tss_goods["item_invoice_amount"], "75.60")
+
+    def test_demo_mode_maps_zok_ocr_postcode_city_and_summary_goods(self):
+        pdf_text = """
+ZOK International Group Ltd
+Airworthy House
+Elsted Marsh
+Midhurst
+West Sussex
+GU29 OJT
+United Kingdom
+Invoice Address:
+3Q Industrial Supplies Ltd
+Delivery Address:
+EP Ballylumford Ltd
+Ferris Bay Road
+lslandmagee
+Ballylumford
+Lame
+BT40 3RS
+Invoice
+Currency Code Customer ID Purchase order No. Number: Date: Customer VAT No.
+GBP 3QINDUST 135823 220814 05 December 2025 GB
+PO No: 135823 Consignee telephone number: 01472 355870
+Terms of Trading: Freight & Insurance to EP Ballylumford Ltd
+Reason for Export: Sold goods Packed onto 1 pallet Dimensions per pallet: (1) Can Pallet Dims @ 1140 x 1140 x 560mm (WxDxH)
+Net weight of consignment: 300kg Gross weight of consignment: 344kg
+ZOK EORI Number: GB784419594000 NON FLAMMABLE -Tariff Number: ZOK 34029090
+"""
+        original_extract = file_introspection.extract_pdf_text_pages
+        original_metadata = file_introspection.extract_pdf_metadata
+        try:
+            file_introspection.extract_pdf_text_pages = lambda _content: [pdf_text]
+            file_introspection.extract_pdf_metadata = lambda _content: {}
+            payload = portal_main.upload_consignment_preview(
+                client_code="PLE",
+                files=[upload_file("zok-invoice.pdf", b"%PDF-1.7")],
+                demo_mode=True,
+            )
+        finally:
+            file_introspection.extract_pdf_text_pages = original_extract
+            file_introspection.extract_pdf_metadata = original_metadata
+
+        consignment = payload["processingPreview"]["consignments"][0]
+        self.assertEqual(consignment["values"]["consignor_city"], "Midhurst")
+        self.assertEqual(consignment["values"]["consignor_postcode"], "GU29 0JT")
+        self.assertEqual(consignment["values"]["consignee_city"], "Lame")
+        self.assertEqual(consignment["values"]["consignee_postcode"], "BT40 3RS")
+        self.assertEqual(consignment["values"]["exporter_eori"], "GB784419594000")
+        goods = consignment["goodsItems"][0]
+        self.assertEqual(goods["values"]["commodity_code"], "34029090")
+        self.assertEqual(consignment["tssPayloadPreview"]["goodsItems"][0]["gross_mass_kg"], "344.00")
+        self.assertEqual(consignment["tssPayloadPreview"]["goodsItems"][0]["net_mass_kg"], "300.00")
+    def test_demo_mode_maps_goodman_multiline_pdf_goods_blocks(self):
+        pdf_text = """
+Commercial Invoice
+Seller:
+Goodman Bros
+11-12 Regal Road
+Wisbech
+United Kingdom
+Cambridgeshire
+PE13 2RQ
+Commercial Invoice Number CI-0002463301223 828718
+invoices@goodman-bros.com Shipper's EORI Number GB189435365000www.goodman-bros.com
+Receiver's EORI Number IE4531617P000
+Buyer:
+Timemark Ltd
+A6 Calmount Park Delivery City Ballymount
+No. of Packages: 1
+D12RD88 Shipping Company: Customer Own
+Ballymount Total Weight 0.066 Nett kg
+Dublin 12 Shipment Weight: 165 Gross kg
+Ireland
+PriceDiscountPriceWeightQtyCountry of OriginDescriptionComm. CodeProduct DescriptionProduct Code
+82.880%11.840.0077.00United States
+Jewellery Charm
+and / or jump
+ring
+7113110000
+14/20 Yellow Gold-Filled
+3.2mm Heart Link Cable
+Chain. (8.27") 21 cm.
+Hallmark Programme and
+Anchor Protect Certified.
+Chain with jump ring ready to
+weld.
+PJ-14201001-21CM
+39.000%6.500.0306.00United States
+Jewellery Charm
+and / or jump
+ring
+7113110000
+14/20 Yellow Gold-Filled
+1.7mm Flat Long and Short
+Chain. (8.27") 21 cm.
+Hallmark Programme and
+Anchor Protect Certified.
+Chain with jump ring ready to
+weld.
+PJ-14201006-21CM
+"""
+        original_extract = file_introspection.extract_pdf_text_pages
+        original_metadata = file_introspection.extract_pdf_metadata
+        try:
+            file_introspection.extract_pdf_text_pages = lambda _content: [pdf_text]
+            file_introspection.extract_pdf_metadata = lambda _content: {}
+            payload = portal_main.upload_consignment_preview(
+                client_code="PLE",
+                files=[upload_file("goodman-multiline.pdf", b"%PDF-1.7")],
+                demo_mode=True,
+            )
+        finally:
+            file_introspection.extract_pdf_text_pages = original_extract
+            file_introspection.extract_pdf_metadata = original_metadata
+
+        consignment = payload["processingPreview"]["consignments"][0]
+        self.assertEqual(consignment["goodsItemCount"], 2)
+        first, second = consignment["goodsItems"]
+        self.assertEqual(first["values"]["commodity_code"], "7113110000")
+        self.assertEqual(first["values"]["package_marks"], "PJ-14201001-21CM")
+        self.assertEqual(first["values"]["country_of_origin"], "US")
+        self.assertEqual(first["values"]["number_of_packages"], "7")
+        self.assertEqual(first["values"]["gross_mass_kg"], "0.007")
+        self.assertEqual(first["values"]["item_invoice_amount"], "82.88")
+        self.assertEqual(first["tssPayload"]["gross_mass_kg"] if "tssPayload" in first else consignment["tssPayloadPreview"]["goodsItems"][0]["gross_mass_kg"], "0.01")
+        self.assertEqual(second["values"]["package_marks"], "PJ-14201006-21CM")
+        self.assertEqual(second["values"]["gross_mass_kg"], "0.03")
+        self.assertEqual(consignment["tssPayloadPreview"]["goodsItems"][1]["item_invoice_amount"], "39.00")
+    def test_demo_mode_pdf_guide_text_does_not_create_false_consignments(self):
+        guide_text = """
+TSS How-To Guides: TSS API Reference Published: June 2026
+Copyright 2026 Trader Support Service. All rights Reserved.
+Example goods item record payload for a create or an update might look like the following.
+{
+  "commodity_code":"0105130000",
+  "gross_mass_kg":"400",
+  "item_invoice_amount":"100.00",
+  "package_marks":"34544421"
+}
+Input the Invoice Number and Number of Packages in the portal screen.
+"""
+        original_extract = file_introspection.extract_pdf_text_pages
+        original_metadata = file_introspection.extract_pdf_metadata
+        try:
+            file_introspection.extract_pdf_text_pages = lambda _content: [guide_text]
+            file_introspection.extract_pdf_metadata = lambda _content: {}
+            payload = portal_main.upload_consignment_preview(
+                client_code="PLE",
+                files=[upload_file("TSS-Declaration-API-Reference-v2.9.6.pdf", b"%PDF-1.7")],
+                demo_mode=True,
+            )
+        finally:
+            file_introspection.extract_pdf_text_pages = original_extract
+            file_introspection.extract_pdf_metadata = original_metadata
+
+        self.assertEqual(payload["detectedStructure"]["format"], "pdf")
+        self.assertIn("no invoice/consignment fields", payload["detectedStructure"]["warning"])
+        self.assertEqual(payload["processingPreview"]["summary"]["consignmentCount"], 0)
+        self.assertEqual(payload["processingPreview"]["summary"]["goodsItemCount"], 0)
+    def test_demo_mode_scanned_pdf_maps_when_optional_ocr_returns_invoice_text(self):
+        ocr_text = """
+Commercial Invoice
+Seller: Frisco UK Sales Ltd
+Shipper's EORI Number GB152338719000
+Invoiced To: Murdock T/A Newry Building Supplies Ltd Shipment Detail: Invoice No. 0000814877
+N.W. (Kg): 39.426
+G.W. (Kg): 40
+Pieces: 2 ctns Customer Ref: PO000187695
+Customer EORI: XI203964318000
+Currency Code GBP
+Code Description Qty Price Origin HS Code SKU Weight (Kg) Line Total
+94160 Shelf Bracket 350x300mm WHT 20 1.43 India 8302419000 0.163 28.60
+"""
+        original_extract = file_introspection.extract_pdf_text_pages
+        original_metadata = file_introspection.extract_pdf_metadata
+        original_ocr_configured = file_introspection.pdf_ocr_configured
+        original_ocr = file_introspection.extract_pdf_ocr_text_pages
+        try:
+            file_introspection.extract_pdf_text_pages = lambda _content: [""]
+            file_introspection.extract_pdf_metadata = lambda _content: {"Title": "Scanned Frisco invoice"}
+            file_introspection.pdf_ocr_configured = lambda: True
+            file_introspection.extract_pdf_ocr_text_pages = lambda _content: [ocr_text]
+            payload = portal_main.upload_consignment_preview(
+                client_code="PLE",
+                files=[upload_file("scanned-frisco-invoice.pdf", b"%PDF-1.7")],
+                demo_mode=True,
+            )
+        finally:
+            file_introspection.extract_pdf_text_pages = original_extract
+            file_introspection.extract_pdf_metadata = original_metadata
+            file_introspection.pdf_ocr_configured = original_ocr_configured
+            file_introspection.extract_pdf_ocr_text_pages = original_ocr
+
+        structure = payload["detectedStructure"]
+        self.assertEqual(structure["format"], "pdf")
+        self.assertFalse(structure["pdfRequiresOcr"])
+        self.assertTrue(structure["pdfOcrConfigured"])
+        self.assertTrue(structure["pdfOcrAttempted"])
+        self.assertTrue(structure["pdfOcrUsed"])
+        preview = payload["processingPreview"]
+        self.assertEqual(preview["summary"]["consignmentCount"], 1)
+        self.assertEqual(preview["summary"]["goodsItemCount"], 1)
+        self.assertEqual(preview["summary"]["missingRequiredCount"], 0)
+        consignment = preview["consignments"][0]
+        self.assertEqual(consignment["values"]["consignment_number"], "PO000187695")
+        self.assertEqual(consignment["values"]["consignee_eori"], "XI203964318000")
+        self.assertEqual(consignment["values"]["exporter_eori"], "GB152338719000")
+        goods = consignment["goodsItems"][0]
+        self.assertEqual(goods["values"]["commodity_code"], "8302419000")
+        self.assertEqual(goods["values"]["gross_mass_kg"], "3.26")
+        self.assertEqual(consignment["tssPayloadPreview"]["goodsItems"][0]["gross_mass_kg"], "3.26")
+
+    def test_demo_mode_pdf_without_extractable_text_returns_ocr_warning_and_detected_refs(self):
+        original_extract = file_introspection.extract_pdf_text_pages
+        original_metadata = file_introspection.extract_pdf_metadata
+        original_ocr_configured = file_introspection.pdf_ocr_configured
+        original_ocr = file_introspection.extract_pdf_ocr_text_pages
+        try:
+            file_introspection.extract_pdf_text_pages = lambda _content: [""]
+            file_introspection.extract_pdf_metadata = lambda _content: {"Title": "BIRKDALE ENS Movement Pack - ENS000000002615752", "Author": "IT Synovia", "Producer": "Microsoft: Print To PDF"}
+            file_introspection.pdf_ocr_configured = lambda: False
+            file_introspection.extract_pdf_ocr_text_pages = lambda _content: []
+            payload = portal_main.upload_consignment_preview(
+                client_code="PLE",
+                files=[upload_file("BIRKDALE ENS Movement Pack - ENS000000002615752.pdf", b"%PDF-1.7")],
+                demo_mode=True,
+            )
+        finally:
+            file_introspection.extract_pdf_text_pages = original_extract
+            file_introspection.extract_pdf_metadata = original_metadata
+            file_introspection.pdf_ocr_configured = original_ocr_configured
+            file_introspection.extract_pdf_ocr_text_pages = original_ocr
+
+        self.assertEqual(payload["detectedStructure"]["format"], "pdf")
+        self.assertIn("OCR", payload["detectedStructure"]["warning"])
+        self.assertTrue(payload["detectedStructure"]["pdfRequiresOcr"])
+        self.assertFalse(payload["detectedStructure"]["pdfOcrConfigured"])
+        self.assertFalse(payload["detectedStructure"]["pdfOcrAttempted"])
+        self.assertFalse(payload["detectedStructure"]["pdfOcrUsed"])
+        self.assertEqual(payload["detectedStructure"]["pdfTitle"], "BIRKDALE ENS Movement Pack - ENS000000002615752")
+        self.assertEqual(payload["detectedStructure"]["pdfMetadata"]["Author"], "IT Synovia")
+        self.assertEqual(payload["detectedStructure"]["pdfMetadata"]["Producer"], "Microsoft: Print To PDF")
+        self.assertIn(
+            {"type": "ENS", "value": "ENS000000002615752", "source": "filename"},
+            payload["detectedStructure"]["pdfDetectedReferences"],
+        )
+        self.assertEqual(payload["processingPreview"]["summary"]["consignmentCount"], 0)
+        self.assertEqual(payload["processingPreview"]["summary"]["goodsItemCount"], 0)
+
     def test_demo_mode_maps_tss_style_api_paths_to_consignment_and_goods(self):
         content = xlsx_content([
             ["api_field", "source_value"],
@@ -664,6 +1076,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
             "package_marks,ADDR",
             "gross_mass_kg,0.42599999999999999",
             "net_mass_kg,0.42599999999999999",
+            "item_invoice_amount,1.236",
         ]).encode("utf-8")
 
         payload = portal_main.upload_consignment_preview(
@@ -676,6 +1089,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         goods_payload = consignment["tssPayloadPreview"]["goodsItems"][0]
         self.assertEqual(goods_payload["gross_mass_kg"], "0.43")
         self.assertEqual(goods_payload["net_mass_kg"], "0.43")
+        self.assertEqual(goods_payload["item_invoice_amount"], "1.24")
 
     def test_consignee_eori_is_not_required_when_full_consignee_address_is_present(self):
         manifest = "\n".join([

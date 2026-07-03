@@ -49,11 +49,24 @@ export function getConsignments({ clientCode, status = 'ALL', q = '', limit = 10
   return request(`/api/consignments?${params.toString()}`);
 }
 
-export function getTssConnections(clientCode) {
+export function getConsignmentDetail(consignmentRowId) {
+  return request(`/api/consignments/${encodeURIComponent(consignmentRowId)}`);
+}
+
+export function getTssConnections(clientCode, envCode) {
   const params = new URLSearchParams();
   if (clientCode) params.set('client_code', clientCode);
+  if (envCode) params.set('env_code', envCode);
   const query = params.toString();
   return request(`/api/tss/connections${query ? `?${query}` : ''}`);
+}
+
+export function testTssConnection({ clientCode, envCode }) {
+  const params = new URLSearchParams();
+  if (clientCode) params.set('client_code', clientCode);
+  if (envCode) params.set('env_code', envCode);
+  const query = params.toString();
+  return request(`/api/tss/connections/test${query ? `?${query}` : ''}`);
 }
 
 export function getAdminSettings(clientCode) {

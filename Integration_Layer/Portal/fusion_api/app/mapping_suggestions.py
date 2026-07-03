@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from typing import Any
@@ -143,6 +143,16 @@ ALIASES: dict[str, tuple[str, str]] = {
     "currency": ("PRS.Goods_Item", "item_invoice_currency"),
     "invoicecurrency": ("PRS.Goods_Item", "item_invoice_currency"),
     "invoicenumber": ("PRS.Goods_Item", "invoice_number"),
+    "stockcode": ("PRS.Goods_Item", "package_marks"),
+    "sku": ("PRS.Goods_Item", "package_marks"),
+    "productcode": ("PRS.Goods_Item", "package_marks"),
+    "itemcode": ("PRS.Goods_Item", "package_marks"),
+    "qty": ("PRS.Goods_Item", "number_of_packages"),
+    "quantity": ("PRS.Goods_Item", "number_of_packages"),
+    "linevalue": ("PRS.Goods_Item", "item_invoice_amount"),
+    "linetotal": ("PRS.Goods_Item", "item_invoice_amount"),
+    "net": ("PRS.Goods_Item", "item_invoice_amount"),
+    "country": ("PRS.Goods_Item", "country_of_origin"),
 }
 
 REQUIRED_TARGETS = {("PRS.Consignment", field) for field in CONSIGNMENT_REQUIRED_FIELDS}
