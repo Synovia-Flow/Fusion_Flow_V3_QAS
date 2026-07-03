@@ -40,6 +40,10 @@ export function getDashboard(clientCode) {
   return request(`/api/dashboard?client_code=${encodeURIComponent(clientCode)}`);
 }
 
+export function getControlTower(clientCode) {
+  return request(`/api/control-tower?client_code=${encodeURIComponent(clientCode)}`);
+}
+
 export function getConsignments({ clientCode, status = 'ALL', q = '', limit = 100 }) {
   const params = new URLSearchParams({ client_code: clientCode, status, q, limit: String(limit) });
   return request(`/api/consignments?${params.toString()}`);

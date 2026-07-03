@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminSettings, getApiDocsUrl, getConsignments, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings } from './api';
+import { getAdminSettings, getApiDocsUrl, getConsignments, getControlTower, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'SYNOVIA',
@@ -9,6 +9,8 @@ const DEFAULT_SESSION = {
   mode: 'DEMO_ADMIN',
 };
 const DEFAULT_OPERATIONAL_CLIENT_CODE = 'PLE';
+const MASTER_LIVE_URL = 'https://synovia-flow-3-live.onrender.com/';
+const MASTER_LIVE_EMBED_URL = '/master-live/index.html';
 
 const ENVIRONMENT_MODES = [
   { value: 'DEMO', label: 'DEMO' },
@@ -81,6 +83,94 @@ function isSynoviaSession(session) {
   return (session?.tenantCode || '').toUpperCase() === DEFAULT_SESSION.tenantCode;
 }
 
+const PORTAL_SESSION_STORAGE_KEY = 'fusion_portal_session_v1';
+const PERSISTABLE_VIEWS = new Set(['dashboard', 'upload', 'consignments', 'controlTower', 'masterLive', 'settings']);
+
+function getPortalSessionStorage() {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeStoredPortalView(view) {
+  return PERSISTABLE_VIEWS.has(view) ? view : 'dashboard';
+}
+
+function normalizeStoredSettingsSection(sectionId) {
+  return SETTINGS_NAV_SECTIONS.some((section) => section.id === sectionId)
+    ? sectionId
+    : SETTINGS_NAV_SECTIONS[0].id;
+}
+
+function normalizeStoredSession(rawSession) {
+  const tenantCode = String(rawSession?.tenantCode || DEFAULT_SESSION.tenantCode).toUpperCase();
+  const fallback = sessionFallback(tenantCode);
+  return {
+    ...fallback,
+    tenantName: rawSession?.tenantName || fallback.tenantName,
+    username: rawSession?.username || DEFAULT_SESSION.username,
+    role: rawSession?.role || DEFAULT_SESSION.role,
+    mode: rawSession?.mode || fallback.mode,
+  };
+}
+
+function readStoredPortalSession() {
+  const storage = getPortalSessionStorage();
+  if (!storage) return null;
+
+  try {
+    const raw = storage.getItem(PORTAL_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.authenticated || !parsed.session) return null;
+
+    const session = normalizeStoredSession(parsed.session);
+    const defaultClientCode = session.tenantCode === DEFAULT_SESSION.tenantCode
+      ? DEFAULT_OPERATIONAL_CLIENT_CODE
+      : session.tenantCode;
+
+    return {
+      session,
+      activeClientCode: String(parsed.activeClientCode || defaultClientCode).toUpperCase(),
+      view: normalizeStoredPortalView(parsed.view),
+      settingsSection: normalizeStoredSettingsSection(parsed.settingsSection),
+      environmentMode: normalizeEnvironmentMode(parsed.environmentMode || 'DEMO'),
+      environmentModeTouched: Boolean(parsed.environmentModeTouched),
+    };
+  } catch {
+    storage.removeItem(PORTAL_SESSION_STORAGE_KEY);
+    return null;
+  }
+}
+
+function writeStoredPortalSession(payload) {
+  const storage = getPortalSessionStorage();
+  if (!storage) return;
+
+  try {
+    storage.setItem(PORTAL_SESSION_STORAGE_KEY, JSON.stringify({
+      authenticated: true,
+      session: payload.session,
+      activeClientCode: String(payload.activeClientCode || DEFAULT_OPERATIONAL_CLIENT_CODE).toUpperCase(),
+      view: normalizeStoredPortalView(payload.view),
+      settingsSection: normalizeStoredSettingsSection(payload.settingsSection),
+      environmentMode: normalizeEnvironmentMode(payload.environmentMode || 'DEMO'),
+      environmentModeTouched: Boolean(payload.environmentModeTouched),
+      savedAt: new Date().toISOString(),
+    }));
+  } catch {
+    // A blocked storage write should not interrupt the portal session.
+  }
+}
+
+function clearStoredPortalSession() {
+  const storage = getPortalSessionStorage();
+  if (!storage) return;
+  storage.removeItem(PORTAL_SESSION_STORAGE_KEY);
+}
 function demoEnsForClient(clientCode = DEFAULT_OPERATIONAL_CLIENT_CODE) {
   return DEMO_ENS_BY_CLIENT[clientCode] || DEMO_ENS_BY_CLIENT[DEFAULT_OPERATIONAL_CLIENT_CODE];
 }
@@ -210,6 +300,10 @@ function MaterialIcon({ children, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`} aria-hidden="true">{children}</span>;
 }
 
+function LoadingSpinner({ className = '' }) {
+  return <span className={`loading-spinner ${className}`} aria-hidden="true" />;
+}
+
 function DrawerRow({ icon, label, active = false, danger = false, indent = false, trailing, expanded, onClick }) {
   return (
     <button
@@ -305,6 +399,8 @@ function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [
           <>
             <DrawerRow icon="upload_file" label="Upload Consignments" active={view === 'upload'} onClick={() => onNavigate('upload')} />
             <DrawerRow icon="list_alt" label="View Consignments" active={view === 'consignments'} onClick={() => onNavigate('consignments')} />
+            <DrawerRow icon="hub" label="Control Tower" active={view === 'controlTower'} onClick={() => onNavigate('controlTower')} />
+            <DrawerRow icon="table_view" label="Master Live" active={view === 'masterLive'} onClick={() => onNavigate('masterLive')} />
           </>
         )}
         <DrawerRow
@@ -450,7 +546,7 @@ function LoginCard({ onLogin }) {
         {loginState.status === 'error' && <div className="login-error">{loginState.error}</div>}
         <button className="submit-button" type="submit" disabled={isCheckingLogin} aria-busy={isCheckingLogin}>
           <span>{isCheckingLogin ? 'Checking' : 'Login'}</span>
-          {isCheckingLogin && <span className="button-spinner" aria-hidden="true" />}
+          {isCheckingLogin && <LoadingSpinner className="button-spinner" />}
         </button>
         <button className="forgot-button" type="button">Forgot password?</button>
       </form>
@@ -584,6 +680,7 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSave
   const [draft, setDraft] = useState({});
   const [saveState, setSaveState] = useState('idle');
   const [saveError, setSaveError] = useState('');
+  const isSavingSettings = saveState === 'saving';
 
   useEffect(() => {
     const nextDraft = {};
@@ -649,9 +746,9 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSave
             <p>{settings?.clientCode || 'Tenant'} values from {settings?.source || 'CFG'}.</p>
           </div>
         </div>
-        <button className="settings-save" type="button" onClick={saveSettings} disabled={isSettingsLoading || saveState !== 'changed'}>
-          <MaterialIcon>save</MaterialIcon>
-          <span>{saveState === 'saving' ? 'Saving' : saveState === 'saved' ? 'Saved' : 'Save settings'}</span>
+        <button className="settings-save" type="button" onClick={saveSettings} disabled={isSettingsLoading || saveState !== 'changed'} aria-busy={isSettingsLoading || isSavingSettings}>
+          {isSettingsLoading || isSavingSettings ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>save</MaterialIcon>}
+          <span>{isSettingsLoading ? 'Loading' : isSavingSettings ? 'Saving' : saveState === 'saved' ? 'Saved' : 'Save settings'}</span>
         </button>
       </div>
 
@@ -1287,7 +1384,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
 
       {previewState.status !== 'idle' && (
         <div className={`upload-preview-card ${previewState.status}`}>
-          {previewState.status === 'loading' && <span>Preparing API preview...</span>}
+          {previewState.status === 'loading' && <span className="loading-line"><LoadingSpinner /><span>Preparing API preview...</span></span>}
           {previewState.status === 'error' && <span>{previewState.error}</span>}
           {previewState.status === 'ready' && (
             <>
@@ -1337,8 +1434,9 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
         <button className="clear-button" type="button" disabled={!selectedFiles.length} onClick={clearFile}>Clear</button>
       </div>
 
-      <button className="preview-button" type="button" disabled={!selectedFiles.length || previewState.status === 'loading'} onClick={handlePreview}>
-        {previewState.status === 'loading' ? 'Preparing Preview' : (demoMode ? 'Run Demo Preview' : 'Upload & Preview')}
+      <button className="preview-button" type="button" disabled={!selectedFiles.length || previewState.status === 'loading'} onClick={handlePreview} aria-busy={previewState.status === 'loading'}>
+        {previewState.status === 'loading' && <LoadingSpinner className="button-spinner" />}
+        <span>{previewState.status === 'loading' ? 'Preparing Preview' : (demoMode ? 'Run Demo Preview' : 'Upload & Preview')}</span>
       </button>
 
       {previewDetailsOpen && previewState.payload?.processingPreview && (
@@ -1348,9 +1446,341 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
   );
 }
 function StatusBadge({ status }) {
-  return <span className={`status-badge ${status.toLowerCase().replace('_', '-')}`}>{status.replace('_', ' ')}</span>;
+  const cleanStatus = String(status || 'PENDING');
+  return <span className={`status-badge ${cleanStatus.toLowerCase().replaceAll('_', '-')}`}>{cleanStatus.replaceAll('_', ' ')}</span>;
 }
 
+const CONTROL_TOWER_TABS = [
+  { id: 'overview', label: 'Overview', icon: 'dashboard' },
+  { id: 'trace', label: 'Traceability', icon: 'account_tree' },
+  { id: 'jobs', label: 'Jobs', icon: 'conversion_path' },
+  { id: 'api', label: 'API / TSS Logs', icon: 'sync_alt' },
+];
+
+function controlDisplay(value, fallback = '-') {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  return String(value);
+}
+
+function controlBool(value) {
+  return Number(value) || value === true ? 'Yes' : 'No';
+}
+
+function compactText(value, maxLength = 120) {
+  const text = controlDisplay(value, '');
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function formatDateTime(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function controlRowKey(row, index) {
+  return row.QueueID ?? row.ExecutionID ?? row.CallID ?? row.LogID ?? row.JobCode ?? row.MovementKey ?? row.ParameterKey ?? index;
+}
+
+const MOVEMENT_COLUMNS = [
+  { key: 'MovementKey', label: 'Movement' },
+  { key: 'Declaration_Number', label: 'Declaration' },
+  { key: 'Fusion_Status', label: 'Fusion', render: (row) => <StatusBadge status={row.Fusion_Status || row.Status} /> },
+  { key: 'Tss_Status', label: 'TSS', render: (row) => (row.Tss_Status ? <StatusBadge status={row.Tss_Status} /> : '-') },
+  { key: 'SourceTable', label: 'Source' },
+  { key: 'LastExecutionID', label: 'Execution' },
+  { key: 'UpdatedAt', label: 'Updated', render: (row) => formatDateTime(row.UpdatedAt || row.CreatedAt) },
+];
+
+const EXECUTION_COLUMNS = [
+  { key: 'ExecutionID', label: 'Execution' },
+  { key: 'ModuleName', label: 'Module' },
+  { key: 'ProcessName', label: 'Process' },
+  { key: 'RunMode', label: 'Mode' },
+  { key: 'Status', label: 'Status', render: (row) => <StatusBadge status={row.Status} /> },
+  { key: 'ItemsProcessed', label: 'Items', render: (row) => `${row.ItemsProcessed ?? 0}/${row.ItemsFound ?? 0}` },
+  { key: 'ItemsFailed', label: 'Failed' },
+  { key: 'StartedAt', label: 'Started', render: (row) => formatDateTime(row.StartedAt) },
+  { key: 'ErrorMessage', label: 'Error', render: (row) => compactText(row.ErrorMessage) },
+];
+
+const JOB_COLUMNS = [
+  { key: 'JobCode', label: 'Job' },
+  { key: 'JobName', label: 'Name' },
+  { key: 'ModuleName', label: 'Module' },
+  { key: 'JobType', label: 'Type' },
+  { key: 'StepNo', label: 'Step' },
+  { key: 'EntryPoint', label: 'Entry point' },
+  { key: 'Schedule', label: 'Schedule' },
+  { key: 'IsActive', label: 'Active', render: (row) => controlBool(row.IsActive) },
+];
+
+const QUEUE_COLUMNS = [
+  { key: 'QueueID', label: 'Queue' },
+  { key: 'Verb', label: 'Verb' },
+  { key: 'MovementKey', label: 'Movement' },
+  { key: 'Status', label: 'Status', render: (row) => <StatusBadge status={row.Status} /> },
+  { key: 'Attempts', label: 'Attempts' },
+  { key: 'RequestedAt', label: 'Requested', render: (row) => formatDateTime(row.RequestedAt) },
+  { key: 'ResultMessage', label: 'Result', render: (row) => compactText(row.ResultMessage) },
+];
+
+const ACTIVITY_COLUMNS = [
+  { key: 'CreatedAt', label: 'Created', render: (row) => formatDateTime(row.CreatedAt) },
+  { key: 'ModuleName', label: 'Module' },
+  { key: 'StepName', label: 'Step' },
+  { key: 'LogLevel', label: 'Level', render: (row) => <StatusBadge status={row.LogLevel || 'INFO'} /> },
+  { key: 'Message', label: 'Message', render: (row) => compactText(row.Message, 180) },
+];
+
+const API_CALL_COLUMNS = [
+  { key: 'CreatedAt', label: 'Created', render: (row) => formatDateTime(row.CreatedAt) },
+  { key: 'MovementKey', label: 'Movement' },
+  { key: 'ResourceName', label: 'Resource' },
+  { key: 'OpType', label: 'Operation' },
+  { key: 'EnvCode', label: 'Env' },
+  { key: 'StatusCode', label: 'HTTP' },
+  { key: 'Success', label: 'Success', render: (row) => controlBool(row.Success) },
+  { key: 'IsDryRun', label: 'Dry run', render: (row) => controlBool(row.IsDryRun) },
+  { key: 'DurationMs', label: 'ms' },
+  { key: 'ErrorMessage', label: 'Error', render: (row) => compactText(row.ErrorMessage) },
+];
+
+const PARAM_COLUMNS = [
+  { key: 'ParameterKey', label: 'Parameter' },
+  { key: 'ParameterValue', label: 'Value' },
+  { key: 'ValueType', label: 'Type' },
+  { key: 'IsActive', label: 'Active', render: (row) => controlBool(row.IsActive) },
+  { key: 'UpdatedAt', label: 'Updated', render: (row) => formatDateTime(row.UpdatedAt) },
+];
+
+function ControlMetric({ item }) {
+  return (
+    <div className={`control-metric tone-${item.tone || 'muted'}`}>
+      <span>{item.label}</span>
+      <strong>{formatNumber(item.value)}</strong>
+      <small>{item.source}</small>
+    </div>
+  );
+}
+
+function ControlPanel({ title, icon, children, className = '' }) {
+  return (
+    <section className={`control-panel ${className}`}>
+      <div className="control-panel-header">
+        <MaterialIcon>{icon}</MaterialIcon>
+        <h2>{title}</h2>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ControlTowerTable({ columns, rows, emptyText }) {
+  if (!rows?.length) return <div className="control-empty">{emptyText || 'No records'}</div>;
+  return (
+    <div className="control-table-wrap">
+      <table className="control-table">
+        <thead>
+          <tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={controlRowKey(row, index)}>
+              {columns.map((column) => {
+                const rendered = column.render ? column.render(row) : row[column.key];
+                return <td key={column.key}>{rendered === null || rendered === undefined || rendered === '' ? '-' : rendered}</td>;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ControlTowerPage({ onBack, clientCode, connection }) {
+  const [activeTab, setActiveTab] = useState('overview');
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [state, setState] = useState({ status: 'loading', payload: null, error: '' });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadControlTower() {
+      setState((current) => ({ status: 'loading', payload: current.payload, error: '' }));
+      try {
+        const payload = await getControlTower(clientCode || DEFAULT_OPERATIONAL_CLIENT_CODE);
+        if (!cancelled) setState({ status: 'ready', payload, error: '' });
+      } catch (error) {
+        if (!cancelled) setState((current) => ({ status: 'error', payload: current.payload, error: error.message }));
+      }
+    }
+    loadControlTower();
+    return () => { cancelled = true; };
+  }, [clientCode, refreshToken]);
+
+  const payload = state.payload || {};
+  const counts = payload.counts || {};
+  const summary = payload.summary?.length ? payload.summary : [
+    { label: 'Inbound files', value: counts.inboundFiles || 0, source: 'ING.Inbound_File', tone: 'flow' },
+    { label: 'PRS records', value: (counts.prsHeaders || 0) + (counts.prsConsignments || 0) + (counts.prsGoodsItems || 0), source: 'PRS', tone: 'good' },
+    { label: 'Active jobs', value: counts.activeJobs || 0, source: 'CFG.Job', tone: 'fusion' },
+    { label: 'API errors', value: counts.apiErrors || 0, source: 'API.Call', tone: 'bad' },
+  ];
+  const availabilityEntries = Object.entries(payload.availability || {});
+  const availableCount = availabilityEntries.filter(([, exists]) => exists).length;
+  const generatedAt = payload.generatedAt ? formatDateTime(payload.generatedAt) : (state.status === 'loading' ? 'loading' : '-');
+
+  return (
+    <section className="control-tower-page" aria-label="Control tower">
+      <header className="control-tower-header">
+        <button className="back-button" type="button" onClick={onBack}>
+          <MaterialIcon>arrow_back</MaterialIcon>
+          <span>Back</span>
+        </button>
+        <div className="control-heading-copy">
+          <span className="control-eyebrow">CFG / ING / PRS / STG / EXC / LOG / API</span>
+          <h1>Control Tower</h1>
+          <p>{payload.clientCode || clientCode} - {generatedAt} - read-only</p>
+        </div>
+        <button className="control-refresh-button" type="button" disabled={state.status === 'loading'} onClick={() => setRefreshToken((value) => value + 1)} aria-busy={state.status === 'loading'}>
+          {state.status === 'loading' ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>refresh</MaterialIcon>}
+          <span>{state.status === 'loading' ? 'Loading' : 'Refresh'}</span>
+        </button>
+      </header>
+
+      {state.status === 'error' && (
+        <div className="action-feedback is-error control-error">
+          <strong>Control Tower API unavailable</strong>
+          <span>{state.error}</span>
+        </div>
+      )}
+
+      <div className="control-meta-strip" aria-label="Control tower context">
+        <div><span>Client</span><strong>{payload.clientCode || clientCode}</strong></div>
+        <div><span>TSS</span><strong>{credentialText(connection)}</strong></div>
+        <div><span>Route</span><strong>{routeText(connection)}</strong></div>
+        <div><span>Objects</span><strong>{availabilityEntries.length ? `${availableCount}/${availabilityEntries.length}` : '-'}</strong></div>
+      </div>
+
+      <div className="summary-rail control-summary" aria-label="Control tower summary">
+        {summary.map((item) => <ControlMetric key={item.label} item={item} />)}
+      </div>
+
+      <div className="control-tabs" role="tablist" aria-label="Control tower sections">
+        {CONTROL_TOWER_TABS.map((tab) => (
+          <button key={tab.id} className={activeTab === tab.id ? 'active' : ''} type="button" role="tab" aria-selected={activeTab === tab.id} onClick={() => setActiveTab(tab.id)}>
+            <MaterialIcon>{tab.icon}</MaterialIcon>
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'overview' && (
+        <div className="control-sections">
+          <ControlPanel title="Pipeline" icon="schema">
+            <div className="pipeline-grid">
+              {(payload.pipeline || []).map((stage) => (
+                <div className={`pipeline-card tone-${stage.tone || 'muted'}`} key={stage.stage}>
+                  <span>{stage.stage}</span>
+                  <strong>{formatNumber(stage.count)}</strong>
+                  <small>{stage.label}</small>
+                  <em>{stage.table}</em>
+                </div>
+              ))}
+              {!(payload.pipeline || []).length && <div className="control-empty">No pipeline counts</div>}
+            </div>
+          </ControlPanel>
+          <div className="control-grid">
+            <ControlPanel title="Object coverage" icon="inventory_2">
+              {availabilityEntries.length ? (
+                <div className="availability-grid">
+                  {availabilityEntries.map(([name, exists]) => (
+                    <span className={exists ? 'is-present' : 'is-missing'} key={name}>
+                      <MaterialIcon>{exists ? 'check_circle' : 'error'}</MaterialIcon>
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              ) : <div className="control-empty">No object metadata</div>}
+            </ControlPanel>
+            <ControlPanel title="Runtime parameters" icon="tune">
+              <ControlTowerTable columns={PARAM_COLUMNS} rows={payload.params || []} emptyText="No automation parameters" />
+            </ControlPanel>
+          </div>
+          <ControlPanel title="Recent activity" icon="article">
+            <ControlTowerTable columns={ACTIVITY_COLUMNS} rows={payload.activity || []} emptyText="No process log rows" />
+          </ControlPanel>
+        </div>
+      )}
+
+      {activeTab === 'trace' && (
+        <div className="control-sections">
+          <ControlPanel title="Movements" icon="account_tree">
+            <ControlTowerTable columns={MOVEMENT_COLUMNS} rows={payload.movements || []} emptyText="No traceable movements" />
+          </ControlPanel>
+          <ControlPanel title="Executions" icon="task_alt">
+            <ControlTowerTable columns={EXECUTION_COLUMNS} rows={payload.executions || []} emptyText="No execution rows" />
+          </ControlPanel>
+        </div>
+      )}
+
+      {activeTab === 'jobs' && (
+        <div className="control-grid">
+          <ControlPanel title="CFG.Job" icon="settings_suggest">
+            <ControlTowerTable columns={JOB_COLUMNS} rows={payload.jobs || []} emptyText="No configured jobs" />
+          </ControlPanel>
+          <ControlPanel title="EXC.Job_Queue" icon="pending_actions">
+            <ControlTowerTable columns={QUEUE_COLUMNS} rows={payload.queue || []} emptyText="No queued automation work" />
+          </ControlPanel>
+        </div>
+      )}
+
+      {activeTab === 'api' && (
+        <div className="control-sections">
+          <ControlPanel title="API.Call" icon="sync_alt">
+            <ControlTowerTable columns={API_CALL_COLUMNS} rows={payload.apiCalls || []} emptyText="No API call rows" />
+          </ControlPanel>
+        </div>
+      )}
+    </section>
+  );
+}
+function MasterLivePage({ onBack }) {
+  return (
+    <section className="master-live-page" aria-label="Master live prototype">
+      <header className="master-live-header">
+        <button className="back-button" type="button" onClick={onBack}>
+          <MaterialIcon>arrow_back</MaterialIcon>
+          <span>Back</span>
+        </button>
+        <div className="master-live-heading">
+          <span className="control-eyebrow">Master branch prototype</span>
+          <h1>Goods Excel Validator</h1>
+          <p>Embedded copy from Master - Render live available</p>
+        </div>
+        <div className="master-live-actions">
+          <a className="master-live-link" href={MASTER_LIVE_URL} target="_blank" rel="noreferrer">
+            <MaterialIcon>open_in_new</MaterialIcon>
+            <span>Open Render</span>
+          </a>
+          <a className="master-live-link secondary" href={MASTER_LIVE_EMBED_URL} target="_blank" rel="noreferrer">
+            <MaterialIcon>open_in_browser</MaterialIcon>
+            <span>Open Local</span>
+          </a>
+        </div>
+      </header>
+
+      <div className="master-live-frame-shell">
+        <iframe
+          className="master-live-frame"
+          src={MASTER_LIVE_EMBED_URL}
+          title="Goods Excel Validation Prototype"
+        />
+      </div>
+    </section>
+  );
+}
 function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueForTss }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
@@ -1481,36 +1911,44 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
           </div>
           <div className="detail-actions">
             <button className="primary-action blue" type="button"><MaterialIcon>visibility</MaterialIcon><span>Open Detail</span></button>
-            <button className="outline-action" type="button" onClick={handleQueueForTss} disabled={tssState.status === 'loading'}><MaterialIcon>send</MaterialIcon><span>{tssState.status === 'loading' ? 'Checking TSS Route' : 'Queue for TSS'}</span></button>
+            <button className="outline-action" type="button" onClick={handleQueueForTss} disabled={tssState.status === 'loading'} aria-busy={tssState.status === 'loading'}>{tssState.status === 'loading' ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>send</MaterialIcon>}<span>{tssState.status === 'loading' ? 'Checking TSS Route' : 'Queue for TSS'}</span></button>
           </div>
           {tssState.status !== 'idle' && tssState.rowId === selected.id && (
             <div className={`action-feedback ${tssState.status === 'error' ? 'is-error' : ''}`}>
-              <strong>{tssState.status === 'ready' ? (tssState.payload?.plan?.ready ? 'Ready for TSS dry-run' : 'TSS blockers found') : 'TSS route check failed'}</strong>
-              <span>{tssState.status === 'ready' ? `ENS step first: ${tssState.payload?.plan?.routeIsEnsFirst ? 'yes' : 'no'} - Missing: ${(tssState.payload?.plan?.missing || []).join(', ') || 'none'}` : tssState.error}</span>
+              {tssState.status === 'loading' ? (
+                <>
+                  <strong className="feedback-loading"><LoadingSpinner /><span>Checking TSS route...</span></strong>
+                  <span>Reading the configured route and required ENS fields.</span>
+                </>
+              ) : (
+                <>
+                  <strong>{tssState.status === 'ready' ? (tssState.payload?.plan?.ready ? 'Ready for TSS dry-run' : 'TSS blockers found') : 'TSS route check failed'}</strong>
+                  <span>{tssState.status === 'ready' ? `ENS step first: ${tssState.payload?.plan?.routeIsEnsFirst ? 'yes' : 'no'} - Missing: ${(tssState.payload?.plan?.missing || []).join(', ') || 'none'}` : tssState.error}</span>
+                </>
+              )}
             </div>
-          )}
-        </aside>
+          )}        </aside>
       </div>
     </section>
   );
 }
 
 export default function App() {
+  const storedPortalSession = useMemo(() => readStoredPortalSession(), []);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [view, setView] = useState('login');
+  const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(storedPortalSession));
+  const [view, setView] = useState(() => storedPortalSession?.view || 'login');
   const [isDarkTheme, setIsDarkTheme] = useState(false);
-  const [session, setSession] = useState(sessionFallback(DEFAULT_SESSION.tenantCode));
-  const [activeClientCode, setActiveClientCode] = useState(DEFAULT_OPERATIONAL_CLIENT_CODE);
+  const [session, setSession] = useState(() => storedPortalSession?.session || sessionFallback(DEFAULT_SESSION.tenantCode));
+  const [activeClientCode, setActiveClientCode] = useState(() => storedPortalSession?.activeClientCode || DEFAULT_OPERATIONAL_CLIENT_CODE);
   const [connection, setConnection] = useState(null);
   const [consignmentRows, setConsignmentRows] = useState(CONSIGNMENTS);
   const [settingsPayload, setSettingsPayload] = useState(null);
-  const [settingsSection, setSettingsSection] = useState(SETTINGS_NAV_SECTIONS[0].id);
+  const [settingsSection, setSettingsSection] = useState(() => storedPortalSession?.settingsSection || SETTINGS_NAV_SECTIONS[0].id);
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
-  const [environmentMode, setEnvironmentMode] = useState(() => normalizeEnvironmentMode(import.meta.env?.VITE_PORTAL_MODE || 'DEMO'));
-  const [environmentModeTouched, setEnvironmentModeTouched] = useState(false);
-
+  const [environmentMode, setEnvironmentMode] = useState(() => normalizeEnvironmentMode(storedPortalSession?.environmentMode || import.meta.env?.VITE_PORTAL_MODE || 'DEMO'));
+  const [environmentModeTouched, setEnvironmentModeTouched] = useState(() => Boolean(storedPortalSession?.environmentModeTouched));
   useEffect(() => {
     if (environmentModeTouched) return;
     const settingsMode = environmentModeFromSettings(settingsPayload);
@@ -1518,6 +1956,17 @@ export default function App() {
       setEnvironmentMode(settingsMode);
     }
   }, [environmentModeTouched, settingsPayload]);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    writeStoredPortalSession({
+      session,
+      activeClientCode,
+      view,
+      settingsSection,
+      environmentMode,
+      environmentModeTouched,
+    });
+  }, [isAuthenticated, session, activeClientCode, view, settingsSection, environmentMode, environmentModeTouched]);
 
   useEffect(() => {
     if (!isAuthenticated) return undefined;
@@ -1550,7 +1999,10 @@ export default function App() {
         setConnection(activeConnection);
         setConsignmentRows((consignmentPayload.consignments || []).map(normalizeConsignment));
         setSettingsPayload(settingsPayload);
-        setSettingsSection(settingsPayload.sections?.[0]?.id || SETTINGS_NAV_SECTIONS[0].id);
+        setSettingsSection((currentSection) => {
+          const defaultSection = settingsPayload.sections?.[0]?.id || SETTINGS_NAV_SECTIONS[0].id;
+          return settingsPayload.sections?.some((section) => section.id === currentSection) ? currentSection : defaultSection;
+        });
         setApiStatus('online');
         setApiError(dashboardPayload?.counts ? '' : 'Dashboard counts unavailable');
       } catch (error) {
@@ -1600,21 +2052,30 @@ export default function App() {
     }
     const activeSession = payload.session || sessionFallback(DEFAULT_SESSION.tenantCode);
     const nextClientCode = payload.defaultClientCode || payload.connection?.portalClientCode || (activeSession.tenantCode === DEFAULT_SESSION.tenantCode ? DEFAULT_OPERATIONAL_CLIENT_CODE : activeSession.tenantCode) || DEFAULT_OPERATIONAL_CLIENT_CODE;
-    setSession({
+    const nextSession = {
       tenantCode: activeSession.tenantCode || DEFAULT_SESSION.tenantCode,
       tenantName: activeSession.tenantName || DEFAULT_SESSION.tenantName,
       username: activeSession.username || credentials?.username?.trim() || DEFAULT_SESSION.username,
       role: activeSession.role || DEFAULT_SESSION.role,
       mode: activeSession.mode || (activeSession.tenantCode === DEFAULT_SESSION.tenantCode ? 'DEMO_ADMIN' : 'CLIENT_SESSION'),
-    });
+    };
+    setSession(nextSession);
     setActiveClientCode(nextClientCode);
     setConnection(payload.connection || null);
     setIsAuthenticated(true);
     setApiStatus('online');
+    writeStoredPortalSession({
+      session: nextSession,
+      activeClientCode: nextClientCode,
+      view: 'dashboard',
+      settingsSection,
+      environmentMode,
+      environmentModeTouched,
+    });
     navigate('dashboard');
   }
-
   function handleLogout() {
+    clearStoredPortalSession();
     setIsAuthenticated(false);
     setSession(sessionFallback(DEFAULT_SESSION.tenantCode));
     setActiveClientCode(DEFAULT_OPERATIONAL_CLIENT_CODE);
@@ -1651,6 +2112,7 @@ export default function App() {
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} activeClientCode={activeClientCode} onClientChange={setActiveClientCode} isDemoAdmin={isSynoviaSession(session)} />}
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} environmentMode={environmentMode} forceDemoMode={environmentMode === 'DEMO'} />}
         {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} onQueueForTss={handleQueueForTss} />}
+        {isAuthenticated && view === 'controlTower' && <ControlTowerPage onBack={() => navigate('dashboard')} clientCode={activeClientCode} connection={connection} />}
         {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}

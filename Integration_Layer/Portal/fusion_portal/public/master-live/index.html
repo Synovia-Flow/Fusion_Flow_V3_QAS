@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Goods Excel Validation Prototype</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-main">
+      <div class="header-copy">
+        <h1>Goods Excel Validation Prototype</h1>
+        <p>Minimum local prototype for defining Excel goods validation and consolidation rules before processing.</p>
+      </div>
+      <img class="header-logo" src="assets/synovia-flow-logo.png" alt="Synovia Flow">
+    </div>
+    <div class="header-note">
+      <strong>MVP scope</strong>
+      <span>Existing TSS ENS reference first, then consignment/goods upload.</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel setup-panel" aria-labelledby="setup-title">
+      <h2 id="setup-title">Input</h2>
+      <div class="field-grid">
+        <label>
+          <span>ENS / consignment reference</span>
+          <input id="consignmentReference" type="text" placeholder="ENS00..." autocomplete="off">
+        </label>
+        <label>
+          <span>Goods Excel file</span>
+          <input id="excelFile" type="file" accept=".xlsx,.xls">
+        </label>
+      </div>
+
+      <div class="actions">
+        <button id="processButton" type="button">Process Excel</button>
+        <button id="resetButton" type="button" class="secondary">Reset</button>
+      </div>
+
+      <div class="hint">
+        This screen does not submit to TSS. It only simulates the technical validation and consolidation rules.
+      </div>
+    </section>
+
+    <section class="summary-grid" aria-label="Validation summary">
+      <div class="metric">
+        <span>Total rows</span>
+        <strong id="totalRows">0</strong>
+      </div>
+      <div class="metric ok">
+        <span>Valid goods</span>
+        <strong id="validRows">0</strong>
+      </div>
+      <div class="metric danger">
+        <span>Error rows</span>
+        <strong id="errorRows">0</strong>
+      </div>
+      <div class="metric warning">
+        <span>Warnings</span>
+        <strong id="warningCount">0</strong>
+      </div>
+      <div class="metric">
+        <span>Gross mass</span>
+        <strong id="grossTotal">0</strong>
+      </div>
+      <div class="metric">
+        <span>Packages</span>
+        <strong id="packageTotal">0</strong>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="mapping-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="mapping-title">Column Mapping</h2>
+          <p>Expected technical columns, matched Excel headers and rule status.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Excel column</th>
+              <th>Technical field</th>
+              <th>Required</th>
+              <th>Type</th>
+              <th>Rule</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="mappingBody">
+            <tr><td colspan="6" class="empty">Upload an Excel file to view mapping.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <section class="panel" aria-labelledby="decision-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="decision-title">API Readiness Decisions</h2>
+          <p>Missing or derived fields that need a business decision before clean API submission.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>API field</th>
+              <th>Why it matters</th>
+              <th>Possible source</th>
+              <th>Ease</th>
+              <th>Decision needed</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="decisionBody">
+            <tr><td colspan="6" class="empty">Decision matrix will load with the prototype.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel" aria-labelledby="errors-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="errors-title">Validation Results</h2>
+          <p>Errors, warnings and pending confirmations found in the uploaded file.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Row</th>
+              <th>Column</th>
+              <th>Value received</th>
+              <th>Rule</th>
+              <th>Severity</th>
+              <th>Message</th>
+              <th>Recommended action</th>
+            </tr>
+          </thead>
+          <tbody id="issuesBody">
+            <tr><td colspan="7" class="empty">No validation has been run yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="consolidation-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="consolidation-title">Consolidation View</h2>
+          <p>Configurable grouping used to define consolidation requirements.</p>
+        </div>
+      </div>
+
+      <fieldset class="group-options">
+        <legend>Group by</legend>
+        <label><input type="checkbox" class="group-field" value="consignment_reference" checked> ENS / consignment reference</label>
+        <label><input type="checkbox" class="group-field" value="transport_document_number" checked> Transport document number</label>
+        <label><input type="checkbox" class="group-field" value="commodity_code" checked> Commodity code</label>
+        <label><input type="checkbox" class="group-field" value="goods_description" checked> Description</label>
+        <label><input type="checkbox" class="group-field" value="country_of_origin" checked> Country of origin</label>
+        <label><input type="checkbox" class="group-field" value="type_of_packages"> Package type</label>
+      </fieldset>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Grouping key</th>
+              <th>Gross mass</th>
+              <th>Net mass</th>
+              <th>Packages</th>
+              <th>Invoice value</th>
+              <th>Original lines</th>
+              <th>Goods item numbers</th>
+              <th>Status</th>
+              <th>Observations</th>
+            </tr>
+          </thead>
+          <tbody id="consolidationBody">
+            <tr><td colspan="9" class="empty">No consolidation has been calculated yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="data-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="data-title">Excel Data Preview</h2>
+          <p>Rows read from the first worksheet. Row status is based on technical validation rules.</p>
+        </div>
+      </div>
+      <div class="table-wrap wide">
+        <table id="dataTable">
+          <thead id="dataHead"></thead>
+          <tbody id="dataBody">
+            <tr><td class="empty">No file loaded.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="pending-title">
+      <h2 id="pending-title">Pending Decisions</h2>
+      <ul id="pendingList" class="pending-list">
+        <li>Minimum and maximum length for ENS / consignment reference.</li>
+        <li>Maximum Excel file size.</li>
+        <li>Final mandatory status of goods item number when customer files do not provide it.</li>
+        <li>Valid HS / commodity code length for each declaration path.</li>
+        <li>Customer-specific defaults for missing net mass, invoice values and document references.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

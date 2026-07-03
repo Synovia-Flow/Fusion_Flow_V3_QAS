@@ -56,7 +56,38 @@ def db_error(exc: DbUnavailable) -> HTTPException:
 
 
 def table_exists(table_name: str) -> bool:
-    return bool(execute_scalar(f"SELECT OBJECT_ID('{table_name}', 'U')"))
+    return bool(execute_scalar("SELECT OBJECT_ID(?, 'U')", [table_name]))
+
+
+def object_exists(object_name: str) -> bool:
+    try:
+        return bool(execute_scalar("SELECT OBJECT_ID(?)", [object_name]))
+    except DbUnavailable:
+        raise
+    except Exception:
+        return False
+
+
+def safe_count(table_name: str, where: str = "", params: list[object] | None = None) -> int:
+    if not object_exists(table_name):
+        return 0
+    try:
+        return int(execute_scalar(f"SELECT COUNT(*) FROM {table_name}{where}", params or []) or 0)
+    except DbUnavailable:
+        raise
+    except Exception:
+        return 0
+
+
+def safe_rows(object_name: str, sql: str, params: list[object] | None = None) -> list[dict[str, object]]:
+    if not object_exists(object_name):
+        return []
+    try:
+        return query_all(sql, params or [])
+    except DbUnavailable:
+        raise
+    except Exception:
+        return []
 
 
 def fallback_route(profile: dict[str, object]) -> list[dict[str, object]]:
@@ -1697,6 +1728,197 @@ def dashboard(client_code: str = Query("PLE")) -> dict[str, object]:
 
     return {"clientCode": code, "counts": counts or {}, "latestInboundFiles": latest}
 
+
+CONTROL_TOWER_OBJECTS = [
+    "CFG.Job",
+    "CFG.Application_Parameters",
+    "ING.Inbound_File",
+    "ING.Raw_Record",
+    "ING.Source_Email",
+    "ING.BKD_Raw_ENS",
+    "ING.BKD_Raw_Sales_Orders",
+    "PRS.ENS_Header",
+    "PRS.Consignment",
+    "PRS.Goods_Item",
+    "PRS.BKD_ENS_Header_Tracking",
+    "STG.BKD_ENS_Header",
+    "API.Call",
+    "EXC.Execution",
+    "EXC.Job_Queue",
+    "LOG.Process_Log",
+]
+
+
+@app.get("/api/control-tower")
+def control_tower(client_code: str = Query("PLE"), limit: int = Query(20, ge=1, le=100)) -> dict[str, object]:
+    code = client_code_param(client_code)
+    top = safe_limit(limit, default=20, maximum=100)
+    try:
+        availability = {name: object_exists(name) for name in CONTROL_TOWER_OBJECTS}
+        counts = {
+            "inboundFiles": safe_count("ING.Inbound_File", " WHERE ClientCode = ?", [code]),
+            "rawRecords": safe_count("ING.Raw_Record", " WHERE ClientCode = ?", [code]),
+            "sourceEmails": safe_count("ING.Source_Email", " WHERE ClientCode = ?", [code]),
+            "bkdRawEns": safe_count("ING.BKD_Raw_ENS"),
+            "bkdRawSalesOrders": safe_count("ING.BKD_Raw_Sales_Orders"),
+            "prsHeaders": safe_count("PRS.ENS_Header", " WHERE ClientCode = ?", [code]),
+            "prsConsignments": safe_count("PRS.Consignment", " WHERE ClientCode = ?", [code]),
+            "prsGoodsItems": safe_count("PRS.Goods_Item", " WHERE ClientCode = ?", [code]),
+            "prsTrackedMovements": safe_count("PRS.BKD_ENS_Header_Tracking", " WHERE ClientCode = ?", [code]),
+            "stgHeaders": safe_count("STG.BKD_ENS_Header", " WHERE ClientCode = ?", [code]),
+            "stgReady": safe_count("STG.BKD_ENS_Header", " WHERE ClientCode = ? AND Fusion_Status IN ('STG_MATERIALISED','READY')", [code]),
+            "stgSubmitted": safe_count("STG.BKD_ENS_Header", " WHERE ClientCode = ? AND Fusion_Status IN ('SUBMITTED','RECONCILED')", [code]),
+            "apiCalls": safe_count("API.Call", " WHERE ClientCode = ? OR ClientCode IS NULL", [code]),
+            "apiErrors": safe_count("API.Call", " WHERE (ClientCode = ? OR ClientCode IS NULL) AND Success = 0 AND IsDryRun = 0", [code]),
+            "activeJobs": safe_count("CFG.Job", " WHERE (ClientCode = ? OR ClientCode IS NULL) AND IsActive = 1", [code]),
+            "queuePending": safe_count("EXC.Job_Queue", " WHERE Status = 'PENDING'"),
+        }
+
+        jobs = safe_rows(
+            "CFG.Job",
+            f"""
+            SELECT TOP {top}
+                JobCode, JobName, ModuleName, ClientCode, JobType, StepNo, EntryPoint,
+                InputSource, OutputTarget, Schedule, IsActive
+            FROM CFG.Job
+            WHERE ClientCode = ? OR ClientCode IS NULL
+            ORDER BY ModuleName, COALESCE(StepNo, 999), JobCode
+            """,
+            [code],
+        )
+        queue = safe_rows(
+            "EXC.Job_Queue",
+            f"""
+            SELECT TOP {top}
+                QueueID, Verb, MovementKey, ClientCode, Status, Attempts, RequestedBy,
+                RequestedAt, StartedAt, FinishedAt, ExitCode, ResultMessage
+            FROM EXC.Job_Queue
+            WHERE ClientCode = ? OR ClientCode IS NULL
+            ORDER BY CASE Status WHEN 'PENDING' THEN 0 WHEN 'RUNNING' THEN 1 WHEN 'FAILED' THEN 2 ELSE 3 END,
+                     QueueID DESC
+            """,
+            [code],
+        )
+        executions = safe_rows(
+            "EXC.Execution",
+            f"""
+            SELECT TOP {top}
+                ExecutionID, EnvCode, ClientCode, ModuleName, ProcessName, RunMode, Status,
+                ItemsFound, ItemsProcessed, ItemsFailed, StartedAt, EndedAt, ErrorMessage
+            FROM EXC.Execution
+            WHERE ClientCode = ? OR ClientCode IS NULL
+            ORDER BY StartedAt DESC, ExecutionID DESC
+            """,
+            [code],
+        )
+        activity = safe_rows(
+            "LOG.Process_Log",
+            f"""
+            SELECT TOP {top}
+                LogID, ExecutionID, ClientCode, ModuleName, StepName, LogLevel, Message, CreatedAt
+            FROM LOG.Process_Log
+            WHERE ClientCode = ? OR ClientCode IS NULL
+            ORDER BY CreatedAt DESC, LogID DESC
+            """,
+            [code],
+        )
+        api_calls = safe_rows(
+            "API.Call",
+            f"""
+            SELECT TOP {top}
+                CallID, CreatedAt, ClientCode, MovementKey, Declaration_Number, ModuleName,
+                ProcessName, ResourceName, OpType, EnvCode, HttpMethod, StatusCode,
+                Success, IsDryRun, DurationMs, ErrorMessage
+            FROM API.Call
+            WHERE ClientCode = ? OR ClientCode IS NULL
+            ORDER BY CreatedAt DESC, CallID DESC
+            """,
+            [code],
+        )
+        params = safe_rows(
+            "CFG.Application_Parameters",
+            """
+            SELECT ParameterKey, ParameterValue, ValueType, IsActive, UpdatedAt
+            FROM CFG.Application_Parameters
+            WHERE ParameterKey IN (
+                'INGESTION_DRY_RUN', 'PROCESSING_DRY_RUN', 'SUBMISSION_DRY_RUN',
+                'SUBMISSION_ENV', 'PROCESSING_MODE', 'PROCESSING_TRANSACTION_MODE'
+            )
+            ORDER BY ParameterKey
+            """,
+        )
+        movements = safe_rows(
+            "PRS.BKD_ENS_Header_Tracking",
+            f"""
+            SELECT TOP {top}
+                MovementKey, ClientCode, Fusion_Status, Tss_Status, Declaration_Number,
+                SourceChannel, SourceFile, LastExecutionID, CreatedAt, UpdatedAt,
+                'PRS.BKD_ENS_Header_Tracking' AS SourceTable
+            FROM PRS.BKD_ENS_Header_Tracking
+            WHERE ClientCode = ?
+            ORDER BY UpdatedAt DESC, TrackingID DESC
+            """,
+            [code],
+        )
+        if not movements:
+            movements = safe_rows(
+                "STG.BKD_ENS_Header",
+                f"""
+                SELECT TOP {top}
+                    MovementKey, ClientCode, Fusion_Status, Tss_Status, declaration_number AS Declaration_Number,
+                    PromoteExecutionID AS LastExecutionID, CreatedAt, UpdatedAt,
+                    'STG.BKD_ENS_Header' AS SourceTable
+                FROM STG.BKD_ENS_Header
+                WHERE ClientCode = ?
+                ORDER BY UpdatedAt DESC, StgID DESC
+                """,
+                [code],
+            )
+        if not movements:
+            movements = safe_rows(
+                "PRS.ENS_Header",
+                f"""
+                SELECT TOP {top}
+                    MovementKey, ClientCode, Status AS Fusion_Status, declaration_number AS Declaration_Number,
+                    ExecutionID AS LastExecutionID, CreatedAt, UpdatedAt,
+                    'PRS.ENS_Header' AS SourceTable
+                FROM PRS.ENS_Header
+                WHERE ClientCode = ?
+                ORDER BY UpdatedAt DESC, EnsHeaderRowID DESC
+                """,
+                [code],
+            )
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+    pipeline = [
+        {"stage": "Source", "label": "Inbound files", "table": "ING.Inbound_File", "count": counts["inboundFiles"], "tone": "flow"},
+        {"stage": "Raw", "label": "Raw rows", "table": "ING.Raw_Record / BKD_Raw_*", "count": counts["rawRecords"] + counts["bkdRawEns"] + counts["bkdRawSalesOrders"], "tone": "sky"},
+        {"stage": "Processing", "label": "PRS records", "table": "PRS.ENS_Header / Consignment / Goods_Item", "count": counts["prsHeaders"] + counts["prsConsignments"] + counts["prsGoodsItems"], "tone": "good"},
+        {"stage": "Staging", "label": "Submission-ready", "table": "STG.BKD_ENS_Header", "count": counts["stgHeaders"], "tone": "fusion"},
+        {"stage": "TSS", "label": "API calls", "table": "API.Call", "count": counts["apiCalls"], "tone": "muted"},
+    ]
+    summary = [
+        {"label": "Tracked movements", "value": counts["prsTrackedMovements"] or counts["prsHeaders"] or counts["stgHeaders"], "source": "PRS/STG", "tone": "flow"},
+        {"label": "Active jobs", "value": counts["activeJobs"], "source": "CFG.Job", "tone": "good"},
+        {"label": "Queue pending", "value": counts["queuePending"], "source": "EXC.Job_Queue", "tone": "fusion"},
+        {"label": "API errors", "value": counts["apiErrors"], "source": "API.Call", "tone": "bad"},
+    ]
+    return {
+        "clientCode": code,
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "availability": availability,
+        "counts": counts,
+        "summary": summary,
+        "pipeline": pipeline,
+        "jobs": jobs,
+        "queue": queue,
+        "executions": executions,
+        "activity": activity,
+        "apiCalls": api_calls,
+        "params": params,
+        "movements": movements,
+    }
 
 @app.get("/api/ingestion/files")
 def ingestion_files(
