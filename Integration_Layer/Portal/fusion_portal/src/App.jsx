@@ -10,6 +10,25 @@ const DEFAULT_SESSION = {
 };
 const DEFAULT_OPERATIONAL_CLIENT_CODE = 'PLE';
 
+const ENVIRONMENT_MODES = [
+  { value: 'DEMO', label: 'DEMO' },
+  { value: 'PRODUCTION', label: 'PRODUCTION' },
+  { value: 'TEST', label: 'TEST' },
+];
+
+function normalizeEnvironmentMode(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (['PRD', 'PROD', 'PRODUCTION', 'LIVE'].includes(normalized)) return 'PRODUCTION';
+  if (['TEST', 'TST', 'QAS', 'QA', 'UAT'].includes(normalized)) return 'TEST';
+  return 'DEMO';
+}
+
+function environmentModeFromSettings(settings) {
+  const rows = (settings?.sections || []).flatMap((section) => section.rows || []);
+  const envRow = rows.find((row) => String(row.key || '').toUpperCase() === 'ENVIRONMENT');
+  return envRow?.value ? normalizeEnvironmentMode(envRow.value) : '';
+}
+
 const PORTAL_CLIENTS = [
   { tenantCode: 'PLE', tenantName: 'Primeline Express' },
   { tenantCode: 'CWD', tenantName: 'Countrywide' },
@@ -240,21 +259,20 @@ function detectOs(userAgent = '') {
   return 'OS unknown';
 }
 
-function appInfoSnapshot() {
+function appInfoSnapshot(environmentMode = 'DEMO') {
   const nav = typeof navigator === 'undefined' ? {} : navigator;
-  const mode = import.meta.env?.MODE || 'production';
   return {
     appName: 'SynoviaFlow',
     version: import.meta.env?.VITE_APP_VERSION || '1.1.7',
     runtime: `React ${React.version}`,
-    environment: mode.charAt(0).toUpperCase() + mode.slice(1),
+    environment: environmentMode,
     culture: nav.language || 'en-US',
     browser: detectBrowser(nav.userAgent || ''),
     os: detectOs(nav.userAgent || ''),
   };
 }
 
-function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [], settingsSection, session, apiStatus, onNavigate, onSettingsSection, onLogout, onToggleTheme }) {
+function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [], settingsSection, session, apiStatus, environmentMode, onNavigate, onSettingsSection, onLogout, onToggleTheme }) {
   const visibleSettings = settingsSections.length ? settingsSections : SETTINGS_NAV_SECTIONS;
   const firstSettingsId = visibleSettings[0]?.id || SETTINGS_NAV_SECTIONS[0].id;
   const [openSections, setOpenSections] = useState({
@@ -263,7 +281,7 @@ function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [
     appInfo: false,
     device: true,
   });
-  const appInfo = useMemo(() => appInfoSnapshot(), []);
+  const appInfo = useMemo(() => appInfoSnapshot(environmentMode), [environmentMode]);
 
   function toggleSection(sectionId) {
     setOpenSections((current) => ({ ...current, [sectionId]: !current[sectionId] }));
@@ -359,7 +377,7 @@ function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [
   );
 }
 
-function AppBar({ session, isAuthenticated, onToggleDrawer, onLogout }) {
+function AppBar({ session, isAuthenticated, environmentMode, onEnvironmentModeChange, onToggleDrawer, onLogout }) {
   return (
     <header className="appbar">
       <div className="appbar-left">
@@ -368,6 +386,15 @@ function AppBar({ session, isAuthenticated, onToggleDrawer, onLogout }) {
         </button>
         <img className="appbar-logo" src="/assets/SynoviaFlowLogo_white.png" alt="Synovia Flow" />
       </div>
+
+      <div className={`environment-selector ${environmentMode.toLowerCase()}`} aria-label="Environment selector">
+        <span>TSS Environment</span>
+        <strong>{environmentMode}</strong>
+        <select value={environmentMode} onChange={(event) => onEnvironmentModeChange(event.target.value)} aria-label="Select environment mode">
+          {ENVIRONMENT_MODES.map((mode) => <option key={mode.value} value={mode.value}>{mode.label}</option>)}
+        </select>
+      </div>
+
       {isAuthenticated ? (
         <div className="session-strip" aria-label="Current session">
           <span className="session-chip">{session.username}</span>
@@ -1095,7 +1122,7 @@ function PreviewDetailsModal({ payload, onClose }) {
     </div>
   );
 }
-function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClientCode, forceDemoMode = false }) {
+function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClientCode, environmentMode, forceDemoMode = false }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const [demoMode, setDemoMode] = useState(Boolean(forceDemoMode));
@@ -1139,6 +1166,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
       const payload = await onPreviewUpload(selectedFiles, {
         demoMode,
         demoEnsReference: demoMode ? demoEns.declarationNumber : headerDeclarationNumber,
+        environmentMode,
       });
       setPreviewState({ status: 'ready', payload, error: '' });
       setPreviewDetailsOpen(Boolean(payload.processingPreview));
@@ -1210,7 +1238,7 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
         <label className="demo-toggle">
           <input type="checkbox" checked={demoMode} disabled={forceDemoMode} onChange={(event) => { if (forceDemoMode) return; setDemoMode(event.target.checked); setPreviewState({ status: 'idle', payload: null, error: '' }); setPreviewDetailsOpen(false); }} />
           <span className="demo-switch" aria-hidden="true" />
-          <span>{forceDemoMode ? 'Demo mode (Synovia admin)' : 'Demo mode'}</span>
+          <span>{forceDemoMode ? 'Demo mode forced by environment' : 'Demo mode'}</span>
         </label>
         <div className="demo-ens-summary">
           <span>{demoMode ? 'Demo ENS selected' : 'Manual ENS'}</span>
@@ -1474,6 +1502,16 @@ export default function App() {
   const [settingsSection, setSettingsSection] = useState(SETTINGS_NAV_SECTIONS[0].id);
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
+  const [environmentMode, setEnvironmentMode] = useState(() => normalizeEnvironmentMode(import.meta.env?.VITE_PORTAL_MODE || 'DEMO'));
+  const [environmentModeTouched, setEnvironmentModeTouched] = useState(false);
+
+  useEffect(() => {
+    if (environmentModeTouched) return;
+    const settingsMode = environmentModeFromSettings(settingsPayload);
+    if (settingsMode) {
+      setEnvironmentMode(settingsMode);
+    }
+  }, [environmentModeTouched, settingsPayload]);
 
   useEffect(() => {
     if (!isAuthenticated) return undefined;
@@ -1527,6 +1565,11 @@ export default function App() {
       cancelled = true;
     };
   }, [isAuthenticated, activeClientCode, session.tenantCode]);
+
+  function handleEnvironmentModeChange(nextMode) {
+    setEnvironmentModeTouched(true);
+    setEnvironmentMode(normalizeEnvironmentMode(nextMode));
+  }
 
   function navigate(nextView) {
     setView(nextView);
@@ -1595,17 +1638,17 @@ export default function App() {
   const mainClass = isAuthenticated ? `page-main app-main ${view}-main` : 'page-main login-main';
 
   return (
-    <div className="app-shell" data-theme={isDarkTheme ? 'dark' : 'light'} data-api-status={apiStatus} data-api-error={apiError}>
-      <AppBar session={session} isAuthenticated={isAuthenticated} onToggleDrawer={() => setDrawerOpen((value) => !value)} onLogout={handleLogout} />
+    <div className="app-shell" data-theme={isDarkTheme ? 'dark' : 'light'} data-environment-mode={environmentMode.toLowerCase()} data-api-status={apiStatus} data-api-error={apiError}>
+      <AppBar session={session} isAuthenticated={isAuthenticated} environmentMode={environmentMode} onEnvironmentModeChange={handleEnvironmentModeChange} onToggleDrawer={() => setDrawerOpen((value) => !value)} onLogout={handleLogout} />
       <main className={mainClass}>
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} activeClientCode={activeClientCode} onClientChange={setActiveClientCode} isDemoAdmin={isSynoviaSession(session)} />}
-        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} forceDemoMode={isSynoviaSession(session)} />}
+        {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} environmentMode={environmentMode} forceDemoMode={environmentMode === 'DEMO'} />}
         {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} onQueueForTss={handleQueueForTss} />}
         {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
-      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || SETTINGS_NAV_SECTIONS} settingsSection={settingsSection} session={session} apiStatus={apiStatus} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />
+      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || SETTINGS_NAV_SECTIONS} settingsSection={settingsSection} session={session} apiStatus={apiStatus} environmentMode={environmentMode} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />
     </div>
   );
 }

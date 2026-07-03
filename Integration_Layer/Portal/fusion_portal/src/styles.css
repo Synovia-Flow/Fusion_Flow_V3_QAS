@@ -264,6 +264,77 @@ button:disabled { cursor: default; }
 .hamburger-button:hover { background: rgba(255, 255, 255, .08); }
 .hamburger-button .material-symbols-outlined { color: #fff; }
 
+.environment-selector {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 132px;
+  min-height: 42px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+  box-shadow: none;
+}
+
+.environment-selector span {
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  color: rgba(255, 255, 255, .82);
+  white-space: nowrap;
+}
+
+.environment-selector strong {
+  min-width: 92px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .65);
+  background: rgba(255, 255, 255, .88);
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .35px;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, .18);
+}
+
+.environment-selector select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.environment-selector.demo strong {
+  background: #e7eefc;
+  color: #1e3a8a;
+}
+
+.environment-selector.production strong {
+  background: #dff5e8;
+  color: #087c3a;
+}
+
+.environment-selector.test strong {
+  background: #fff1ce;
+  color: #9a5b00;
+}
+
 .top-login,
 .logout-button {
   border: 0;
@@ -1319,6 +1390,9 @@ button:disabled { cursor: default; }
     transform: none;
   }
   .login-main { padding: 24px 16px 0; }
+  .environment-selector { min-width: 126px; padding: 0 8px; }
+  .environment-selector span { font-size: 10px; }
+  .environment-selector strong { min-width: 84px; font-size: 10px; }
   .session-strip { gap: 10px; font-size: 13px; }
   .session-chip { min-width: 68px; height: 34px; }
   .session-role { display: none; }
@@ -1333,6 +1407,9 @@ button:disabled { cursor: default; }
 @media (max-width: 640px) {
   :root { --appbar-height: 64px; }
   .appbar { padding-right: 10px; }
+  .environment-selector { left: 54%; min-width: 112px; max-width: 40vw; padding: 0 6px; }
+  .environment-selector span { display: none; }
+  .environment-selector strong { min-width: 78px; height: 20px; padding: 0 8px; }
   .appbar-logo { width: 120px; height: 60px; }
   .hamburger-button { width: 42px; height: 42px; }
   .session-tenant { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
