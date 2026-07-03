@@ -460,6 +460,20 @@ button:disabled { cursor: default; }
 
 .input-shell input::placeholder { color: #0f172a; opacity: 1; }
 .password-shell input { padding-right: 58px; }
+.password-shell input::-ms-reveal,
+.password-shell input::-ms-clear {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.password-shell input::-webkit-credentials-auto-fill-button,
+.password-shell input::-webkit-contacts-auto-fill-button {
+  visibility: hidden;
+  display: none !important;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+}
 .visibility-button {
   position: absolute;
   right: 12px;
@@ -497,6 +511,27 @@ button:disabled { cursor: default; }
   font-weight: 700;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.28);
   margin-top: -2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.submit-button:disabled {
+  cursor: progress;
+  opacity: .95;
+}
+.button-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, .45);
+  border-top-color: #fff;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  animation: button-spinner-spin .72s linear infinite;
+}
+@keyframes button-spinner-spin {
+  to { transform: rotate(360deg); }
 }
 
 .forgot-button {

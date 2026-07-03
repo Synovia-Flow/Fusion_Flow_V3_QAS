@@ -420,8 +420,11 @@ function LoginCard({ onLogin }) {
   const [password, setPassword] = useState('');
   const [loginState, setLoginState] = useState({ status: 'idle', error: '' });
 
+  const isCheckingLogin = loginState.status === 'loading';
+
   async function handleSubmit(event) {
     event.preventDefault();
+    if (isCheckingLogin) return;
     setLoginState({ status: 'loading', error: '' });
     try {
       await onLogin({ username, password });
@@ -445,7 +448,10 @@ function LoginCard({ onLogin }) {
           </button>
         </label>
         {loginState.status === 'error' && <div className="login-error">{loginState.error}</div>}
-        <button className="submit-button" type="submit" disabled={loginState.status === 'loading'}>{loginState.status === 'loading' ? 'Checking' : 'Login'}</button>
+        <button className="submit-button" type="submit" disabled={isCheckingLogin} aria-busy={isCheckingLogin}>
+          {isCheckingLogin && <span className="button-spinner" aria-hidden="true" />}
+          <span>{isCheckingLogin ? 'Checking' : 'Login'}</span>
+        </button>
         <button className="forgot-button" type="button">Forgot password?</button>
       </form>
     </section>
