@@ -114,8 +114,8 @@ class PortalAuthTests(unittest.TestCase):
         self.assertEqual(payload["session"]["tenantCode"], "SYNOVIA")
         self.assertEqual(payload["session"]["tenantName"], "Synovia")
         self.assertEqual(payload["session"]["mode"], "DEMO_ADMIN")
-        self.assertEqual(payload["defaultClientCode"], "PLE")
-        self.assertEqual(payload["connection"]["portalClientCode"], "PLE")
+        self.assertEqual(payload["defaultClientCode"], "CWD")
+        self.assertEqual(payload["connection"]["portalClientCode"], "CWD")
         self.assertTrue(payload["demoMode"])
         self.assertFalse(payload["databaseWrite"])
         self.assertFalse(payload["tssWrite"])
@@ -161,6 +161,31 @@ class UploadPreviewSelectionTests(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 422)
         self.assertIn("requires attached file #2", str(ctx.exception.detail))
+
+    def test_countrywide_single_pdf_invoice_maps_first_uploaded_file(self):
+        original_inspect_upload = portal_main.inspect_upload
+        try:
+            portal_main.inspect_upload = lambda filename, content: {
+                "fileType": "pdf",
+                "columns": [],
+                "rows": [],
+                "warning": "stubbed pdf preview",
+            }
+            payload = portal_main.upload_consignment_preview(
+                client_code="CWD",
+                files=[upload_file("1070939 -814877.pdf", b"%PDF-1.4")],
+            )
+        finally:
+            portal_main.inspect_upload = original_inspect_upload
+
+        self.assertEqual(payload["portalClientCode"], "CWD")
+        self.assertEqual(payload["requiredFileOrdinal"], 2)
+        self.assertEqual(payload["selectedFileOrdinal"], 1)
+        self.assertEqual(payload["filename"], "1070939 -814877.pdf")
+        self.assertEqual(payload["selectionRule"], "Map single Countrywide PDF invoice.")
+        self.assertTrue(payload["receivedFiles"][0]["selected"])
+        self.assertEqual(payload["ignoredFiles"], [])
+
 
     def test_demo_mode_supplies_default_ens_without_db_or_tss_write(self):
         payload = portal_main.upload_consignment_preview(
@@ -457,7 +482,7 @@ EORI: GB152338719000 / XI152338719000
             file_introspection.extract_pdf_text_pages = lambda _content: [pdf_text, "Registered in England No: 01551925"]
             file_introspection.extract_pdf_metadata = lambda _content: {}
             payload = portal_main.upload_consignment_preview(
-                client_code="PLE",
+                client_code="CWD",
                 files=[upload_file("frisco-invoice.pdf", b"%PDF-1.7")],
                 demo_mode=True,
             )
@@ -519,7 +544,7 @@ CHAIN001 Initial Alphabet Charm 2 £5.00 India 7113190000 0.50 £10.00
             file_introspection.extract_pdf_text_pages = lambda _content: [first_page, continuation_page]
             file_introspection.extract_pdf_metadata = lambda _content: {}
             payload = portal_main.upload_consignment_preview(
-                client_code="PLE",
+                client_code="CWD",
                 files=[upload_file("goodman-continuation.pdf", b"%PDF-1.7")],
                 demo_mode=True,
             )
@@ -568,7 +593,7 @@ contents7113190000Inverness Stainless Steel 3mm
             file_introspection.extract_pdf_text_pages = lambda _content: [pdf_text]
             file_introspection.extract_pdf_metadata = lambda _content: {}
             payload = portal_main.upload_consignment_preview(
-                client_code="PLE",
+                client_code="CWD",
                 files=[upload_file("goodman-reversed.pdf", b"%PDF-1.7")],
                 demo_mode=True,
             )
@@ -623,7 +648,7 @@ ZOK EORI Number: GB784419594000 NON FLAMMABLE -Tariff Number: ZOK 34029090
             file_introspection.extract_pdf_text_pages = lambda _content: [pdf_text]
             file_introspection.extract_pdf_metadata = lambda _content: {}
             payload = portal_main.upload_consignment_preview(
-                client_code="PLE",
+                client_code="CWD",
                 files=[upload_file("zok-invoice.pdf", b"%PDF-1.7")],
                 demo_mode=True,
             )
@@ -696,7 +721,7 @@ PJ-14201006-21CM
             file_introspection.extract_pdf_text_pages = lambda _content: [pdf_text]
             file_introspection.extract_pdf_metadata = lambda _content: {}
             payload = portal_main.upload_consignment_preview(
-                client_code="PLE",
+                client_code="CWD",
                 files=[upload_file("goodman-multiline.pdf", b"%PDF-1.7")],
                 demo_mode=True,
             )
@@ -772,7 +797,7 @@ Code Description Qty Price Origin HS Code SKU Weight (Kg) Line Total
             file_introspection.pdf_ocr_configured = lambda: True
             file_introspection.extract_pdf_ocr_text_pages = lambda _content: [ocr_text]
             payload = portal_main.upload_consignment_preview(
-                client_code="PLE",
+                client_code="CWD",
                 files=[upload_file("scanned-frisco-invoice.pdf", b"%PDF-1.7")],
                 demo_mode=True,
             )

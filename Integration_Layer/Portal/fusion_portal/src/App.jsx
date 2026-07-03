@@ -8,7 +8,8 @@ const DEFAULT_SESSION = {
   role: 'CentralAdmin',
   mode: 'DEMO_ADMIN',
 };
-const DEFAULT_OPERATIONAL_CLIENT_CODE = 'PLE';
+const DEFAULT_OPERATIONAL_CLIENT_CODE = 'CWD';
+const TSS_ENVIRONMENT_DEMO_OPTION = { value: 'DEMO', label: 'Demo' };
 const MASTER_LIVE_URL = 'https://synovia-flow-3-live.onrender.com/';
 const MASTER_LIVE_EMBED_URL = '/master-live/index.html';
 
@@ -23,6 +24,25 @@ function environmentModeFromSettings(settings) {
   const rows = (settings?.sections || []).flatMap((section) => section.rows || []);
   const envRow = rows.find((row) => String(row.key || '').toUpperCase() === 'ENVIRONMENT');
   return envRow?.value ? normalizeEnvironmentMode(envRow.value) : '';
+}
+
+function environmentModeToSettingsValue(value) {
+  const mode = normalizeEnvironmentMode(value);
+  if (mode === 'PRODUCTION') return 'PRD';
+  if (mode === 'TEST') return 'TST';
+  return 'DEMO';
+}
+
+function choicesWithDemoMode(row) {
+  const choices = Array.isArray(row?.choices) ? row.choices : [];
+  return choices.some((choice) => String(choice.value || '').toUpperCase() === 'DEMO')
+    ? choices
+    : [TSS_ENVIRONMENT_DEMO_OPTION, ...choices];
+}
+
+function isTssEnvironmentUpdate(update) {
+  return String(update?.sectionId || update?.section || update?.category || '').toUpperCase() === 'TSS_API'
+    && String(update?.key || '').toUpperCase() === 'ENVIRONMENT';
 }
 
 const PORTAL_CLIENTS = [
@@ -724,11 +744,22 @@ function SettingsInput({ row, value, onChange }) {
   );
 }
 
-function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSaveSettings, onTestTssApi }) {
+function SettingsPage({ settings, activeSection, environmentMode, onSectionChange, onBack, onSaveSettings, onTestTssApi }) {
   const isSettingsLoading = !settings;
-  const sections = useMemo(() => (
-    settings?.sections?.length ? settings.sections : SETTINGS_NAV_SECTIONS.map((section) => ({ ...section, rows: [] }))
-  ), [settings]);
+  const sections = useMemo(() => {
+    const rawSections = settings?.sections?.length ? settings.sections : SETTINGS_NAV_SECTIONS.map((section) => ({ ...section, rows: [] }));
+    return rawSections.map((section) => ({
+      ...section,
+      rows: (section.rows || []).map((row) => {
+        if (section.id !== 'TSS_API' || String(row.key || '').toUpperCase() !== 'ENVIRONMENT') return row;
+        return {
+          ...row,
+          value: environmentModeToSettingsValue(environmentMode || row.value),
+          choices: choicesWithDemoMode(row),
+        };
+      }),
+    }));
+  }, [settings, environmentMode]);
   const selectedSection = sections.find((section) => section.id === activeSection) || sections[0];
   const [draft, setDraft] = useState({});
   const [saveState, setSaveState] = useState('idle');
@@ -748,7 +779,7 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSave
     setDraft(nextDraft);
     setSaveState('idle');
     setSaveError('');
-  }, [settings]);
+  }, [sections]);
 
   useEffect(() => {
     setTestState({ status: 'idle', result: null, error: '' });
@@ -801,6 +832,10 @@ function SettingsPage({ settings, activeSection, onSectionChange, onBack, onSave
   async function testTssApi() {
     if (!onTestTssApi || !settings || isTestingApi || saveState === 'changed') return;
     const envCode = String(draftValueFor('TSS_API', 'ENVIRONMENT') || '').toUpperCase();
+    if (normalizeEnvironmentMode(envCode) === 'DEMO') {
+      setTestState({ status: 'error', result: null, error: 'Demo mode is preview-only: DB off / TSS off. Select Production or Test/QAS and save before testing the real API.' });
+      return;
+    }
     setTestState({ status: 'testing', result: null, error: '' });
     try {
       const result = await onTestTssApi({ clientCode: settings.portalClientCode || settings.clientCode, envCode });
@@ -1467,10 +1502,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
       >
-        <input type="file" accept=".xlsx,.xls,.csv" multiple onChange={(event) => handleFiles(event.target.files)} />
+        <input type="file" accept=".xlsx,.xls,.csv,.pdf" multiple onChange={(event) => handleFiles(event.target.files)} />
         <MaterialIcon>cloud_upload</MaterialIcon>
         <strong>{selectedFiles.length ? `${selectedFiles.length} file${selectedFiles.length === 1 ? '' : 's'} selected` : 'Drag and drop files here or click'}</strong>
-        <span>{selectedFiles.length ? selectedFiles.map((file) => file.name).join(' | ') : 'Supported formats: .xlsx, .xls, .csv'}</span>
+        <span>{selectedFiles.length ? selectedFiles.map((file) => file.name).join(' | ') : 'Supported formats: .xlsx, .xls, .csv, .pdf'}</span>
         <span>Max file size: 50 MB</span>
       </label>
 
@@ -1672,7 +1707,20 @@ function ControlPanel({ title, icon, children, className = '' }) {
   );
 }
 
-function ControlTowerTable({ columns, rows, emptyText }) {
+function ControlLoadingState({ label = 'Loading control tower data...', detail = 'Reading CFG, ING, PRS, STG, EXC, LOG and API records.' }) {
+  return (
+    <div className="control-loading-state" role="status" aria-live="polite">
+      <LoadingSpinner />
+      <div>
+        <strong>{label}</strong>
+        <span>{detail}</span>
+      </div>
+    </div>
+  );
+}
+
+function ControlTowerTable({ columns, rows, emptyText, loading = false, loadingText = 'Loading records...' }) {
+  if (loading) return <ControlLoadingState label={loadingText} detail="Waiting for the Control Tower API response." />;
   if (!rows?.length) return <div className="control-empty">{emptyText || 'No records'}</div>;
   return (
     <div className="control-table-wrap">
@@ -1716,6 +1764,8 @@ function ControlTowerPage({ onBack, clientCode, connection }) {
   }, [clientCode, refreshToken]);
 
   const payload = state.payload || {};
+  const isControlLoading = state.status === 'loading';
+  const isInitialControlLoading = isControlLoading && !state.payload;
   const counts = payload.counts || {};
   const summary = payload.summary?.length ? payload.summary : [
     { label: 'Inbound files', value: counts.inboundFiles || 0, source: 'ING.Inbound_File', tone: 'flow' },
@@ -1759,9 +1809,23 @@ function ControlTowerPage({ onBack, clientCode, connection }) {
         <div><span>Objects</span><strong>{availabilityEntries.length ? `${availableCount}/${availabilityEntries.length}` : '-'}</strong></div>
       </div>
 
-      <div className="summary-rail control-summary" aria-label="Control tower summary">
-        {summary.map((item) => <ControlMetric key={item.label} item={item} />)}
-      </div>
+      {isInitialControlLoading ? (
+        <ControlLoadingState
+          label="Loading Control Tower..."
+          detail="Reading pipeline counts, object coverage, jobs, queue, executions, process logs and TSS API calls."
+        />
+      ) : (
+        <div className="summary-rail control-summary" aria-label="Control tower summary">
+          {summary.map((item) => <ControlMetric key={item.label} item={item} />)}
+        </div>
+      )}
+
+      {isControlLoading && state.payload && (
+        <div className="control-refreshing-note" role="status" aria-live="polite">
+          <LoadingSpinner />
+          <span>Refreshing Control Tower data...</span>
+        </div>
+      )}
 
       <div className="control-tabs" role="tablist" aria-label="Control tower sections">
         {CONTROL_TOWER_TABS.map((tab) => (
@@ -1784,7 +1848,8 @@ function ControlTowerPage({ onBack, clientCode, connection }) {
                   <em>{stage.table}</em>
                 </div>
               ))}
-              {!(payload.pipeline || []).length && <div className="control-empty">No pipeline counts</div>}
+              {isInitialControlLoading && <ControlLoadingState label="Loading pipeline counts..." detail="Checking source, raw, PRS, STG and TSS activity." />}
+              {!isInitialControlLoading && !(payload.pipeline || []).length && <div className="control-empty">No pipeline counts</div>}
             </div>
           </ControlPanel>
           <div className="control-grid">
@@ -1798,14 +1863,16 @@ function ControlTowerPage({ onBack, clientCode, connection }) {
                     </span>
                   ))}
                 </div>
+              ) : isInitialControlLoading ? (
+                <ControlLoadingState label="Loading object coverage..." detail="Checking deployed CFG, ING, PRS, STG and API objects." />
               ) : <div className="control-empty">No object metadata</div>}
             </ControlPanel>
             <ControlPanel title="Runtime parameters" icon="tune">
-              <ControlTowerTable columns={PARAM_COLUMNS} rows={payload.params || []} emptyText="No automation parameters" />
+              <ControlTowerTable columns={PARAM_COLUMNS} rows={payload.params || []} emptyText="No automation parameters" loading={isInitialControlLoading} loadingText="Loading runtime parameters..." />
             </ControlPanel>
           </div>
           <ControlPanel title="Recent activity" icon="article">
-            <ControlTowerTable columns={ACTIVITY_COLUMNS} rows={payload.activity || []} emptyText="No process log rows" />
+            <ControlTowerTable columns={ACTIVITY_COLUMNS} rows={payload.activity || []} emptyText="No process log rows" loading={isInitialControlLoading} loadingText="Loading process activity..." />
           </ControlPanel>
         </div>
       )}
@@ -1813,10 +1880,10 @@ function ControlTowerPage({ onBack, clientCode, connection }) {
       {activeTab === 'trace' && (
         <div className="control-sections">
           <ControlPanel title="Movements" icon="account_tree">
-            <ControlTowerTable columns={MOVEMENT_COLUMNS} rows={payload.movements || []} emptyText="No traceable movements" />
+            <ControlTowerTable columns={MOVEMENT_COLUMNS} rows={payload.movements || []} emptyText="No traceable movements" loading={isInitialControlLoading} loadingText="Loading movement trace..." />
           </ControlPanel>
           <ControlPanel title="Executions" icon="task_alt">
-            <ControlTowerTable columns={EXECUTION_COLUMNS} rows={payload.executions || []} emptyText="No execution rows" />
+            <ControlTowerTable columns={EXECUTION_COLUMNS} rows={payload.executions || []} emptyText="No execution rows" loading={isInitialControlLoading} loadingText="Loading execution history..." />
           </ControlPanel>
         </div>
       )}
@@ -1824,10 +1891,10 @@ function ControlTowerPage({ onBack, clientCode, connection }) {
       {activeTab === 'jobs' && (
         <div className="control-grid">
           <ControlPanel title="CFG.Job" icon="settings_suggest">
-            <ControlTowerTable columns={JOB_COLUMNS} rows={payload.jobs || []} emptyText="No configured jobs" />
+            <ControlTowerTable columns={JOB_COLUMNS} rows={payload.jobs || []} emptyText="No configured jobs" loading={isInitialControlLoading} loadingText="Loading configured jobs..." />
           </ControlPanel>
           <ControlPanel title="EXC.Job_Queue" icon="pending_actions">
-            <ControlTowerTable columns={QUEUE_COLUMNS} rows={payload.queue || []} emptyText="No queued automation work" />
+            <ControlTowerTable columns={QUEUE_COLUMNS} rows={payload.queue || []} emptyText="No queued automation work" loading={isInitialControlLoading} loadingText="Loading queued work..." />
           </ControlPanel>
         </div>
       )}
@@ -1835,7 +1902,7 @@ function ControlTowerPage({ onBack, clientCode, connection }) {
       {activeTab === 'api' && (
         <div className="control-sections">
           <ControlPanel title="API.Call" icon="sync_alt">
-            <ControlTowerTable columns={API_CALL_COLUMNS} rows={payload.apiCalls || []} emptyText="No API call rows" />
+            <ControlTowerTable columns={API_CALL_COLUMNS} rows={payload.apiCalls || []} emptyText="No API call rows" loading={isInitialControlLoading} loadingText="Loading API/TSS calls..." />
           </ControlPanel>
         </div>
       )}
@@ -2194,11 +2261,10 @@ export default function App() {
   const [environmentMode, setEnvironmentMode] = useState(() => normalizeEnvironmentMode(storedPortalSession?.environmentMode || import.meta.env?.VITE_PORTAL_MODE || 'DEMO'));
   useEffect(() => {
     const settingsMode = environmentModeFromSettings(settingsPayload);
-    if (settingsMode) {
+    if (settingsMode && !isSynoviaSession(session)) {
       setEnvironmentMode(settingsMode);
     }
-  }, [settingsPayload]);
-  useEffect(() => {
+  }, [settingsPayload, session]);  useEffect(() => {
     if (!isAuthenticated) return;
     writeStoredPortalSession({
       session,
@@ -2295,17 +2361,19 @@ export default function App() {
       role: activeSession.role || DEFAULT_SESSION.role,
       mode: activeSession.mode || (activeSession.tenantCode === DEFAULT_SESSION.tenantCode ? 'DEMO_ADMIN' : 'CLIENT_SESSION'),
     };
+    const nextEnvironmentMode = (payload.demoMode || isSynoviaSession(nextSession)) ? 'DEMO' : environmentMode;
     setSession(nextSession);
     setActiveClientCode(nextClientCode);
     setConnection(payload.connection || null);
     setIsAuthenticated(true);
     setApiStatus('online');
+    setEnvironmentMode(nextEnvironmentMode);
     writeStoredPortalSession({
       session: nextSession,
       activeClientCode: nextClientCode,
       view: 'dashboard',
       settingsSection,
-      environmentMode,
+      environmentMode: nextEnvironmentMode,
     });
     navigate('dashboard');
   }
@@ -2320,6 +2388,7 @@ export default function App() {
     setSettingsSection(SETTINGS_NAV_SECTIONS[0].id);
     setApiStatus('idle');
     setApiError('');
+    setEnvironmentMode('DEMO');
     navigate('login');
   }
 
@@ -2328,11 +2397,25 @@ export default function App() {
   }
 
   async function handleSaveSettings(payload) {
+    const updates = Array.isArray(payload?.updates) ? payload.updates : [];
+    const environmentUpdate = updates.find(isTssEnvironmentUpdate);
+    const selectedEnvironmentMode = environmentUpdate ? normalizeEnvironmentMode(environmentUpdate.value) : '';
+
+    if (selectedEnvironmentMode === 'DEMO') {
+      const dbUpdates = updates.filter((update) => !isTssEnvironmentUpdate(update));
+      const nextSettings = dbUpdates.length ? await saveAdminSettings({ ...payload, updates: dbUpdates }) : settingsPayload;
+      setEnvironmentMode('DEMO');
+      setConnection((current) => current ? { ...current, preferredEnvCode: 'DEMO', credential: null } : current);
+      if (nextSettings) setSettingsPayload(nextSettings);
+      return nextSettings;
+    }
+
     const nextSettings = await saveAdminSettings(payload);
+    const nextMode = selectedEnvironmentMode || environmentModeFromSettings(nextSettings);
+    if (nextMode) setEnvironmentMode(nextMode);
     setSettingsPayload(nextSettings);
     return nextSettings;
   }
-
   async function handleTestTssApi({ clientCode, envCode }) {
     const testClientCode = clientCode || activeClientCode;
     const result = await testTssConnection({ clientCode: testClientCode, envCode });
@@ -2363,7 +2446,7 @@ export default function App() {
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} environmentMode={environmentMode} forceDemoMode={environmentMode === 'DEMO'} />}
         {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} onQueueForTss={handleQueueForTss} onUpdateConsignment={handleConsignmentUpdate} />}
         {isAuthenticated && view === 'controlTower' && <ControlTowerPage onBack={() => navigate('dashboard')} clientCode={activeClientCode} connection={connection} />}
-        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} onTestTssApi={handleTestTssApi} />}
+        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} environmentMode={environmentMode} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} onTestTssApi={handleTestTssApi} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
       <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || SETTINGS_NAV_SECTIONS} settingsSection={settingsSection} session={session} apiStatus={apiStatus} environmentMode={environmentMode} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />

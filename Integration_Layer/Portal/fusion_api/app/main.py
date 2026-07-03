@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import hashlib
@@ -375,7 +375,7 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
     tss_rows = [
         settings_row("BASE_URL", "Production URL", env_by_code.get("PRD", {}).get("BaseUrl"), "Production TSS API base URL.", "CFG.TSS_Environment", "url"),
         settings_row("TEST_URL", "Test URL", env_by_code.get("TST", {}).get("BaseUrl"), "Test/QAS TSS API base URL.", "CFG.TSS_Environment", "url"),
-        settings_row("ENVIRONMENT", "Environment", profile.get("preferredEnvCode"), "Active TSS target for this tenant. Saved from Settings by activating the matching CFG.TSS_Credential row.", "CFG.TSS_Credential", "select", choices=[{"value": "PRD", "label": "Production"}, {"value": "TST", "label": "Test/QAS"}]),
+        settings_row("ENVIRONMENT", "Environment", profile.get("preferredEnvCode"), "Portal mode or active TSS target for this tenant. Demo is preview-only; Production/Test activate the matching CFG.TSS_Credential row.", "CFG.TSS_Credential", "select", choices=[{"value": "DEMO", "label": "Demo"}, {"value": "PRD", "label": "Production"}, {"value": "TST", "label": "Test/QAS"}]),
         settings_row("USERNAME", "User", (credential or {}).get("tssUsername"), "TSS API username for this tenant.", "CFG.TSS_Credential"),
         settings_row("PASSWORD", "Password", "", "TSS API password for this tenant.", "CFG.TSS_Credential", "password", is_secret=True, placeholder="Configured" if (credential or {}).get("hasPassword") else "Not configured"),
         settings_row("ACT_AS", "Act as", profile.get("actAsSysId"), "Optional customer_account_sys_id for delegated TSS calls.", "CFG.Clients"),
@@ -603,8 +603,11 @@ def save_admin_settings_payload(profile: dict[str, object], updates: object) -> 
             saved.append(setting_id)
         elif (section, key) == ("TSS_API", "ENVIRONMENT"):
             selected_env = value.upper()
+            if selected_env == "DEMO":
+                ignored.append(setting_id)
+                continue
             if selected_env not in {"PRD", "TST"}:
-                raise HTTPException(status_code=422, detail="TSS environment must be PRD or TST.")
+                raise HTTPException(status_code=422, detail="TSS environment must be DEMO, PRD or TST.")
             credential_exists = query_one(
                 """
                 SELECT TOP 1 1 AS Found
@@ -1082,7 +1085,7 @@ def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, ob
             }
 
         if env_app_login_matches(username, password):
-            default_profile = load_portal_profile("PLE")
+            default_profile = load_portal_profile("CWD")
             return {
                 "authenticated": True,
                 "source": "FLOW_V1_USER",
@@ -1094,7 +1097,7 @@ def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, ob
                     "mode": "DEMO_ADMIN",
                 },
                 "connection": public_connection_payload(default_profile),
-                "defaultClientCode": "PLE",
+                "defaultClientCode": "CWD",
                 "demoMode": True,
                 "databaseWrite": False,
                 "tssWrite": False,
@@ -2153,6 +2156,24 @@ def selected_file_ordinal(profile: dict[str, object]) -> int:
     return required_file_ordinal(profile)
 
 
+def upload_file_extension(upload_file: UploadFile | object) -> str:
+    filename = str(getattr(upload_file, "filename", "") or "")
+    return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+
+def is_single_countrywide_pdf_invoice(profile: dict[str, object], uploaded_files: list[UploadFile]) -> bool:
+    code = str(profile.get("portalClientCode") or profile.get("clientCode") or "").upper()
+    return code == "CWD" and len(uploaded_files) == 1 and upload_file_extension(uploaded_files[0]) == "pdf"
+
+
+def select_upload_file(uploaded_files: list[UploadFile], profile: dict[str, object]) -> tuple[UploadFile, int, str]:
+    if is_single_countrywide_pdf_invoice(profile, uploaded_files):
+        return uploaded_files[0], 1, "Map single Countrywide PDF invoice."
+
+    ordinal = selected_file_ordinal(profile)
+    return select_required_file(uploaded_files, profile), ordinal, f"Map attached file #{ordinal} for {profile['portalClientCode']}."
+
+
 DEMO_UPLOAD_PROFILES: dict[str, dict[str, object]] = {
     "BKD": {
         "portalClientCode": "BKD",
@@ -2262,7 +2283,7 @@ def upload_consignment_preview(
     code = str(profile["clientCode"])
     required_ordinal = selected_file_ordinal(profile)
     try:
-        selected_file = select_required_file(uploaded_files, profile)
+        selected_file, selected_ordinal, selection_rule = select_upload_file(uploaded_files, profile)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     selected_content = selected_file.file.read()
@@ -2280,7 +2301,7 @@ def upload_consignment_preview(
             "ordinal": index + 1,
             "filename": item.filename,
             "contentType": item.content_type,
-            "selected": index + 1 == required_ordinal,
+            "selected": index + 1 == selected_ordinal,
         }
         for index, item in enumerate(uploaded_files)
     ]
@@ -2291,8 +2312,8 @@ def upload_consignment_preview(
         "tssCredentialClientCode": profile["tssCredentialClientCode"],
         "fileSelection": profile["fileSelection"],
         "requiredFileOrdinal": required_ordinal,
-        "selectedFileOrdinal": required_ordinal,
-        "selectionRule": f"Map attached file #{required_ordinal} for {profile['portalClientCode']}.",
+        "selectedFileOrdinal": selected_ordinal,
+        "selectionRule": selection_rule,
         "receivedFiles": received_files,
         "ignoredFiles": [item for item in received_files if not item["selected"]],
         "filename": selected_file.filename,
