@@ -1,19 +1,24 @@
-# Render blueprint - Fusion Flow V3 QAS live platform (Frankfurt).
-# ONE Docker image (repo-root Dockerfile) drives every service below; they differ
-# only by dockerCommand. Deploy: Render Dashboard -> New -> Blueprint -> point at
-# this repo (Render auto-detects this file at the repo root).
+# Render blueprint - Fusion Flow V3 QAS (Frankfurt).
+# This repo carries TWO portal/API stacks (kept side by side); each has its own
+# services below. Deploy the ones you want from the Render Blueprint - having both
+# defined here does not force both to run, but a Blueprint sync WILL create every
+# service listed. Comment out a block you don't want provisioned.
 #
+# Stack A - liveWeb single-file portal + Modules jobs (one repo-root Docker image):
 #   synovia-flow-3-live   web     the portal + API (gunicorn app:app)         -> Dockerfile CMD
+#   ff-worker             worker  drains EXC.Job_Queue (portal /api/enqueue)   always-on
 #   ff-cron-ingestion     cron    pull + load raw ENS / sales orders          every 30m, UK business hrs
 #   ff-cron-processing    cron    transform + validate staged rows (PRS)      after ingestion
 #   ff-cron-mirror        cron    refresh the TSS live mirror (read-back)      hourly
 #   ff-cron-ref-choice    cron    refresh TSS choice values                    weekly
-#   ff-worker             worker  drains EXC.Job_Queue (portal /api/enqueue)   always-on
 #
-# Submission WRITE jobs (promote/submit/update/cancel) are intentionally NOT on a
-# schedule - they run per-movement from the portal (/api/action or /api/enqueue) so a
-# human stays in the loop. All DB_* come from the shared env group; DB_PASSWORD is a
-# secret (sync:false -> prompted on first deploy, or upload liveWeb/.env).
+# Stack B - fusion_api backend + Vite fusion_portal SPA (from dev):
+#   fusion-flow-api       web     Integration_Layer/Portal/fusion_api (Docker)
+#   fusion-flow-portal    web     Integration_Layer/Portal/fusion_portal (static Vite build)
+#
+# Stack A submission WRITE jobs (promote/submit/update/cancel) are intentionally NOT
+# scheduled - they run per-movement from the portal so a human stays in the loop.
+# Stack A DB_* come from the shared env group; DB_PASSWORD is a secret (sync:false).
 
 envVarGroups:
   - name: fusion-db
@@ -34,6 +39,10 @@ envVarGroups:
         value: "no"
 
 services:
+  # ======================================================================
+  # STACK A - liveWeb portal + Modules jobs
+  # ======================================================================
+
   # --- Web: the live portal + API ------------------------------------------
   - type: web
     name: synovia-flow-3-live
@@ -110,3 +119,37 @@ services:
     dockerCommand: python Modules/Global/fetch_choice_values.py
     envVars:
       - fromGroup: fusion-db
+
+  # ======================================================================
+  # STACK B - fusion_api backend + Vite fusion_portal SPA (from dev)
+  # Azure can be re-enabled later with a GitHub Actions workflow.
+  # ======================================================================
+  - type: web
+    name: fusion-flow-api
+    runtime: docker
+    dockerfilePath: Integration_Layer/Portal/fusion_api/Dockerfile
+    dockerContext: Integration_Layer/Portal/fusion_api
+    healthCheckPath: /api/health
+    envVars:
+      - key: DB_CONN_STR
+        sync: false
+      - key: FLOW_V1_USER
+        sync: false
+      - key: FLOW_V1_PASSWORD
+        sync: false
+      - key: FUSION_PORTAL_CORS_ORIGINS
+        value: https://fusion-flow-portal.onrender.com
+
+  - type: web
+    name: fusion-flow-portal
+    runtime: static
+    rootDir: Integration_Layer/Portal/fusion_portal
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://fusion-flow-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
