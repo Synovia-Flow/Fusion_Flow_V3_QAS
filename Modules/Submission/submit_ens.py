@@ -13,6 +13,7 @@ the environment. No CLI; controls SUBMISSION_*.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import traceback
@@ -33,20 +34,92 @@ def _truthy(s: str) -> bool:
     return (s or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def extract_declaration_number(payload) -> str | None:
-    """Pull the ENS number from a TSS create response, tolerant of shape."""
+def unwrap_response_record(payload):
+    """Return the single response dict from a TSS payload, tolerant of shape."""
     rec = payload
     if isinstance(payload, dict):
         rec = payload.get("result") or payload.get("data") or payload
-        if isinstance(rec, list):
-            rec = rec[0] if rec else {}
-    if isinstance(rec, dict):
-        for k in ("declaration_number", "declarationNumber", "reference", "ens_number",
-                  "header_id", "headerId", "id", "number"):
-            v = rec.get(k)
-            if v:
-                return str(v)
+    if isinstance(rec, list):
+        rec = rec[0] if rec else {}
+    return rec if isinstance(rec, dict) else {}
+
+
+def extract_declaration_number(payload) -> str | None:
+    """Pull the ENS number from a TSS create response, tolerant of shape."""
+    rec = unwrap_response_record(payload)
+    for key in (
+        "declaration_number", "declarationNumber", "reference", "ens_number",
+        "header_id", "headerId", "id", "number",
+    ):
+        value = rec.get(key)
+        if value:
+            return str(value)
     return None
+
+
+def extract_tss_status(payload, default: str = "Submitted") -> str:
+    """Pull the official TSS status from a response without mixing it with Fusion_Status."""
+    rec = unwrap_response_record(payload)
+    for key in ("status", "tss_status", "state", "process_status"):
+        value = rec.get(key)
+        if value:
+            return str(value)
+    return default
+
+
+def _is_live_env(env_code: str) -> int:
+    return 1 if (env_code or "").strip().upper() in {"PRD", "PROD", "PRODUCTION", "LIVE"} else 0
+
+
+def sync_create_response(db: SubmissionDb, row: dict, payload: dict, response_payload: dict,
+                         client: str, movement_key: str, declaration_number: str,
+                         tss_status: str) -> None:
+    """Synchronise the official create response into PRS/STG/TSS immediately.
+
+    API.Call remains the immutable request/response audit. The later mirror job can
+    still GET the full record and mark the row RECONCILED.
+    """
+    db.exec(
+        "UPDATE STG.BKD_ENS_Header SET Fusion_Status = 'SUBMITTED', "
+        "declaration_number = ?, Tss_Status = ?, SubmitExecutionID = ?, "
+        "SubmittedAt = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME() "
+        "WHERE ClientCode = ? AND MovementKey = ?",
+        declaration_number, tss_status, db.execution_id, client, movement_key,
+    )
+    db.exec(
+        "UPDATE PRS.BKD_ENS_Header_Submission SET Fusion_Status = 'SUBMITTED', "
+        "declaration_number = ?, Tss_Status = ?, SubmittedAt = SYSUTCDATETIME(), "
+        "UpdatedAt = SYSUTCDATETIME() WHERE ClientCode = ? AND MovementKey = ?",
+        declaration_number, tss_status, client, movement_key,
+    )
+    db.exec(
+        "UPDATE PRS.BKD_ENS_Header_Tracking SET Fusion_Status = 'SUBMITTED', "
+        "Declaration_Number = ?, Tss_Status = ?, SubmittedAt = SYSUTCDATETIME(), "
+        "LastExecutionID = ?, UpdatedAt = SYSUTCDATETIME() WHERE ClientCode = ? AND MovementKey = ?",
+        declaration_number, tss_status, db.execution_id, client, movement_key,
+    )
+
+    mirror_cols = set(db.introspect("TSS", "BKD_ENS_Header"))
+    mirror = {field: payload.get(field) for field in ENS_PAYLOAD_FIELDS if field in mirror_cols and payload.get(field) is not None}
+    for key in ("StgID", "SubmissionID"):
+        if key in mirror_cols:
+            mirror[key] = row.get(key)
+    mirror.update({
+        "Declaration_Number": declaration_number,
+        "ClientCode": client,
+        "MovementKey": movement_key,
+        "Tss_Status": tss_status,
+        "RawJson": json.dumps(response_payload, ensure_ascii=False, default=str)[:1_000_000],
+        "IsLive": _is_live_env(db.env_code),
+        "FetchExecutionID": db.execution_id,
+        "FetchedAt": now_utc(),
+    })
+    db.upsert("TSS", "BKD_ENS_Header", mirror, ["Declaration_Number"], "MirrorID")
+    db.log(
+        "TSS_RESPONSE_SYNC",
+        f"MK={movement_key}: synced TSS create response status={tss_status} declaration={declaration_number}.",
+        "OK",
+    )
 
 
 def run(ini_path: Path = DEFAULT_INI) -> int:
@@ -89,7 +162,9 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                 db.transition("ENS_HEADER", f"MK={mk}", "SUBMITTING", "SUBMITTING")
 
                 result = client_api.call("POST", ENDPOINT, payload)
-                decl = extract_declaration_number(TssClient.parse_json(result)) if result.get("ok") and not dry_run else None
+                response_payload = TssClient.parse_json(result) if result.get("ok") and not dry_run else {}
+                decl = extract_declaration_number(response_payload) if result.get("ok") and not dry_run else None
+                tss_status = extract_tss_status(response_payload) if result.get("ok") and not dry_run else "Submitted"
                 db.log_call(process="SUBMITTING", resource="Declaration Header", op_type="create",
                             movement_key=mk, declaration_number=decl, result=result)
 
@@ -99,23 +174,25 @@ def run(ini_path: Path = DEFAULT_INI) -> int:
                     db.commit()
                     continue
 
-                if result.get("ok"):
-                    db.exec("UPDATE STG.BKD_ENS_Header SET Fusion_Status = 'SUBMITTED', "
-                            "declaration_number = ?, Tss_Status = 'Submitted', SubmitExecutionID = ?, "
-                            "SubmittedAt = SYSUTCDATETIME(), UpdatedAt = SYSUTCDATETIME() "
-                            "WHERE ClientCode = ? AND MovementKey = ?", decl, db.execution_id, client, mk)
-                    db.exec("UPDATE PRS.BKD_ENS_Header_Tracking SET Fusion_Status = 'SUBMITTED', "
-                            "Declaration_Number = ?, SubmittedAt = SYSUTCDATETIME(), LastExecutionID = ?, "
-                            "UpdatedAt = SYSUTCDATETIME() WHERE ClientCode = ? AND MovementKey = ?",
-                            decl, db.execution_id, client, mk)
+                if result.get("ok") and decl:
+                    sync_create_response(db, r, payload, response_payload, client, mk, decl, tss_status)
                     db.transition("ENS_HEADER", f"MK={mk}", "SUBMITTING", "SUBMITTED")
                     submitted += 1; done += 1
                 else:
-                    err = result.get("error") or "submit failed"
+                    err = result.get("error") or ("submit succeeded but no declaration number was returned" if result.get("ok") else "submit failed")
+                    err_text = (result.get("response_text") or err)[:4000]
                     db.exec("UPDATE STG.BKD_ENS_Header SET Fusion_Status = 'ERROR', "
                             "Tss_Error_Message = ?, SubmitExecutionID = ?, UpdatedAt = SYSUTCDATETIME() "
                             "WHERE ClientCode = ? AND MovementKey = ?",
-                            (result.get("response_text") or err)[:4000], db.execution_id, client, mk)
+                            err_text, db.execution_id, client, mk)
+                    db.exec("UPDATE PRS.BKD_ENS_Header_Submission SET Fusion_Status = 'ERROR', "
+                            "Tss_Error_Message = ?, UpdatedAt = SYSUTCDATETIME() "
+                            "WHERE ClientCode = ? AND MovementKey = ?",
+                            err_text, client, mk)
+                    db.exec("UPDATE PRS.BKD_ENS_Header_Tracking SET Fusion_Status = 'ERROR', "
+                            "RejectReason = ?, LastExecutionID = ?, UpdatedAt = SYSUTCDATETIME() "
+                            "WHERE ClientCode = ? AND MovementKey = ?",
+                            err_text, db.execution_id, client, mk)
                     db.transition("ENS_HEADER", f"MK={mk}", "SUBMITTING", "ERROR")
                     db.log_error("SUBMIT", f"MK={mk}: {err}", "TSS")
                     failed += 1

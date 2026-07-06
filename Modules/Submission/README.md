@@ -1,4 +1,4 @@
-# Module 3 — Submission (BKD ENS Header)
+# Module 3 - Submission (BKD ENS Header)
 
 Takes VALIDATED ENS headers from processing, submits them to TSS, and mirrors the
 authoritative live record back. Every TSS call is logged in full to `API.Call` and
@@ -7,10 +7,10 @@ tied to the `EXC` execution spine; the movement advances through the shared
 
 ```
 PRS.BKD_ENS_Header_Submission (VALIDATED)
-  → promote_ens.py  → STG.BKD_ENS_Header            (STG_MATERIALISED → READY)
-  → submit_ens.py   → POST /headers (create)        (SUBMITTING → SUBMITTED; captures ENS number)
-  → mirror_ens.py   → GET /headers/<ENS number>     (RECONCILING → RECONCILED; writes TSS.BKD_ENS_Header)
-  → update_ens / cancel_ens (stubs) operate against the TSS.* live mirror
+  -> promote_ens.py  -> STG.BKD_ENS_Header            (STG_MATERIALISED -> READY)
+  -> submit_ens.py   -> POST /headers (create)        (SUBMITTING -> SUBMITTED; captures ENS number + TSS status; syncs TSS mirror)
+  -> mirror_ens.py   -> GET /headers/<ENS number>     (RECONCILING -> RECONCILED; writes full TSS.BKD_ENS_Header)
+  -> update_ens / cancel_ens (stubs) operate against the TSS.* live mirror
 ```
 
 ## Safety
@@ -42,13 +42,19 @@ python Modules\Submission\submit_ens.py       # create; dry-run unless SUBMISSIO
 python Modules\Submission\mirror_ens.py       # get-back -> TSS.* live mirror; mark complete
 ```
 
+`submit_ens.py` syncs every successful TSS create response immediately into
+`STG.BKD_ENS_Header`, `PRS.BKD_ENS_Header_Submission`,
+`PRS.BKD_ENS_Header_Tracking`, and `TSS.BKD_ENS_Header`. `mirror_ens.py` remains
+the later GET/reconciliation step for the full authoritative TSS record.
+`CFG.Job.SUB_MIRROR_BKD_ENS` is configured with `Schedule = Every 30 minutes`.
+
 ## Where things land
 
-- `STG.BKD_ENS_Header` — submission-ready copy + lifecycle (`Fusion_Status`).
-- `API.Call` — one row per TSS call (request + response + status + duration + dry-run flag);
+- `STG.BKD_ENS_Header` - submission-ready copy + lifecycle (`Fusion_Status`).
+- `API.Call` - one row per TSS call (request + response + status + duration + dry-run flag);
   see `API.vw_Call_Log` / `API.vw_Call_Errors`.
-- `TSS.BKD_ENS_Header` — the authoritative **live mirror** of what's in TSS (raw JSON + parsed).
-- `EXC.Execution` / `EXC.Transaction` / `LOG.*` — the run spine and per-movement transitions.
+- `TSS.BKD_ENS_Header` - the authoritative live mirror of what's in TSS (raw JSON + parsed).
+- `EXC.Execution` / `EXC.Transaction` / `LOG.*` - the run spine and per-movement transitions.
 
 `update_ens.py` / `cancel_ens.py` are registered as jobs (`SUB_UPDATE_BKD_ENS`,
 `SUB_CANCEL_BKD_ENS`, inactive) and will operate against `TSS.BKD_ENS_Header`.

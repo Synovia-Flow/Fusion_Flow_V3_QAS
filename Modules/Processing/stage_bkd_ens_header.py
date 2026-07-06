@@ -23,6 +23,7 @@ CFG.Application_Parameters (PROCESSING_DRY_RUN); connection from the .ini.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import traceback
 from datetime import datetime, timezone
@@ -49,6 +50,13 @@ TRK_TABLE = "BKD_ENS_Header_Tracking"
 BKD_ARRIVAL_PORT = "GBAUBELBELBEL"          # Rule 12
 BKD_TRANSPORT_CHARGES = "Y"                 # Rule 11
 
+CHOICE_FIELD_BY_TARGET = {
+    "movement_type": "mode_of_transport",
+    "type_of_passive_transport": "passive_transport_types",
+    "nationality_of_transport": "country",
+    "arrival_port": "port",
+    "transport_charges": "transport_charges",
+}
 # Field plan: (target submission column, source ING column | None, kind, rule label).
 #   text   - trim                       code   - trim + upper-case
 #   yesno  - normalise to yes/no        date   - TSS dd/mm/yyyy hh:mm:ss UTC (Rule 4)
@@ -83,19 +91,68 @@ HEADER_FIELDS: list[tuple[str, str | None, str, str]] = [
 ]
 
 
-def _load_choice_cache(db: ProcessingDb) -> dict[str, set[str]]:
+def _norm_choice_name(value: str) -> str:
+    text = (value or "").lower()
+    text = re.sub(r"[()\[\]{}]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _load_choice_cache(db: ProcessingDb) -> dict[str, dict[str, Any]]:
     """Resolve CFG.Choice_Value_Cache after introspecting its columns (Rule 9)."""
     cols = db.introspect_columns("CFG", "Choice_Value_Cache")
     if "ChoiceField" not in cols or "ChoiceValue" not in cols:
         return {}
     active = " AND IsActive = 1" if "IsActive" in cols else ""
-    cache: dict[str, set[str]] = {}
-    for r in db._query(f"SELECT ChoiceField AS f, ChoiceValue AS v FROM CFG.Choice_Value_Cache WHERE 1=1{active}"):
-        cache.setdefault((r["f"] or "").strip(), set()).add((r["v"] or "").strip())
+    name_expr = "ChoiceName" if "ChoiceName" in cols else "NULL"
+    cache: dict[str, dict[str, Any]] = {}
+    for r in db._query(
+        f"SELECT ChoiceField AS f, ChoiceValue AS v, {name_expr} AS n "
+        f"FROM CFG.Choice_Value_Cache WHERE 1=1{active}"
+    ):
+        field = (r["f"] or "").strip()
+        value = (r["v"] or "").strip()
+        name = (r["n"] or "").strip()
+        if not field or not value:
+            continue
+        entry = cache.setdefault(field, {"values": set(), "names": {}, "ordered_names": []})
+        entry["values"].add(value)
+        if name:
+            normalized = _norm_choice_name(name)
+            entry["names"][normalized] = value
+            entry["ordered_names"].append((normalized, value))
+    for entry in cache.values():
+        entry["ordered_names"].sort(key=lambda item: len(item[0]), reverse=True)
     return cache
 
 
-def _transform(kind: str, raw: Any, choice_cache: dict[str, set[str]], run_date: datetime) -> Any:
+def _resolve_choice(target: str, raw: Any, choice_cache: dict[str, dict[str, Any]]) -> Any:
+    incoming = mapping.normalise_text(raw)
+    if not incoming:
+        return incoming
+    choice_field = CHOICE_FIELD_BY_TARGET.get(target, target)
+    entry = choice_cache.get(choice_field)
+    if not entry:
+        return incoming
+    if incoming in entry["values"]:
+        return incoming
+    normalized = _norm_choice_name(incoming)
+    if normalized in entry["names"]:
+        return entry["names"][normalized]
+    incoming_tokens = set(re.findall(r"[a-z0-9]+", normalized))
+    for choice_name, choice_value in entry["ordered_names"]:
+        if choice_name == normalized:
+            return choice_value
+        if len(normalized) >= 3 and choice_name.startswith(normalized):
+            return choice_value
+        choice_tokens = set(re.findall(r"[a-z0-9]+", choice_name))
+        if incoming_tokens and choice_tokens and (
+            incoming_tokens <= choice_tokens or choice_tokens <= incoming_tokens
+        ):
+            return choice_value
+    return incoming
+
+
+def _transform(kind: str, raw: Any, choice_cache: dict[str, dict[str, Any]], run_date: datetime) -> Any:
     if kind == "skip":
         return None
     if kind == "text":
@@ -109,9 +166,9 @@ def _transform(kind: str, raw: Any, choice_cache: dict[str, set[str]], run_date:
     if kind.startswith("const:"):
         return kind.split(":", 1)[1]
     if kind.startswith("choice:"):
-        # Choice codes are case-sensitive (e.g. movement_type '3a', not '3A') -
-        # trim only, never upper-case. Membership is informational here.
-        return mapping.normalise_text(raw)
+        # Choice codes are case-sensitive (e.g. movement_type '3a', not '3A').
+        # Resolve human labels to TSS codes from CFG.Choice_Value_Cache.
+        return _resolve_choice(kind.split(':', 1)[1], raw, choice_cache)
     return mapping.normalise_text(raw)
 
 
