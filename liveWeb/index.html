@@ -647,14 +647,20 @@ function renderPipeline(first){
       <button class="act secondary" data-do="edit"><span>Edit fields</span><span class="job">then Update</span></button>
       <button class="act" data-verb="update" data-job="SUB_UPDATE_BKD_ENS"><span>Update (Rule 16) →</span><span class="job">runs SUB_UPDATE_BKD_ENS</span></button>
       <button class="act danger" data-verb="cancel" data-job="SUB_CANCEL_BKD_ENS"><span>Cancel →</span><span class="job">runs SUB_CANCEL_BKD_ENS</span></button>
-    </div><div id="editForm"></div>` : '';
+    </div>` : '';
+
+  // Pre-submit editing: once staged (STG row exists) but not yet live in TSS, allow
+  // editing payload fields (e.g. arrival_date_time) then re-submitting — same /api/edit.
+  const preEdit = (!live && !PL.cancelled && PL.idx>=3)
+    ? `<button class="act secondary" data-do="edit"><span>Edit fields</span><span class="job">POST /api/edit · then Submit</span></button>` : '';
 
   $('#pl-body').innerHTML=`
     <h4>Stage progression — click a button to advance</h4>
     <div class="rail">${rail}</div>
-    <div class="actions">${stageBtn}
+    <div class="actions">${stageBtn}${preEdit}
       <span style="font-size:11.5px;color:var(--muted)">Each button runs the mapped job / API call — all tracked in EXC + API.Call.</span></div>
     ${tssActions}
+    <div id="editForm"></div>
     <div class="downstream"><span class="dlab">Repeatable · next API calls</span>
       ${DOWNSTREAM.map(x=>`<span class="dp">${x}</span>`).join('<span style="color:var(--muted)">›</span>')}</div>
     <h4>ING → PRS transformations (${x.length} fields)</h4>
@@ -710,7 +716,7 @@ async function saveEdit(){
     const r=await fetch('/api/edit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mk:PL.mk,fields})});
     const j=await r.json().catch(()=>({}));
     if(r.status===403||j.disabled)toast('Actions disabled (demo) — edits not persisted');
-    else if(j.ok){toast(`Saved ${(j.updated||[]).length} field(s) — now Update to push to TSS`);addAct(`Edited ${PL.mk}: ${(j.updated||[]).join(', ')}`);}
+    else if(j.ok){toast(`Saved ${(j.updated||[]).length} field(s) — now Submit (or Update if live) to push to TSS`);addAct(`Edited ${PL.mk}: ${(j.updated||[]).join(', ')}`);}
     else toast('Edit failed: '+(j.error||('HTTP '+r.status)));
   }catch(e){toast('Edit endpoint unavailable (demo)');}
   $('#editForm').innerHTML='';
