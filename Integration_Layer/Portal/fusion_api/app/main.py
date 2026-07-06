@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import base64
 import hashlib
@@ -2058,6 +2058,7 @@ def consignments(
                 c.RejectReason,
                 c.MovementKey,
                 COALESCE(c.declaration_number, h.declaration_number) AS DeclarationNumber,
+                h.arrival_date_time AS ArrivalDateTime,
                 c.consignment_number AS ConsignmentNumber,
                 c.trader_reference AS TraderReference,
                 c.transport_document_number AS TransportDocumentNumber,
@@ -2076,6 +2077,7 @@ def consignments(
             GROUP BY
                 c.ConsignmentRowID, c.EnsHeaderRowID, c.ClientCode, c.Status, h.Status,
                 c.RejectReason, c.MovementKey, c.declaration_number, h.declaration_number,
+                h.arrival_date_time,
                 c.consignment_number, c.trader_reference, c.transport_document_number,
                 c.goods_description, c.consignee_name, c.destination_country, c.UpdatedAt
                 {tracking_group}{staging_group}

@@ -353,13 +353,15 @@ function applyConsignmentDraft(row, draft) {
 }
 function normalizeConsignment(row) {
   const consignmentRowId = row.ConsignmentRowID ?? row.consignmentRowID ?? row.consignmentRowId;
+  const fallbackNumber = consignmentRowId ? `PRS-${consignmentRowId}` : 'PRS-DRAFT';
   return {
     id: `PRS-C${String(consignmentRowId || '').padStart(6, '0')}`,
+    clientCode: row.ClientCode ?? row.clientCode ?? '',
     ensHeaderRowId: row.EnsHeaderRowID ?? row.ensHeaderRowID ?? row.ensHeaderRowId,
     consignmentRowId,
     movementKey: row.MovementKey ?? row.movementKey ?? '',
-    declarationNumber: row.DeclarationNumber ?? row.declarationNumber ?? null,
-    consignmentNumber: row.ConsignmentNumber ?? row.consignmentNumber ?? `PRS-${consignmentRowId}`,
+    declarationNumber: row.DeclarationNumber ?? row.declarationNumber ?? row.HeaderDeclarationNumber ?? null,
+    consignmentNumber: row.ConsignmentNumber ?? row.consignmentNumber ?? fallbackNumber,
     traderReference: row.TraderReference ?? row.traderReference ?? '',
     transportDocumentNumber: row.TransportDocumentNumber ?? row.transportDocumentNumber ?? '',
     goodsDescription: row.GoodsDescription ?? row.goodsDescription ?? '',
@@ -369,10 +371,69 @@ function normalizeConsignment(row) {
     grossMassKg: formatNumber(row.GrossMassKg ?? row.grossMassKg),
     status: row.Status ?? row.status ?? 'DRAFT',
     tssStatus: deriveTssStatus(row),
-    source: 'PRS.Consignment',
+    sfdReference: row.SfdReference ?? row.SFDReference ?? row.sfdReference ?? '',
+    sfdMrn: row.SfdMrn ?? row.SFDMrn ?? row.sfdMrn ?? '',
+    sdiReferences: row.SdiReferences ?? row.SDIReferences ?? row.sdiReferences ?? '',
+    rejectReason: row.RejectReason ?? row.rejectReason ?? '',
+    source: row.Source ?? row.source ?? 'PRS.Consignment',
+    arrivalDateTime: row.ArrivalDateTime ?? row.arrivalDateTime ?? row.HeaderArrivalDateTime ?? '',
     updatedAt: row.UpdatedAt ?? row.updatedAt ?? '',
   };
 }
+
+const CONSIGNMENT_STATUS_TABS = [
+  'ALL',
+  'PENDING_TSS',
+  'READY_FOR_TSS',
+  'QUEUED_FOR_TSS',
+  'SUBMITTED',
+  'ACCEPTED',
+  'BLOCKED',
+  'FAILED',
+  'REJECTED',
+];
+
+function displayStatusLabel(value) {
+  return String(value || '').replaceAll('_', ' ');
+}
+
+function toDateInputValue(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
+  const match = String(value).match(/(\d{4})-(\d{2})-(\d{2})/);
+  return match ? match[0] : '';
+}
+
+function consignmentDateValue(row) {
+  return row?.arrivalDateTime || row?.updatedAt || '';
+}
+
+function consignmentTimestamp(row) {
+  const raw = consignmentDateValue(row);
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function consignmentPrimaryRef(row) {
+  return row?.consignmentNumber || (row?.consignmentRowId ? `Draft #${row.consignmentRowId}` : '-');
+}
+
+function consignmentEnsRef(row) {
+  if (row?.declarationNumber) return row.declarationNumber;
+  if (row?.ensHeaderRowId) return `ENS #${row.ensHeaderRowId}`;
+  return '';
+}
+
+function rowMatchesDateFilters(row, month, from, to) {
+  const dateValue = toDateInputValue(consignmentDateValue(row));
+  if (!dateValue) return !(month || from || to);
+  if (month && !dateValue.startsWith(month)) return false;
+  if (from && dateValue < from) return false;
+  if (to && dateValue > to) return false;
+  return true;
+}
+
 function MaterialIcon({ children, className = '' }) {
   return <span className={`material-symbols-outlined ${className}`} aria-hidden="true">{children}</span>;
 }
@@ -2081,6 +2142,14 @@ function ConsignmentDetailModal({ row, onClose, onSave }) {
 function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueForTss, onUpdateConsignment }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
+  const [dateMonth, setDateMonth] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sort, setSort] = useState('arrival_desc');
+  const [pageSize, setPageSize] = useState('20');
+  const [page, setPage] = useState(1);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedRows, setSelectedRows] = useState(() => new Set());
   const sourceRows = rows.length ? rows : CONSIGNMENTS;
   const [selectedId, setSelectedId] = useState(sourceRows[0]?.id || '');
   const [detailOpen, setDetailOpen] = useState(false);
@@ -2092,16 +2161,80 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
     }
   }, [sourceRows, selectedId]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [query, status, dateMonth, dateFrom, dateTo, pageSize, sort]);
+
+  useEffect(() => {
+    const validIds = new Set(sourceRows.map((row) => row.id));
+    setSelectedRows((current) => {
+      const next = new Set([...current].filter((id) => validIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [sourceRows]);
+
+  const statusCounts = useMemo(() => {
+    const counts = { ALL: sourceRows.length };
+    sourceRows.forEach((row) => {
+      const key = deriveTssStatus(row);
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [sourceRows]);
+
+  const statusTabs = useMemo(() => {
+    const dynamic = sourceRows.map((row) => deriveTssStatus(row)).filter(Boolean);
+    return [...new Set([...CONSIGNMENT_STATUS_TABS, ...dynamic])]
+      .filter((item) => item === 'ALL' || statusCounts[item] > 0);
+  }, [sourceRows, statusCounts]);
+
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
     return sourceRows.filter((row) => {
-      const matchesStatus = status === 'ALL' || deriveTssStatus(row) === status;
-      const haystack = `${row.consignmentNumber} ${row.traderReference} ${row.transportDocumentNumber} ${row.goodsDescription} ${row.consigneeName}`.toLowerCase();
-      return matchesStatus && (!value || haystack.includes(value));
+      const tssStatus = deriveTssStatus(row);
+      const matchesStatus = status === 'ALL' || tssStatus === status;
+      const haystack = [
+        row.consignmentRowId,
+        consignmentPrimaryRef(row),
+        row.traderReference,
+        row.transportDocumentNumber,
+        row.goodsDescription,
+        row.consigneeName,
+        row.destinationCountry,
+        row.movementKey,
+        row.declarationNumber,
+        row.sfdReference,
+        row.sfdMrn,
+        row.sdiReferences,
+        row.source,
+        row.status,
+        tssStatus,
+      ].join(' ').toLowerCase();
+      return matchesStatus && rowMatchesDateFilters(row, dateMonth, dateFrom, dateTo) && (!value || haystack.includes(value));
     });
-  }, [query, status, sourceRows]);
+  }, [query, status, dateMonth, dateFrom, dateTo, sourceRows]);
 
-  const selected = filtered.find((row) => row.id === selectedId) || filtered[0] || sourceRows[0] || CONSIGNMENTS[0];
+  const sorted = useMemo(() => {
+    const direction = sort === 'arrival_asc' ? 1 : -1;
+    return [...filtered].sort((left, right) => {
+      const diff = consignmentTimestamp(left) - consignmentTimestamp(right);
+      if (diff !== 0) return diff * direction;
+      return Number(right.consignmentRowId || 0) - Number(left.consignmentRowId || 0);
+    });
+  }, [filtered, sort]);
+
+  const pageSizeNumber = pageSize === 'all' ? sorted.length || 1 : Number(pageSize);
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(sorted.length / pageSizeNumber));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = pageSize === 'all' ? 0 : (safePage - 1) * pageSizeNumber;
+  const pagedRows = pageSize === 'all' ? sorted : sorted.slice(pageStart, pageStart + pageSizeNumber);
+  const selected = sorted.find((row) => row.id === selectedId) || pagedRows[0] || sourceRows[0] || CONSIGNMENTS[0];
+  const tssReadyCount = sourceRows.filter((row) => TSS_READY_STATUSES.has(deriveTssStatus(row))).length;
+  const totalGoods = sourceRows.reduce((total, row) => total + row.goodsItems, 0);
+  const filtersActive = Boolean(query || dateMonth || dateFrom || dateTo || status !== 'ALL');
+  const allPageSelected = pagedRows.length > 0 && pagedRows.every((row) => selectedRows.has(row.id));
+  const showingStart = sorted.length ? pageStart + 1 : 0;
+  const showingEnd = pageSize === 'all' ? sorted.length : Math.min(pageStart + pageSizeNumber, sorted.length);
 
   function applyLocalUpdate(updatedRow) {
     if (status !== 'ALL' && deriveTssStatus(updatedRow) !== status) setStatus('ALL');
@@ -2109,134 +2242,222 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
     onUpdateConsignment?.(updatedRow);
   }
 
-  async function handleQueueForTss() {
-    if (!selected?.consignmentRowId || !onQueueForTss) return;
-    setTssState({ status: 'loading', rowId: selected.id, payload: null, error: '' });
+  async function handleQueueForTss(row = selected) {
+    if (!row?.consignmentRowId || !onQueueForTss) return;
+    setTssState({ status: 'loading', rowId: row.id, payload: null, error: '' });
     try {
-      const payload = await onQueueForTss(selected);
+      const payload = await onQueueForTss(row);
       const nextTssStatus = payload?.plan?.ready ? 'READY_FOR_TSS' : 'BLOCKED';
-      applyLocalUpdate({ ...selected, tssStatus: nextTssStatus });
-      setTssState({ status: 'ready', rowId: selected.id, payload, error: '' });
+      applyLocalUpdate({ ...row, tssStatus: nextTssStatus });
+      setTssState({ status: 'ready', rowId: row.id, payload, error: '' });
     } catch (error) {
-      setTssState({ status: 'error', rowId: selected.id, payload: null, error: error.message });
+      setTssState({ status: 'error', rowId: row.id, payload: null, error: error.message });
     }
   }
 
-  const tssReadyCount = sourceRows.filter((row) => TSS_READY_STATUSES.has(deriveTssStatus(row))).length;
+  function clearFilters() {
+    setQuery('');
+    setStatus('ALL');
+    setDateMonth('');
+    setDateFrom('');
+    setDateTo('');
+  }
+
+  function toggleRowSelection(row, event) {
+    event.stopPropagation();
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      if (next.has(row.id)) next.delete(row.id);
+      else next.add(row.id);
+      return next;
+    });
+  }
+
+  function togglePageSelection(event) {
+    event.stopPropagation();
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      if (allPageSelected) pagedRows.forEach((row) => next.delete(row.id));
+      else pagedRows.forEach((row) => next.add(row.id));
+      return next;
+    });
+  }
+
+  function openDetail(row = selected) {
+    setSelectedId(row.id);
+    setDetailOpen(true);
+  }
 
   return (
     <section className="consignments-page" aria-label="View consignments">
-      <div className="consignments-header">
+      <div className="consignments-header consignment-list-header">
         <button className="back-button" type="button" onClick={onBack}>
           <MaterialIcon>arrow_back</MaterialIcon>
           <span>Back</span>
         </button>
         <div>
           <h1>View Consignments</h1>
-          <p>Review PRS consignments, goods-item counts, TSS status, and submission readiness.</p>
+          <p>PRS consignments with linked ENS context and TSS status mirror.</p>
+        </div>
+        <div className="consignment-header-metrics" aria-label="Consignment totals">
+          <div><span>Total</span><strong>{sourceRows.length}</strong></div>
+          <div><span>Filtered</span><strong>{sorted.length}</strong></div>
+          <div><span>Goods</span><strong>{totalGoods}</strong></div>
+          <div><span>TSS Ready</span><strong>{tssReadyCount}</strong></div>
         </div>
       </div>
 
-      <div className="summary-rail" aria-label="Consignment summary">
-        <div><span>ClientCode</span><strong>{clientCode}</strong></div>
-        <div><span>File Rule</span><strong>{connectionFileText(connection)}</strong></div>
-        <div><span>TSS</span><strong>{credentialText(connection)}</strong></div>
-        <div><span>Route</span><strong>{routeText(connection)}</strong></div>
-        <div><span>PRS.Consignment</span><strong>{sourceRows.length}</strong></div>
-        <div><span>Goods Items</span><strong>{sourceRows.reduce((total, row) => total + row.goodsItems, 0)}</strong></div>
-        <div><span>TSS Ready</span><strong>{tssReadyCount}</strong></div>
+      <div className="consignment-status-tabs" role="tablist" aria-label="Consignment status filters">
+        {statusTabs.map((item) => {
+          const count = item === 'ALL' ? sourceRows.length : statusCounts[item] || 0;
+          return (
+            <button key={item} className={status === item ? 'active' : ''} type="button" role="tab" aria-selected={status === item} onClick={() => setStatus(item)}>
+              <span>{displayStatusLabel(item)}</span>
+              <strong>{count}</strong>
+            </button>
+          );
+        })}
       </div>
 
-      <div className="consignment-workspace">
-        <div className="list-panel">
-          <div className="table-toolbar">
-            <label className="search-box">
-              <MaterialIcon>search</MaterialIcon>
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search consignment, trader ref, document..." />
-            </label>
-            <label className="compact-select">
-              <span>TSS Status</span>
-              <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                <option value="ALL">All</option>
-                {TSS_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}
-              </select>
-            </label>
-          </div>
+      <div className="consignments-list-card">
+        <div className="consignment-filter-bar">
+          <label className="search-box consignment-search-box">
+            <MaterialIcon>search</MaterialIcon>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search DEC, goods description, conveyance, ENS, SDI..." />
+          </label>
+          <label className="filter-field month-field">
+            <MaterialIcon>calendar_month</MaterialIcon>
+            <input type="month" value={dateMonth} aria-label="Filter by arrival month" onChange={(event) => { setDateMonth(event.target.value); setDateFrom(''); setDateTo(''); }} />
+          </label>
+          <label className="filter-field">
+            <MaterialIcon>calendar_today</MaterialIcon>
+            <input type="date" value={dateFrom} aria-label="Arrival from" onChange={(event) => { setDateFrom(event.target.value); setDateMonth(''); }} />
+          </label>
+          <label className="filter-field">
+            <MaterialIcon>event_available</MaterialIcon>
+            <input type="date" value={dateTo} aria-label="Arrival to" onChange={(event) => { setDateTo(event.target.value); setDateMonth(''); }} />
+          </label>
+          <label className="compact-select rows-select">
+            <span>Rows</span>
+            <select value={pageSize} onChange={(event) => setPageSize(event.target.value)}>
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+          {filtersActive && <button className="clear-filters-button" type="button" onClick={clearFilters}>Clear</button>}
+        </div>
 
-          <div className="table-wrap">
-            <table className="consignments-table">
-              <thead>
-                <tr>
-                  <th>Consignment</th>
-                  <th>Movement</th>
-                  <th>Trader Ref</th>
-                  <th>Goods</th>
-                  <th>Gross Mass</th>
-                  <th>TSS Status</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((row) => (
-                  <tr key={row.id} className={row.id === selected.id ? 'selected' : ''} onClick={() => setSelectedId(row.id)}>
-                    <td><strong>{row.consignmentNumber}</strong><span>{row.transportDocumentNumber}</span></td>
-                    <td>{row.movementKey}</td>
-                    <td>{row.traderReference}</td>
-                    <td>{row.goodsItems}</td>
-                    <td>{row.grossMassKg}</td>
-                    <td><StatusBadge status={deriveTssStatus(row)} /></td>
-                    <td>{row.updatedAt}</td>
+        <div className="consignment-card-header">
+          <div>
+            <strong>{showingStart}-{showingEnd}</strong>
+            <span>of {sorted.length} consignments shown from {sourceRows.length} PRS rows</span>
+          </div>
+          <div className="consignment-toolbar-actions">
+            <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort consignments">
+              <option value="arrival_desc">Newest arrival first</option>
+              <option value="arrival_asc">Oldest arrival first</option>
+            </select>
+            <button className="outline-action compact-action" type="button" disabled title="Excel export endpoint is not enabled in V3 yet.">
+              <MaterialIcon>download</MaterialIcon><span>Excel</span>
+            </button>
+            <button className={`select-mode-toggle ${selectMode ? 'active' : ''}`} type="button" aria-pressed={selectMode} onClick={() => setSelectMode((value) => !value)}>
+              <span className="toggle-dot" aria-hidden="true" />
+              <span>Select mode</span>
+            </button>
+          </div>
+        </div>
+
+        {(selectMode || selectedRows.size > 0) && (
+          <div className="selection-strip">
+            <span>{selectedRows.size} selected</span>
+            <button type="button" onClick={() => setSelectedRows(new Set())}>Clear selection</button>
+            <span>TSS records are not cancelled from this view.</span>
+          </div>
+        )}
+
+        <div className="table-wrap consignment-table-wrap">
+          <table className="consignments-table v2-like-consignments-table">
+            <thead>
+              <tr>
+                <th className="select-column"><input type="checkbox" checked={allPageSelected} onChange={togglePageSelection} aria-label="Select all visible consignments" /></th>
+                <th>ID</th>
+                <th>DEC Ref</th>
+                <th>Local Status</th>
+                <th>TSS Status</th>
+                <th>SFD</th>
+                <th>SDI</th>
+                <th>Goods</th>
+                <th>Goods Description</th>
+                <th>Doc / Ref</th>
+                <th>ENS Ref</th>
+                <th>Arrival</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRows.map((row) => {
+                const tssStatus = deriveTssStatus(row);
+                const primaryRef = consignmentPrimaryRef(row);
+                const ensRef = consignmentEnsRef(row);
+                const isSelected = row.id === selected?.id;
+                const rowChecked = selectedRows.has(row.id);
+                return (
+                  <tr key={row.id} className={`${isSelected ? 'selected' : ''} ${['BLOCKED', 'FAILED', 'REJECTED'].includes(tssStatus) ? 'row-needs-attention' : ''}`} onClick={() => setSelectedId(row.id)} onDoubleClick={() => openDetail(row)}>
+                    <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} aria-label={`Select consignment ${primaryRef}`} /></td>
+                    <td className="font-mono">{row.consignmentRowId || '-'}</td>
+                    <td className="ref-cell"><button type="button" onClick={(event) => { event.stopPropagation(); openDetail(row); }}>{primaryRef}</button><span>{row.transportDocumentNumber || 'Draft'}</span></td>
+                    <td><StatusBadge status={row.status || 'DRAFT'} /></td>
+                    <td><StatusBadge status={tssStatus} /></td>
+                    <td className="font-mono muted-cell">{row.sfdReference || '-'}</td>
+                    <td className="font-mono muted-cell">{row.sdiReferences || '-'}</td>
+                    <td className="numeric-cell">{row.goodsItems || 0}</td>
+                    <td className="description-cell"><span>{row.goodsDescription || '-'}</span></td>
+                    <td className="font-mono muted-cell">{row.traderReference || row.transportDocumentNumber || '-'}</td>
+                    <td className="font-mono ens-ref-cell">{ensRef || '-'}</td>
+                    <td className="muted-cell">{formatDateTime(consignmentDateValue(row))}</td>
+                    <td className="row-action-cell">
+                      <button type="button" title="Open detail" onClick={(event) => { event.stopPropagation(); openDetail(row); }}><MaterialIcon>visibility</MaterialIcon></button>
+                      <button type="button" title="Check TSS route" disabled={tssState.status === 'loading' && tssState.rowId === row.id} onClick={(event) => { event.stopPropagation(); handleQueueForTss(row); }}>
+                        {tssState.status === 'loading' && tssState.rowId === row.id ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>send</MaterialIcon>}
+                      </button>
+                    </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                );
+              })}
+              {!pagedRows.length && (
+                <tr>
+                  <td colSpan="13" className="control-empty-cell">No consignments found{query ? ` matching "${query}"` : ''}.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="consignment-pagination">
+          <span>Page {safePage} of {totalPages}</span>
+          <div>
+            <button type="button" disabled={safePage <= 1 || pageSize === 'all'} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</button>
+            <button type="button" disabled={safePage >= totalPages || pageSize === 'all'} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</button>
           </div>
         </div>
 
-        <aside className="detail-panel" aria-label="Selected consignment detail">
-          <div className="detail-title-row">
-            <div>
-              <span>PRS.Consignment</span>
-              <h2>{selected.consignmentNumber}</h2>
-            </div>
-            <div className="detail-status-stack">
-              <span>TSS Status</span>
-              <StatusBadge status={deriveTssStatus(selected)} />
-            </div>
+        {tssState.status !== 'idle' && (
+          <div className={`action-feedback consignment-list-feedback ${tssState.status === 'error' ? 'is-error' : ''}`}>
+            {tssState.status === 'loading' ? (
+              <>
+                <strong className="feedback-loading"><LoadingSpinner /><span>Checking TSS route...</span></strong>
+                <span>Reading configured route and required ENS fields for the selected consignment.</span>
+              </>
+            ) : (
+              <>
+                <strong>{tssState.status === 'ready' ? (tssState.payload?.plan?.ready ? 'Ready for TSS dry-run' : 'TSS blockers found') : 'TSS route check failed'}</strong>
+                <span>{tssState.status === 'ready' ? `ENS step first: ${tssState.payload?.plan?.routeIsEnsFirst ? 'yes' : 'no'} - Missing: ${(tssState.payload?.plan?.missing || []).join(', ') || 'none'}` : tssState.error}</span>
+              </>
+            )}
           </div>
-          <dl className="detail-grid">
-            <div><dt>EnsHeaderRowID</dt><dd>{selected.ensHeaderRowId}</dd></div>
-            <div><dt>ConsignmentRowID</dt><dd>{selected.consignmentRowId}</dd></div>
-            <div><dt>Declaration</dt><dd>{selected.declarationNumber || 'Pending'}</dd></div>
-            <div><dt>Consignee</dt><dd>{selected.consigneeName}</dd></div>
-            <div><dt>Destination</dt><dd>{selected.destinationCountry}</dd></div>
-            <div><dt>PRS Status</dt><dd><StatusBadge status={selected.status} /></dd></div>
-          </dl>
-          <div className="hierarchy-box">
-            <div><MaterialIcon>account_tree</MaterialIcon><span>PRS.ENS_Header</span></div>
-            <div><MaterialIcon>subdirectory_arrow_right</MaterialIcon><span>PRS.Consignment</span></div>
-            <div><MaterialIcon>subdirectory_arrow_right</MaterialIcon><span>{selected.goodsItems} PRS.Goods_Item rows</span></div>
-          </div>
-          <div className="detail-actions">
-            <button className="primary-action blue" type="button" onClick={() => setDetailOpen(true)}><MaterialIcon>visibility</MaterialIcon><span>Open Detail</span></button>
-            <button className="outline-action" type="button" onClick={handleQueueForTss} disabled={tssState.status === 'loading'} aria-busy={tssState.status === 'loading'}>{tssState.status === 'loading' ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>send</MaterialIcon>}<span>{tssState.status === 'loading' ? 'Checking TSS Route' : 'Queue for TSS'}</span></button>
-          </div>
-          {tssState.status !== 'idle' && tssState.rowId === selected.id && (
-            <div className={`action-feedback ${tssState.status === 'error' ? 'is-error' : ''}`}>
-              {tssState.status === 'loading' ? (
-                <>
-                  <strong className="feedback-loading"><LoadingSpinner /><span>Checking TSS route...</span></strong>
-                  <span>Reading the configured route and required ENS fields.</span>
-                </>
-              ) : (
-                <>
-                  <strong>{tssState.status === 'ready' ? (tssState.payload?.plan?.ready ? 'Ready for TSS dry-run' : 'TSS blockers found') : 'TSS route check failed'}</strong>
-                  <span>{tssState.status === 'ready' ? `ENS step first: ${tssState.payload?.plan?.routeIsEnsFirst ? 'yes' : 'no'} - Missing: ${(tssState.payload?.plan?.missing || []).join(', ') || 'none'}` : tssState.error}</span>
-                </>
-              )}
-            </div>
-          )}
-        </aside>
+        )}
       </div>
 
       {detailOpen && selected && (

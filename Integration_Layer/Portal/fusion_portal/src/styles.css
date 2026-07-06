@@ -1194,6 +1194,294 @@ button:disabled { cursor: default; }
   color: #991b1b;
 }
 
+.consignment-list-header {
+  grid-template-columns: auto minmax(260px, 1fr) auto;
+  align-items: center;
+}
+.consignment-header-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(78px, 1fr));
+  gap: 8px;
+  min-width: 390px;
+}
+.consignment-header-metrics div {
+  min-height: 52px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, .08);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.consignment-header-metrics span {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.consignment-header-metrics strong {
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.1;
+}
+.consignment-status-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 14px;
+  border-bottom: 1px solid #dbe3ef;
+}
+.consignment-status-tabs button {
+  min-height: 38px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.consignment-status-tabs button:hover { color: #1d4ed8; background: #f8fbff; }
+.consignment-status-tabs button.active {
+  color: #0f57d8;
+  border-bottom-color: #2563eb;
+}
+.consignment-status-tabs strong {
+  min-width: 22px;
+  min-height: 20px;
+  border-radius: 999px;
+  background: #e8f1ff;
+  color: #1d4ed8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  font-size: 11px;
+}
+.consignments-list-card {
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #e3e8f0;
+  box-shadow: 0 2px 7px rgba(15, 23, 42, .12);
+  overflow: hidden;
+}
+.consignment-filter-bar {
+  min-height: 72px;
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) 180px 170px 170px 130px auto;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid #e5e7eb;
+}
+.consignment-search-box { min-width: 0; }
+.filter-field {
+  height: 44px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: #fff;
+}
+.filter-field .material-symbols-outlined { color: #64748b; font-size: 20px; }
+.filter-field input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #172033;
+  font-size: 13px;
+}
+.clear-filters-button {
+  height: 38px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff7f7;
+  color: #b91c1c;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.consignment-card-header {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eef2f7;
+}
+.consignment-card-header > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+}
+.consignment-card-header strong { color: #172033; font-size: 14px; }
+.consignment-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.consignment-toolbar-actions select {
+  height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #172033;
+  padding: 0 28px 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.compact-action {
+  min-height: 34px;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.select-mode-toggle {
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px 0 5px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.select-mode-toggle .toggle-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #cbd5e1;
+  box-shadow: inset 0 0 0 5px #fff;
+}
+.select-mode-toggle.active {
+  border-color: #2563eb;
+  color: #1d4ed8;
+  background: #eef6ff;
+}
+.select-mode-toggle.active .toggle-dot { background: #2563eb; }
+.selection-strip {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e5e7eb;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+.selection-strip button {
+  border: 0;
+  background: transparent;
+  color: #1d4ed8;
+  font-weight: 900;
+}
+.consignment-table-wrap { max-height: calc(100vh - 360px); overflow: auto; }
+.v2-like-consignments-table { min-width: 1320px; }
+.v2-like-consignments-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.v2-like-consignments-table td {
+  height: 54px;
+  font-size: 13px;
+}
+.v2-like-consignments-table tr.row-needs-attention { background: #fff8f1; }
+.v2-like-consignments-table tr.row-needs-attention.selected { background: #fff1df; }
+.select-column {
+  width: 42px;
+  text-align: center !important;
+}
+.select-column input { width: 16px; height: 16px; }
+.font-mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+.muted-cell { color: #64748b !important; font-size: 12px !important; }
+.numeric-cell { text-align: center; font-weight: 800; }
+.description-cell { max-width: 230px; }
+.description-cell span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ref-cell button {
+  border: 0;
+  background: transparent;
+  color: #0f57d8;
+  padding: 0;
+  font: inherit;
+  font-weight: 900;
+  text-align: left;
+}
+.ref-cell button:hover { text-decoration: underline; }
+.ref-cell span {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.ens-ref-cell { color: #0f57d8 !important; }
+.row-action-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.row-action-cell button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #d8e1ee;
+  border-radius: 7px;
+  background: #fff;
+  color: #2563eb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.row-action-cell button:hover { background: #eef6ff; }
+.row-action-cell button:disabled { color: #94a3b8; background: #f1f5f9; }
+.row-action-cell .material-symbols-outlined { font-size: 18px; }
+.consignment-pagination {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid #eef2f7;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+.consignment-pagination div { display: flex; align-items: center; gap: 8px; }
+.consignment-pagination button {
+  height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.consignment-pagination button:disabled { color: #94a3b8; background: #f8fafc; }
+.consignment-list-feedback { margin: 12px 14px 14px; }
 .settings-page {
   width: min(1380px, calc(100vw - 64px));
   margin: 32px auto 48px;
@@ -3091,3 +3379,60 @@ button:disabled { cursor: default; }
   .consignment-detail-footer .outline-action,
   .consignment-detail-footer .primary-action { flex: 1; min-width: 0; }
 }
+
+
+@media (max-width: 1180px) {
+  .consignment-list-header { grid-template-columns: auto 1fr; }
+  .consignment-header-metrics { grid-column: 1 / -1; min-width: 0; }
+  .consignment-filter-bar { grid-template-columns: 1fr 1fr 1fr; }
+  .consignment-search-box { grid-column: 1 / -1; }
+}
+
+@media (max-width: 760px) {
+  .consignment-header-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .consignment-filter-bar { grid-template-columns: 1fr; }
+  .consignment-card-header { align-items: flex-start; flex-direction: column; }
+  .consignment-toolbar-actions { width: 100%; }
+  .consignment-toolbar-actions select,
+  .select-mode-toggle,
+  .compact-action { flex: 1 1 150px; }
+  .consignment-pagination { align-items: flex-start; flex-direction: column; }
+}
+
+.app-shell[data-theme="dark"] .consignments-list-card,
+.app-shell[data-theme="dark"] .consignment-header-metrics div,
+.app-shell[data-theme="dark"] .filter-field,
+.app-shell[data-theme="dark"] .consignment-toolbar-actions select,
+.app-shell[data-theme="dark"] .select-mode-toggle,
+.app-shell[data-theme="dark"] .row-action-cell button,
+.app-shell[data-theme="dark"] .consignment-pagination button {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--text);
+}
+.app-shell[data-theme="dark"] .consignment-status-tabs { border-color: var(--border); }
+.app-shell[data-theme="dark"] .consignment-status-tabs button { color: var(--muted); }
+.app-shell[data-theme="dark"] .consignment-status-tabs button:hover,
+.app-shell[data-theme="dark"] .consignment-status-tabs button.active { color: #93c5fd; background: rgba(96, 165, 250, .12); }
+.app-shell[data-theme="dark"] .consignment-status-tabs strong { background: rgba(96, 165, 250, .18); color: #bfdbfe; }
+.app-shell[data-theme="dark"] .consignment-header-metrics strong,
+.app-shell[data-theme="dark"] .consignment-card-header strong,
+.app-shell[data-theme="dark"] .filter-field input,
+.app-shell[data-theme="dark"] .consignment-toolbar-actions select,
+.app-shell[data-theme="dark"] .ref-cell button,
+.app-shell[data-theme="dark"] .ens-ref-cell { color: var(--text) !important; }
+.app-shell[data-theme="dark"] .consignment-header-metrics span,
+.app-shell[data-theme="dark"] .consignment-card-header > div:first-child,
+.app-shell[data-theme="dark"] .selection-strip,
+.app-shell[data-theme="dark"] .muted-cell,
+.app-shell[data-theme="dark"] .ref-cell span,
+.app-shell[data-theme="dark"] .consignment-pagination { color: var(--muted) !important; }
+.app-shell[data-theme="dark"] .consignment-filter-bar,
+.app-shell[data-theme="dark"] .consignment-card-header,
+.app-shell[data-theme="dark"] .selection-strip,
+.app-shell[data-theme="dark"] .consignment-pagination { border-color: var(--border); }
+.app-shell[data-theme="dark"] .selection-strip,
+.app-shell[data-theme="dark"] .v2-like-consignments-table th { background: rgba(15, 23, 42, .65); }
+.app-shell[data-theme="dark"] .v2-like-consignments-table tr.row-needs-attention { background: rgba(180, 83, 9, .16); }
+.app-shell[data-theme="dark"] .v2-like-consignments-table tr.row-needs-attention.selected { background: rgba(180, 83, 9, .24); }
+.app-shell[data-theme="dark"] .clear-filters-button { background: rgba(127, 29, 29, .18); border-color: rgba(248, 113, 113, .35); color: #fecaca; }
