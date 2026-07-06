@@ -121,9 +121,9 @@ The pipeline drill-down (click a Submissions row) shows the stage rail, the ING�
 transforms, stage-advance buttons, and — once a movement is live in TSS — **Edit /
 Update (Rule 16) / Cancel** on the TSS layer. Buttons call the endpoints above.
 
-> **Actions are OFF by default.** Set `PORTAL_ACTIONS_ENABLED=1` on the service to let
-> the buttons actually run jobs / call TSS; otherwise they advance the pipeline
-> visually only (safe demo mode).
+> **Actions run for real.** The portal buttons execute the mapped jobs / TSS calls
+> directly (no demo gate). Scope and safety come from `SUBMISSION_ENV` (e.g. `TST`) and
+> `SUBMISSION_DRY_RUN` in `CFG.Application_Parameters`, not from a UI toggle.
 
 The front-end tries `/api/blueprint` first, then `blueprint.json`, then its inline
 copy — so the exact same `index.html` works as a static site **or** behind this API.

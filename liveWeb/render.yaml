@@ -30,8 +30,6 @@ services:
         value: "yes"
       - key: DB_TRUST
         value: "no"
-      - key: PORTAL_ACTIONS_ENABLED
-        value: "0"          # set 1 to let pipeline buttons run jobs / call TSS (still gated by SUBMISSION_DRY_RUN)
 
 # -----------------------------------------------------------------------------
 # ALTERNATIVE: static-only site (no DB, no API — the portal reads the committed

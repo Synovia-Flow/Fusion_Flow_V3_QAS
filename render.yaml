@@ -53,11 +53,8 @@ services:
     healthCheckPath: /api/health
     envVars:
       - fromGroup: fusion-db
-      # Portal action/enqueue buttons run real jobs/TSS calls. Enabled: the portal can
-      # trigger promote/submit/update/cancel/reprocess. Jobs still honour SUBMISSION_ENV
-      # (TST) and SUBMISSION_DRY_RUN, so this is safe against the test environment.
-      - key: PORTAL_ACTIONS_ENABLED
-        value: "1"
+      # Portal actions always run (no demo gate). Jobs still honour SUBMISSION_ENV (TST)
+      # and SUBMISSION_DRY_RUN, so behaviour against the environment stays controlled.
 
   # --- Background worker: drains the job queue ------------------------------
   - type: worker

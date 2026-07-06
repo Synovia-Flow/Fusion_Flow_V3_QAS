@@ -41,8 +41,6 @@ app = Flask(__name__, static_folder=None)
 CACHE_TTL = 30  # seconds
 _cache = {"ts": 0.0, "data": None}
 
-# Portal actions run real jobs / TSS calls, so they are OFF unless explicitly enabled.
-ACTIONS_ON = os.environ.get("PORTAL_ACTIONS_ENABLED", "").lower() in ("1", "true", "yes", "on")
 # verb -> (runner module, the param that scopes it to one movement, extra per-run overrides)
 # Passed to run(overrides=...) as an in-memory scope the runner reads INSTEAD of the
 # shared CFG.Application_Parameters, so concurrent portal actions (and a scheduled batch
@@ -103,12 +101,8 @@ def _connect():
 
 @app.route("/api/action/<verb>", methods=["POST"])
 def api_action(verb):
-    """Run a real job scoped to one movement (dry-run governed by SUBMISSION_DRY_RUN).
-    Disabled by default — set PORTAL_ACTIONS_ENABLED=1 to allow. Everything the runner
-    does is tracked in EXC / API.Call / LOG, per the platform design."""
-    if not ACTIONS_ON:
-        return jsonify({"ok": False, "disabled": True,
-                        "error": "Portal actions are disabled. Set PORTAL_ACTIONS_ENABLED=1 on the service."}), 403
+    """Run a real job scoped to one movement (dry-run still governed by SUBMISSION_DRY_RUN
+    and SUBMISSION_ENV). Everything the runner does is tracked in EXC / API.Call / LOG."""
     if verb not in VERB:
         abort(404)
     mk = (request.args.get("mk") or (request.get_json(silent=True) or {}).get("mk") or "").strip()
@@ -137,10 +131,7 @@ def api_enqueue(verb):
     """Queue a job for the background worker instead of running it in the web process.
     Writes a PENDING row to EXC.Job_Queue; Modules/Global/job_worker.py polls it, runs
     the same runner with per-run scope, and records the outcome. Use this for batches or
-    long runs so the request returns immediately (202). Same PORTAL_ACTIONS_ENABLED gate."""
-    if not ACTIONS_ON:
-        return jsonify({"ok": False, "disabled": True,
-                        "error": "Portal actions are disabled. Set PORTAL_ACTIONS_ENABLED=1 on the service."}), 403
+    long runs so the request returns immediately (202)."""
     if verb not in VERB:
         abort(404)
     mk = (request.args.get("mk") or (request.get_json(silent=True) or {}).get("mk") or "").strip()
@@ -161,10 +152,8 @@ def api_enqueue(verb):
 
 @app.route("/api/edit", methods=["POST"])
 def api_edit():
-    """Edit STG payload fields for a movement (whitelisted). The next Update pushes
-    them to TSS. Disabled unless PORTAL_ACTIONS_ENABLED=1."""
-    if not ACTIONS_ON:
-        return jsonify({"ok": False, "disabled": True, "error": "Portal actions are disabled."}), 403
+    """Edit STG payload fields for a movement (whitelisted). The next Update/Submit
+    pushes them to TSS."""
     body = request.get_json(silent=True) or {}
     mk = (body.get("mk") or "").strip()
     fields = {k: v for k, v in (body.get("fields") or {}).items() if k in EDITABLE}
