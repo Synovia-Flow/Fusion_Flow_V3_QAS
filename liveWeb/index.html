@@ -653,11 +653,14 @@ function renderPipeline(first){
   // editing payload fields (e.g. arrival_date_time) then re-submitting — same /api/edit.
   const preEdit = (!live && !PL.cancelled && PL.idx>=3)
     ? `<button class="act secondary" data-do="edit"><span>Edit fields</span><span class="job">POST /api/edit · then Submit</span></button>` : '';
+  // One-click recovery: reprocess (engine auto-bumps a past arrival to tomorrow) -> promote -> submit.
+  const fixBtn = (!live && !PL.cancelled && PL.idx>=2)
+    ? `<button class="act" data-do="fixarr"><span>Fix arrival &amp; resubmit →</span><span class="job">reprocess · promote · submit</span></button>` : '';
 
   $('#pl-body').innerHTML=`
     <h4>Stage progression — click a button to advance</h4>
     <div class="rail">${rail}</div>
-    <div class="actions">${stageBtn}${preEdit}
+    <div class="actions">${stageBtn}${preEdit}${fixBtn}
       <span style="font-size:11.5px;color:var(--muted)">Each button runs the mapped job / API call — all tracked in EXC + API.Call.</span></div>
     ${tssActions}
     <div id="editForm"></div>
@@ -671,6 +674,29 @@ function renderPipeline(first){
   if(first){const cur=$('#pl-body .stage.current, #pl-body .stage.reject'); if(cur)cur.classList.add('pulse');}
   $('#pl-body').querySelectorAll('[data-verb]').forEach(b=>b.addEventListener('click',()=>runAction(b.dataset.verb,b.dataset.job,b.dataset.to?+b.dataset.to:null)));
   $('#pl-body').querySelectorAll('[data-do="edit"]').forEach(b=>b.addEventListener('click',openEdit));
+  $('#pl-body').querySelectorAll('[data-do="fixarr"]').forEach(b=>b.addEventListener('click',fixArrivalResubmit));
+}
+
+/* One-click recovery for a past-arrival (or other reprocessable) reject: run
+   reprocess -> promote -> submit in sequence, scoped to this movement. reprocess
+   re-runs the engine, which auto-bumps a past arrival_date_time to tomorrow. Stops
+   and reports on the first step that fails; falls back to visual when disabled. */
+async function fixArrivalResubmit(){
+  const steps=[['reprocess','PRS_REPROCESS_BKD_ENS'],['promote','PRS_PROMOTE_BKD_ENS'],['submit','SUB_CREATE_BKD_ENS']];
+  for(const [verb,job] of steps){
+    toast(`${job}…`);
+    let r,j;
+    try{
+      r=await fetch(`/api/action/${verb}?mk=`+encodeURIComponent(PL.mk),{method:'POST'});
+      j=await r.json().catch(()=>({}));
+    }catch(e){toast('Actions endpoint unavailable — advancing visually');return visualAdvance(verb,null);}
+    if(r.status===403||j.disabled){toast('Actions disabled (demo) — set PORTAL_ACTIONS_ENABLED=1');return;}
+    if(!r.ok||j.ok===false){toast(`${job} failed: `+(j.error||('HTTP '+r.status)));addAct(`${job} failed: ${PL.mk}`);renderPipeline(false);return;}
+    addAct(`${job}: ${PL.mk}`);
+    if(j.status&&j.status.fusion){const i=STATUS_STAGE[j.status.fusion];if(i!=null)PL.idx=i;PL.rejected=/reject/i.test(j.status.fusion);if(j.status.decl&&j.status.decl!=='—')PL.decl=j.status.decl;}
+  }
+  toast('Fixed arrival & resubmitted ✓');
+  renderPipeline(false);
 }
 
 /* run a real job (scoped to this movement) via the API; fall back to a visual advance
