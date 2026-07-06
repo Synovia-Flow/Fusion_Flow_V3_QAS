@@ -168,10 +168,24 @@ def build_client(cur, c: dict) -> dict:
                  f"ORDER BY MIN(COALESCE(SubmittedAt, StagedAt, CreatedAt))", cc)
     throughput = [{"d": (r["d"] or "")[:5], "v": r["v"]} for r in thr]
 
-    subq = q(cur, f"SELECT TOP 20 MovementKey, Declaration_Number, Fusion_Status, Tss_Status "
-                  f"FROM {trk} WHERE ClientCode = ? ORDER BY UpdatedAt DESC", cc)
+    # Latest coherent status per movement: the tracking spine (Fusion_Status) is stamped
+    # at every stage (STAGED->VALIDATED->STG_MATERIALISED->SUBMITTED->RECONCILED/CANCELLED),
+    # so it IS the single source of the current stage. Tss_Status is kept SEPARATE (the
+    # TSS layer's own status once live) instead of overwriting the stage. Arrival/port come
+    # from STG so the row shows real data.
+    subq = q(cur, f"SELECT TOP 20 t.MovementKey, t.Declaration_Number, t.Fusion_Status, t.Tss_Status, "
+                  f"s.arrival_date_time, s.arrival_port "
+                  f"FROM {trk} t LEFT JOIN STG.{cc}_ENS_Header s "
+                  f"  ON s.ClientCode = t.ClientCode AND s.MovementKey = t.MovementKey "
+                  f"WHERE t.ClientCode = ? ORDER BY t.UpdatedAt DESC", cc)
+    if not subq:  # STG join unavailable -> tracking-only (still coherent, no arrival/port)
+        subq = q(cur, f"SELECT TOP 20 MovementKey, Declaration_Number, Fusion_Status, Tss_Status "
+                      f"FROM {trk} WHERE ClientCode = ? ORDER BY UpdatedAt DESC", cc)
     submissions = [{"mk": r["MovementKey"], "decl": r.get("Declaration_Number") or "—",
-                    "status": r.get("Tss_Status") or r["Fusion_Status"], "arrival": "—", "port": "—"}
+                    "status": r["Fusion_Status"],                    # single coherent pipeline stage (latest)
+                    "tssStatus": r.get("Tss_Status") or "—",          # TSS layer status once live
+                    "arrival": r.get("arrival_date_time") or "—",
+                    "port": r.get("arrival_port") or "—"}
                    for r in subq]
 
     act = q(cur, "SELECT TOP 6 CONVERT(varchar(5), CreatedAt, 108) t, StepName, Message, LogLevel "

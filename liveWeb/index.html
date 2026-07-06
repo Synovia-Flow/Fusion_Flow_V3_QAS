@@ -482,11 +482,11 @@ function renderSubmissions(){
   const statuses=['All',...new Set((d.submissions||[]).map(s=>s.status))];
   v.innerHTML=`<div class="page-head"><div><div class="eyebrow">${CURRENT}</div><h2>Submissions</h2><p>Movements and their TSS declaration state — <code>PRS</code> → <code>STG</code> → <code>TSS</code> mirror. <b>Click a row</b> to open its pipeline.</p></div>
     <div class="filters"><select class="mini" id="stFilter">${statuses.map(s=>`<option>${s}</option>`).join('')}</select></div></div>
-    <div class="panel"><div class="tablewrap"><table><thead><tr><th>Movement</th><th>ENS number</th><th>Arrival (UTC)</th><th>Port</th><th>Status</th></tr></thead>
+    <div class="panel"><div class="tablewrap"><table><thead><tr><th>Movement</th><th>ENS number</th><th>Arrival (UTC)</th><th>Port</th><th>Stage</th><th>TSS</th></tr></thead>
     <tbody id="subBody"></tbody></table></div>${(d.submissions||[]).length?'':'<div class="empty">No submissions for this client yet.</div>'}</div>`;
   const body=$('#subBody',v);
   const draw=f=>{
-    body.innerHTML=(d.submissions||[]).filter(s=>f==='All'||s.status===f).map(s=>`<tr class="rowlink" data-mk="${s.mk}"><td class="mono">${s.mk}</td><td class="mono">${s.decl}</td><td class="mono">${s.arrival}</td><td class="mono">${s.port}</td><td>${statusPill(s.status)}</td></tr>`).join('');
+    body.innerHTML=(d.submissions||[]).filter(s=>f==='All'||s.status===f).map(s=>`<tr class="rowlink" data-mk="${s.mk}"><td class="mono">${s.mk}</td><td class="mono">${s.decl}</td><td class="mono">${s.arrival}</td><td class="mono">${s.port}</td><td>${statusPill(s.status)}</td><td class="mono" style="font-size:11.5px">${s.tssStatus&&s.tssStatus!=='—'?s.tssStatus:'—'}</td></tr>`).join('');
     body.querySelectorAll('.rowlink').forEach(tr=>tr.addEventListener('click',()=>openPipeline(tr.dataset.mk)));
   };
   draw('All');
@@ -712,7 +712,8 @@ const STAGES = [
   {key:"RECONCILED", n:"6", lbl:"Reconciled",  sub:"TSS mirror"},
 ];
 const STATUS_STAGE = {REJECTED:2,Rejected:2,VALIDATED:2,Validated:2,"STG_MATERIALISED":3,READY:3,
-  Staged:3,STAGED:3,SUBMITTED:4,Submitted:4,Draft:4,RECONCILED:5,Reconciled:5};
+  Staged:3,STAGED:3,SUBMITTING:4,SUBMITTED:4,Submitted:4,Draft:4,RECONCILED:5,Reconciled:5,
+  CANCELLED:5,Cancelled:5};
 const ACTIONS = {   // current stage index -> the action that advances it
   1:{label:"Validate",          job:"PRS_ENGINE_BKD_ENS",   to:2, cls:"", v:"reprocess"},
   2:{label:"Promote to STG",    job:"PRS_PROMOTE_BKD_ENS",  to:3, cls:"", v:"promote"},
@@ -763,9 +764,11 @@ let PL = {mk:null, idx:1, rejected:false, decl:"—"};
 function openPipeline(mk){
   const d=cd(); const s=(d.submissions||[]).find(x=>x.mk===mk); if(!s)return;
   const st=s.status||"";
-  PL={mk, decl:s.decl||"—", rejected:/reject/i.test(st), idx:(STATUS_STAGE[st]!=null?STATUS_STAGE[st]:1), sub:s};
+  PL={mk, decl:s.decl||"—", rejected:/reject/i.test(st), cancelled:/cancel/i.test(st),
+      idx:(STATUS_STAGE[st]!=null?STATUS_STAGE[st]:1), sub:s};
   $('#pl-title').textContent=`${clientMeta().name} · Movement pipeline`;
-  $('#pl-mk').innerHTML=`<span>MK ${mk}</span><span>ENS ${PL.decl}</span><span>Status ${statusPill(st)}</span>`;
+  const tss=s.tssStatus&&s.tssStatus!=='—'?`<span>TSS ${statusPill(s.tssStatus)}</span>`:'';
+  $('#pl-mk').innerHTML=`<span>MK ${mk}</span><span>ENS ${PL.decl}</span><span>Stage ${statusPill(st)}</span>${tss}`;
   renderPipeline(true);
   $('#pipeline').classList.add('open');
 }
