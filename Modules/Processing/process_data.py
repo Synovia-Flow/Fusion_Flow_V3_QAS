@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import configparser
 import json
+import re
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import os
 import sys
 import traceback
@@ -384,6 +386,138 @@ def _bkd_assumption_rule(field: str, label: str) -> str:
     return f"ASSUMPTION:{label}{suffix}"
 
 
+def _normalise_source_key(value: str) -> str:
+    """Normalise verbatim workbook headers into the mapping.py snake_case contract."""
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[_\-/]+", " ", text)
+    text = re.sub(r"[^a-z0-9 ]+", " ", text)
+    return re.sub(r"\s+", "_", text).strip("_")
+
+
+def _normalise_sales_order_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep raw keys, add normalised aliases for PRS mapping."""
+    out = dict(payload or {})
+    for key, value in (payload or {}).items():
+        normalised = _normalise_source_key(key)
+        if normalised and normalised not in out:
+            out[normalised] = value
+    return out
+
+
+def _normalise_sku(value: Any) -> str | None:
+    text = normalise_text(value)
+    return text.upper() if text is not None else None
+
+
+def _normalise_decimal(value: Any, places: int = 2) -> Decimal | None:
+    text = normalise_text(value)
+    if text is None:
+        return None
+    try:
+        quant = Decimal("1." + ("0" * places))
+        return Decimal(str(text).replace(",", "")).quantize(quant, rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _normalise_intish(value: Any) -> int | None:
+    dec = _normalise_decimal(value, 0)
+    if dec is None:
+        return None
+    return max(int(dec), 1)
+
+
+def _format_tss_decimal(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    return value.quantize(Decimal("1.00"), rounding=ROUND_HALF_UP)
+
+
+def _weight_quantity(goods: dict[str, Any]) -> tuple[Decimal, str]:
+    pieces = _normalise_decimal(goods.get("number_of_individual_pieces"), 0)
+    if pieces is not None:
+        return pieces, "QUANTITY_BASE"
+    packages = _normalise_decimal(goods.get("number_of_packages"), 0)
+    if packages is not None:
+        return packages, "QUANTITY_PACKAGES_ASSUMPTION"
+    return Decimal("1"), "QUANTITY_ONE_ASSUMPTION"
+
+
+def _normalise_package_type(value: Any) -> str | None:
+    text = normalise_text(value)
+    if text is None:
+        return None
+    upper = text.upper()
+    if "BOX" in upper:
+        return "Boxes"
+    if "PALLET" in upper:
+        return "Pallets"
+    return text
+
+
+def _normalise_movement_type(value: Any) -> str | None:
+    text = normalise_text(value)
+    if text is None:
+        return None
+    low = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    if low in {"3a", "roro accompanied ics2", "ro ro accompanied ics2"}:
+        return "3a"
+    if "roro" in low and "accompanied" in low and "unaccompanied" not in low:
+        return "3a"
+    return text
+
+
+def _normalise_passive_transport(value: Any) -> str | None:
+    text = normalise_text(value)
+    if text is None:
+        return None
+    low = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    if "truck" in low and "tautliner" in low and "25" in low and "removable" not in low:
+        return "3103"
+    return text
+
+
+def _sales_order_document_ref(row: dict[str, Any], fallback: int) -> str:
+    for key in ("transport_document_number", "document_no", "document_number", "trader_reference"):
+        value = normalise_text(row.get(key))
+        if value:
+            return value
+    return f"SO-ROW-{fallback:05d}"
+
+
+def _group_sales_order_rows(so_rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    groups: list[list[dict[str, Any]]] = []
+    by_ref: dict[str, list[dict[str, Any]]] = {}
+    for idx, row in enumerate(so_rows, 1):
+        ref = _sales_order_document_ref(row, idx)
+        if ref not in by_ref:
+            by_ref[ref] = []
+            groups.append(by_ref[ref])
+        by_ref[ref].append(row)
+    return groups
+
+
+def _normalise_file_date(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    text = normalise_text(value)
+    if text is None:
+        return None
+    for fmt in ("%Y-%m-%d", "%d.%m.%y", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return value
+
+
+def _is_sales_order_data_row(payload: dict[str, Any]) -> bool:
+    return _filled(payload.get("document_no")) and (
+        _filled(payload.get("no")) or _filled(payload.get("line_no"))
+    )
+
 
 # =============================================================================
 # Source reads
@@ -414,6 +548,7 @@ def fetch_ens_rows(db: ProcessingDb, client_code: str, transaction_id: str | int
 
 def fetch_sales_order_rows(db: ProcessingDb, file_date: Any) -> list[dict[str, Any]]:
     """Read INGESTED Sales Order rows for a movement's file-date, parsed from JSON."""
+    file_date = _normalise_file_date(file_date)
     if file_date is None:
         rows = db._query(
             "SELECT LoadID, PayloadJson FROM ING.BKD_Raw_Sales_Orders "
@@ -421,13 +556,21 @@ def fetch_sales_order_rows(db: ProcessingDb, file_date: Any) -> list[dict[str, A
     else:
         rows = db._query(
             "SELECT LoadID, PayloadJson FROM ING.BKD_Raw_Sales_Orders "
-            "WHERE Status = 'INGESTED' AND FileDate = ? ORDER BY RowNumber", file_date)
+            "WHERE Status = 'INGESTED' AND FileDate = ? "
+            "AND ExecutionID = ("
+            "    SELECT MAX(ExecutionID) FROM ING.BKD_Raw_Sales_Orders "
+            "    WHERE Status = 'INGESTED' AND FileDate = ?"
+            ") ORDER BY RowNumber",
+            file_date, file_date)
     out: list[dict[str, Any]] = []
     for r in rows:
         try:
             payload = json.loads(r["PayloadJson"]) if r["PayloadJson"] else {}
         except (ValueError, TypeError):
             payload = {}
+        payload = _normalise_sales_order_payload(payload)
+        if not _is_sales_order_data_row(payload):
+            continue
         payload["__LoadID"] = r["LoadID"]
         out.append(payload)
     return out
@@ -459,6 +602,10 @@ def normalise(db: ProcessingDb, ens_row: dict[str, Any], so_rows: list[dict[str,
         raw = ens_row.get(src_col)
         if dest_col in ("nationality_of_transport", "carrier_country"):
             value = normalise_code(raw)
+        elif dest_col == "movement_type":
+            value = _normalise_movement_type(raw)
+        elif dest_col == "type_of_passive_transport":
+            value = _normalise_passive_transport(raw)
         else:
             value = normalise_text(raw)
         _set_field(db, header, "ENS_Header", dest_col, eref, value, "DP-FR-01:MAP_ENS")
@@ -473,15 +620,8 @@ def normalise(db: ProcessingDb, ens_row: dict[str, Any], so_rows: list[dict[str,
                arrival_utc.isoformat() if arrival_utc else None,
                "DP-FR-01:ARRIVAL_UTC (Rule 4)")
 
-    # Skeleton consignment from Sales-Order consignment-level mapping (first row).
-    cons: dict[str, Any] = {
-        "ClientCode": client_code,
-        "MovementKey": movement_key,
-        "ConsignmentOrdinal": 1,
-        "Status": "NORMALISED",
-    }
-    goods_items: list[dict[str, Any]] = []
-    cref = _entity_ref(movement_key, cons=1)
+    # Build one PRS consignment per Sales Order document. ING remains verbatim;
+    # this is the PRS construction contract for BKD Sales Orders.
     if not so_rows:
         db.log(
             "NORMALISE",
@@ -490,20 +630,47 @@ def normalise(db: ProcessingDb, ens_row: dict[str, Any], so_rows: list[dict[str,
         )
         return {"movement_key": movement_key, "header": header, "consignments": []}
 
-    if so_rows:
-        first = so_rows[0]
+    consignments: list[dict[str, Any]] = []
+    for source_group_number, group_rows in enumerate(_group_sales_order_rows(so_rows), 1):
+        first = group_rows[0]
+        cref = _entity_ref(movement_key, cons=len(consignments) + 1)
+        cons: dict[str, Any] = {
+            "ClientCode": client_code,
+            "MovementKey": movement_key,
+            "ConsignmentOrdinal": len(consignments) + 1,
+            "Status": "NORMALISED",
+        }
         for src_col, dest_col in SALES_ORDER_TO_CONSIGNMENT.items():
-            value = normalise_text(first.get(src_col))
-            # Many source aliases map to one dest; skip empties and never let a
-            # later absent alias clobber a value an earlier alias already set.
+            raw = first.get(src_col)
+            if dest_col.endswith("_country") or dest_col == "destination_country":
+                value = normalise_code(raw)
+            elif dest_col in ("controlled_goods", "buyer_same_as_importer", "seller_same_as_exporter", "use_importer_sde"):
+                value = to_yes_no(raw) or normalise_text(raw)
+            else:
+                value = normalise_text(raw)
             if value is None or _filled(cons.get(dest_col)):
                 continue
             _set_field(db, cons, "Consignment", dest_col, cref, value,
                        "DP-FR-01:MAP_SO_CONSIGNMENT")
 
-        # One goods item per Sales-Order line (ENS-context fields only - Q3).
-        for idx, so in enumerate(so_rows, 1):
-            gref = _entity_ref(movement_key, cons=1, goods=idx)
+        doc_ref = _sales_order_document_ref(first, source_group_number)
+        if doc_ref and not _filled(cons.get("transport_document_number")):
+            _set_field(db, cons, "Consignment", "transport_document_number", cref, doc_ref,
+                       "DP-FR-01:DERIVE_TRANSPORT_DOCUMENT_FROM_SALES_ORDER")
+        if doc_ref and not _filled(cons.get("trader_reference")):
+            _set_field(db, cons, "Consignment", "trader_reference", cref, doc_ref,
+                       "DP-FR-01:DERIVE_TRADER_REFERENCE_FROM_SALES_ORDER")
+        if doc_ref and not _filled(cons.get("consignment_number")):
+            _set_field(db, cons, "Consignment", "consignment_number", cref, doc_ref[:40],
+                       "DP-FR-01:DERIVE_CONSIGNMENT_NUMBER_FROM_SALES_ORDER")
+        if doc_ref and not _filled(cons.get("goods_description")):
+            _set_field(db, cons, "Consignment", "goods_description", cref,
+                       f"Sales order goods {doc_ref}"[:254],
+                       "ASSUMPTION:CONSIGNMENT_DESCRIPTION_FROM_DOCUMENT_REF")
+
+        goods_items: list[dict[str, Any]] = []
+        for idx, so in enumerate(group_rows, 1):
+            gref = _entity_ref(movement_key, cons=len(consignments) + 1, goods=idx)
             goods: dict[str, Any] = {
                 "ClientCode": client_code,
                 "MovementKey": movement_key,
@@ -512,24 +679,44 @@ def normalise(db: ProcessingDb, ens_row: dict[str, Any], so_rows: list[dict[str,
                 "Status": "NORMALISED",
             }
             for src_col, dest_col in SALES_ORDER_TO_GOODS.items():
-                if dest_col in ("country_of_origin", "country_of_preferential_origin",
-                                "commodity_code"):
-                    value = normalise_code(so.get(src_col))
+                raw = so.get(src_col)
+                rule = "DP-FR-01:MAP_SO_GOODS"
+                if dest_col in ("country_of_origin", "country_of_preferential_origin", "commodity_code"):
+                    value = normalise_code(raw)
+                elif dest_col == "type_of_packages":
+                    value = _normalise_package_type(raw)
+                    if value is not None and normalise_text(raw) != value:
+                        rule = "ASSUMPTION:PACKAGE_TYPE_FROM_UOM"
+                elif dest_col in ("number_of_packages", "number_of_individual_pieces"):
+                    value = _normalise_intish(raw)
+                elif dest_col in ("gross_mass_kg", "net_mass_kg", "item_invoice_amount"):
+                    value = _normalise_decimal(raw, 2)
                 else:
-                    value = normalise_text(so.get(src_col))
-                # First non-empty alias wins (see consignment note above).
+                    value = normalise_text(raw)
                 if value is None or _filled(goods.get(dest_col)):
                     continue
-                _set_field(db, goods, "Goods_Item", dest_col, gref, value,
-                           "DP-FR-01:MAP_SO_GOODS")
+                _set_field(db, goods, "Goods_Item", dest_col, gref, value, rule)
+
+            sku = _normalise_sku(so.get("no") or so.get("item_no") or so.get("item_number"))
+            if sku:
+                goods["_source_sku"] = sku
+            if sku and not _filled(goods.get("package_marks")):
+                _set_field(db, goods, "Goods_Item", "package_marks", gref, sku[:140],
+                           "DP-FR-01:PACKAGE_MARKS_FROM_ITEM_CODE")
+            if sku and not _filled(goods.get("goods_description")):
+                _set_field(db, goods, "Goods_Item", "goods_description", gref,
+                           f"BKD item {sku}"[:255],
+                           "ASSUMPTION:GOODS_DESCRIPTION_FROM_ITEM_CODE")
+            gross = goods.get("gross_mass_kg")
+            if gross is not None and not _filled(goods.get("net_mass_kg")):
+                _set_field(db, goods, "Goods_Item", "net_mass_kg", gref, gross,
+                           "ASSUMPTION:NET_MASS_EQUALS_GROSS_MASS")
             goods_items.append(goods)
 
-    if len(goods_items) > MAX_GOODS_PER_CONSIGNMENT:
-        consignments: list[dict[str, Any]] = []
         for part_number, start in enumerate(range(0, len(goods_items), MAX_GOODS_PER_CONSIGNMENT), 1):
             part_cons = dict(cons)
-            pref = _entity_ref(movement_key, cons=part_number)
-            part_cons["ConsignmentOrdinal"] = part_number
+            part_ref = _entity_ref(movement_key, cons=len(consignments) + 1)
+            part_cons["ConsignmentOrdinal"] = len(consignments) + 1
             part_cons["goods"] = goods_items[start:start + MAX_GOODS_PER_CONSIGNMENT]
             if part_number > 1:
                 for field, max_length in (
@@ -544,23 +731,380 @@ def normalise(db: ProcessingDb, ens_row: dict[str, Any], so_rows: list[dict[str,
                             part_cons,
                             "Consignment",
                             field,
-                            pref,
+                            part_ref,
                             split_value,
                             "ASSUMPTION:SPLIT_REFERENCE (>99 goods per TSS consignment limit)",
                         )
             consignments.append(part_cons)
-        db.log(
-            "NORMALISE",
-            f"{eref}: split {len(goods_items)} goods into {len(consignments)} consignments using max {MAX_GOODS_PER_CONSIGNMENT} goods each.",
-            "WARN",
-        )
-        return {"movement_key": movement_key, "header": header, "consignments": consignments}
 
-    cons["goods"] = goods_items
-    return {"movement_key": movement_key, "header": header, "consignments": [cons]}
+    return {"movement_key": movement_key, "header": header, "consignments": consignments}
+
+
+def _apply_existing_header_submission_context(db: ProcessingDb, header: dict[str, Any], movement_key: str) -> None:
+    rows = db._query(
+        "SELECT TOP 1 declaration_number, carrier_name, carrier_street_number, "
+        "carrier_city, carrier_postcode, carrier_country "
+        "FROM PRS.BKD_ENS_Header_Submission "
+        "WHERE ClientCode = ? AND MovementKey = ? ORDER BY SubmissionID DESC",
+        db._client_code, movement_key,
+    )
+    if not rows:
+        return
+    eref = _entity_ref(movement_key)
+    row = rows[0]
+    for field in (
+        "declaration_number", "carrier_name", "carrier_street_number",
+        "carrier_city", "carrier_postcode", "carrier_country",
+    ):
+        value = row.get(field)
+        if value is not None and not _filled(header.get(field)):
+            _set_field(db, header, "ENS_Header", field, eref, value,
+                       "SYNC:EXISTING_ENS_HEADER_SUBMISSION")
 
 
 # =============================================================================
+
+def fetch_product_master(db: ProcessingDb, client_code: str) -> dict[str, dict[str, Any]]:
+    """Read active product masterdata keyed by SKU. Missing table = no enrichment."""
+    try:
+        exists = db._query("SELECT OBJECT_ID('CFG.Product_Master', 'U') AS ObjectID")
+    except Exception:
+        return {}
+    if not exists or exists[0].get("ObjectID") is None:
+        return {}
+
+    rows = db._query(
+        "SELECT ClientCode, SKU, ProductCode, ProductName, GoodsDescription, "
+        "CommodityCode, CountryOfOrigin, PackageType, PackageMarks, ProcedureCode, "
+        "AdditionalProcedureCode, ValuationMethod, ValuationIndicator, PreferenceCode, "
+        "NiAdditionalInfoCode, NatureOfTransaction, CountryOfPreferentialOrigin, "
+        "TaricCode, CusCode, NationalAdditionalCode, QuotaOrderNumber, ControlledGoodsType, "
+        "GrossWeightKg, NetWeightKg, WeightSource, UnitValue, Currency, ControlledGoods, "
+        "RequiresSupplementaryUnit "
+        "FROM CFG.Product_Master "
+        "WHERE IsActive = 1 AND ClientCode IN (?, 'ALL') "
+        "ORDER BY CASE WHEN ClientCode = ? THEN 0 ELSE 1 END",
+        client_code, client_code,
+    )
+    master: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        sku = _normalise_sku(row.get("SKU"))
+        if sku and sku not in master:
+            master[sku] = row
+    return master
+
+
+def _set_goods_master_field(db: ProcessingDb, goods: dict[str, Any], field: str, value: Any,
+                            gref: str, rule: str, *, replace_assumed: bool = False) -> None:
+    if value is None or value == "":
+        return
+    current = goods.get(field)
+    if not replace_assumed and _filled(current):
+        return
+    _set_field(db, goods, "Goods_Item", field, gref, value, rule)
+
+
+def _yes_no_from_bit(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes"):
+        return "yes"
+    if text in ("0", "false", "no"):
+        return "no"
+    return None
+
+
+def _apply_product_master_enrichment(db: ProcessingDb, goods: dict[str, Any], product: dict[str, Any] | None,
+                                     gref: str) -> bool:
+    """Apply SKU masterdata to a goods line, logging every change as MASTERDATA."""
+    if not product:
+        return False
+    goods["_product_master_matched"] = True
+
+    description = normalise_text(product.get("GoodsDescription") or product.get("ProductName"))
+    assumed_description = str(goods.get("goods_description") or "").startswith("BKD item ")
+    _set_goods_master_field(
+        db, goods, "goods_description", description, gref,
+        "MASTERDATA:BKD_PRODUCT_MASTER_GOODS_DESCRIPTION",
+        replace_assumed=assumed_description,
+    )
+
+    field_map = (
+        ("CommodityCode", "commodity_code", normalise_code, "MASTERDATA:BKD_PRODUCT_MASTER_COMMODITY_CODE"),
+        ("CountryOfOrigin", "country_of_origin", normalise_code, "MASTERDATA:BKD_PRODUCT_MASTER_COUNTRY_OF_ORIGIN"),
+        ("PackageType", "type_of_packages", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_PACKAGE_TYPE"),
+        ("PackageMarks", "package_marks", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_PACKAGE_MARKS"),
+        ("ProcedureCode", "procedure_code", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_PROCEDURE_CODE"),
+        ("AdditionalProcedureCode", "additional_procedure_code", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_ADDITIONAL_PROCEDURE_CODE"),
+        ("ValuationMethod", "valuation_method", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_VALUATION_METHOD"),
+        ("PreferenceCode", "preference", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_PREFERENCE"),
+        ("NiAdditionalInfoCode", "ni_additional_information_codes", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_NI_ADDITIONAL_INFO"),
+        ("TaricCode", "taric_code", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_TARIC_CODE"),
+        ("CusCode", "cus_code", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_CUS_CODE"),
+        ("NationalAdditionalCode", "national_additional_code", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_NATIONAL_ADDITIONAL_CODE"),
+        ("QuotaOrderNumber", "quota_order_number", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_QUOTA_ORDER_NUMBER"),
+        ("ControlledGoodsType", "controlled_goods_type", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_CONTROLLED_GOODS_TYPE"),
+    )
+    for source, target, transform, rule in field_map:
+        _set_goods_master_field(db, goods, target, transform(product.get(source)), gref, rule)
+
+    controlled = _yes_no_from_bit(product.get("ControlledGoods"))
+    if controlled is not None:
+        goods["_controlled_goods_from_master"] = True
+        _set_goods_master_field(
+            db, goods, "controlled_goods", controlled, gref,
+            "MASTERDATA:BKD_PRODUCT_MASTER_CONTROLLED_GOODS",
+        )
+
+    qty, qty_rule = _weight_quantity(goods)
+    unit_gross = _normalise_decimal(product.get("GrossWeightKg"), 3)
+    if unit_gross is not None and not _filled(goods.get("gross_mass_kg")):
+        _set_field(
+            db, goods, "Goods_Item", "gross_mass_kg", gref,
+            _format_tss_decimal(unit_gross * qty),
+            f"MASTERDATA:BKD_PRODUCT_MASTER_GROSS_WEIGHT_X_{qty_rule}",
+        )
+
+    unit_net = _normalise_decimal(product.get("NetWeightKg"), 3)
+    if unit_net is not None and not _filled(goods.get("net_mass_kg")):
+        _set_field(
+            db, goods, "Goods_Item", "net_mass_kg", gref,
+            _format_tss_decimal(unit_net * qty),
+            f"MASTERDATA:BKD_PRODUCT_MASTER_NET_WEIGHT_X_{qty_rule}",
+        )
+    elif _filled(goods.get("gross_mass_kg")) and not _filled(goods.get("net_mass_kg")):
+        _set_field(
+            db, goods, "Goods_Item", "net_mass_kg", gref, goods.get("gross_mass_kg"),
+            "ASSUMPTION:NET_MASS_EQUALS_GROSS_MASS",
+        )
+
+    return True
+
+
+def fetch_partner_master(db: ProcessingDb, client_code: str) -> list[dict[str, Any]]:
+    """Read active partner masterdata. Missing table = no enrichment."""
+    try:
+        exists = db._query("SELECT OBJECT_ID('CFG.Partner_Master', 'U') AS ObjectID")
+    except Exception:
+        return []
+    if not exists or exists[0].get("ObjectID") is None:
+        return []
+
+    return db._query(
+        "SELECT ClientCode, PartnerType, PartnerName, NormalizedPartnerName, EORI, EORIGB, "
+        "AddressLine1, AddressLine2, City, County, Postcode, Country, EnvCode, SourceSystem, SourceRecordID "
+        "FROM CFG.Partner_Master "
+        "WHERE IsActive = 1 AND ClientCode IN (?, 'ALL') "
+        "ORDER BY CASE WHEN ClientCode = ? THEN 0 ELSE 1 END, CASE WHEN PartnerName LIKE '%(%' THEN 1 ELSE 0 END, PartnerMasterID ASC",
+        client_code, client_code,
+    )
+
+
+def _match_text(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]+", " ", str(value or "").upper()).strip()
+
+
+def _compact_text(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
+
+
+def _partner_address_blob(partner: dict[str, Any]) -> str:
+    return _match_text(" ".join(
+        str(partner.get(field) or "")
+        for field in ("AddressLine1", "AddressLine2", "City", "County", "Postcode")
+    ))
+
+
+def _source_address_blob(cons: dict[str, Any], prefix: str) -> str:
+    return _match_text(" ".join(
+        str(cons.get(f"{prefix}_{field}") or "")
+        for field in ("street_number", "city", "postcode")
+    ))
+
+
+def _partner_score(partner: dict[str, Any], *, party_type: str | None, name: Any,
+                   street: Any, city: Any, postcode: Any, eori: Any) -> int:
+    ptype = _match_text(partner.get("PartnerType"))
+    wanted_type = _match_text(party_type)
+    if wanted_type and ptype and wanted_type != ptype:
+        return -100
+
+    score = 0
+    wanted_eori = _compact_text(eori)
+    partner_eori = _compact_text(partner.get("EORI") or partner.get("EORIGB"))
+    if wanted_eori and partner_eori and wanted_eori == partner_eori:
+        score += 180
+
+    wanted_name = _match_text(name)
+    partner_name = _match_text(partner.get("NormalizedPartnerName") or partner.get("PartnerName"))
+    if wanted_name and partner_name:
+        if wanted_name == partner_name:
+            score += 130
+        elif wanted_name in partner_name or partner_name in wanted_name:
+            score += 85
+        else:
+            wanted_tokens = {t for t in wanted_name.split() if len(t) > 1}
+            partner_tokens = {t for t in partner_name.split() if len(t) > 1}
+            overlap = len(wanted_tokens & partner_tokens)
+            if overlap:
+                score += min(overlap * 18, 70)
+
+    wanted_street = _match_text(street)
+    partner_blob = _partner_address_blob(partner)
+    if wanted_street and partner_blob:
+        if wanted_street in partner_blob:
+            score += 55
+        elif _compact_text(wanted_street) and _compact_text(wanted_street) in _compact_text(partner_blob):
+            score += 40
+
+    wanted_city = _match_text(city)
+    partner_city = _match_text(partner.get("City"))
+    if wanted_city and partner_city:
+        if wanted_city == partner_city:
+            score += 35
+        elif wanted_city in partner_city or partner_city in wanted_city:
+            score += 20
+
+    wanted_postcode = _compact_text(postcode)
+    partner_postcode = _compact_text(partner.get("Postcode"))
+    if wanted_postcode and partner_postcode and wanted_postcode == partner_postcode:
+        score += 45
+    return score
+
+
+def _best_partner_match(partners: list[dict[str, Any]], *, party_type: str | None,
+                        name: Any, street: Any = None, city: Any = None,
+                        postcode: Any = None, eori: Any = None) -> dict[str, Any] | None:
+    best: tuple[int, dict[str, Any]] | None = None
+    for partner in partners:
+        score = _partner_score(
+            partner,
+            party_type=party_type,
+            name=name,
+            street=street,
+            city=city,
+            postcode=postcode,
+            eori=eori,
+        )
+        if score < 110:
+            continue
+        if best is None or score > best[0]:
+            best = (score, partner)
+    return best[1] if best else None
+
+
+PRS_CONSIGNMENT_TEXT_MAX = {
+    "consignor_name": 35,
+    "consignor_street_number": 35,
+    "consignee_name": 35,
+    "consignee_street_number": 35,
+    "importer_name": 35,
+    "importer_street_number": 35,
+    "exporter_name": 35,
+    "exporter_street_number": 35,
+}
+
+
+def _partner_name_for_prs(partner: dict[str, Any]) -> str | None:
+    name = normalise_text(partner.get("PartnerName"))
+    if _compact_text(partner.get("EORI") or partner.get("EORIGB")) == "XI379692092000":
+        normalized = _match_text(name)
+        if "BIRKDALE SALES" in normalized:
+            return "Birkdale Sales Ltd"
+    return name
+
+
+def _partner_street(partner: dict[str, Any]) -> str | None:
+    parts = [normalise_text(partner.get("AddressLine1")), normalise_text(partner.get("AddressLine2"))]
+    parts = [part for part in parts if part]
+    return " ".join(parts)[:300] if parts else None
+
+
+def _fit_prs_consignment_field(field: str, value: Any) -> Any:
+    if isinstance(value, str):
+        max_len = PRS_CONSIGNMENT_TEXT_MAX.get(field)
+        if max_len and len(value) > max_len:
+            return value[:max_len].rstrip()
+    return value
+
+
+def _set_cons_partner_field(db: ProcessingDb, cons: dict[str, Any], field: str, value: Any,
+                            cref: str, rule: str, *, replace: bool = False) -> None:
+    if value is None or value == "":
+        return
+    value = _fit_prs_consignment_field(field, value)
+    if _filled(cons.get(field)) and not replace:
+        return
+    _set_field(db, cons, "Consignment", field, cref, value, rule)
+
+
+def _apply_party_partner(db: ProcessingDb, cons: dict[str, Any], partner: dict[str, Any] | None,
+                         prefix: str, cref: str, rule_prefix: str, *, replace_source: bool = False) -> None:
+    if not partner:
+        return
+    updates = {
+        f"{prefix}_eori": normalise_text(partner.get("EORI") or partner.get("EORIGB")),
+        f"{prefix}_name": _partner_name_for_prs(partner),
+        f"{prefix}_street_number": _partner_street(partner),
+        f"{prefix}_city": normalise_text(partner.get("City")),
+        f"{prefix}_postcode": normalise_code(partner.get("Postcode")),
+        f"{prefix}_country": normalise_code(partner.get("Country")),
+    }
+    for field, value in updates.items():
+        replace = replace_source
+        if field.endswith("_postcode"):
+            replace = True
+        _set_cons_partner_field(db, cons, field, value, cref, f"MASTERDATA:{rule_prefix}_{field.upper()}", replace=replace)
+
+
+def _find_birkdale_partner(partners: list[dict[str, Any]], fallback_eori: str | None) -> dict[str, Any] | None:
+    partner = _best_partner_match(
+        partners,
+        party_type=None,
+        name="Birkdale Sales",
+        eori=fallback_eori,
+    )
+    if partner:
+        return partner
+    for row in partners:
+        if _compact_text(row.get("EORI") or row.get("EORIGB")) == _compact_text(fallback_eori):
+            return row
+    return None
+
+
+def _apply_consignment_partner_master(db: ProcessingDb, cons: dict[str, Any], partners: list[dict[str, Any]],
+                                      fallback_partner: dict[str, Any] | None, cref: str) -> None:
+    consignee = _best_partner_match(
+        partners,
+        party_type="Consignee",
+        name=cons.get("consignee_name"),
+        street=cons.get("consignee_street_number"),
+        city=cons.get("consignee_city"),
+        postcode=cons.get("consignee_postcode"),
+        eori=cons.get("consignee_eori"),
+    )
+    _apply_party_partner(
+        db, cons, consignee, "consignee", cref,
+        "BKD_PARTNER_MASTER_CONSIGNEE",
+        replace_source=True,
+    )
+
+    if fallback_partner:
+        fallback_eori = fallback_partner.get("EORI") or fallback_partner.get("EORIGB")
+        for prefix, party_type, rule in (
+            ("importer", "Importer", "BKD_PARTNER_MASTER_IMPORTER"),
+            ("consignor", "Consignor", "BKD_PARTNER_MASTER_CONSIGNOR"),
+            ("exporter", "Exporter", "BKD_PARTNER_MASTER_EXPORTER"),
+        ):
+            role_partner = _best_partner_match(
+                partners,
+                party_type=party_type,
+                name="Birkdale Sales",
+                eori=fallback_eori,
+            ) or fallback_partner
+            _apply_party_partner(db, cons, role_partner, prefix, cref, rule)
+
 # Stage 2: ENRICH (DP-FR-02/08)
 # =============================================================================
 # BKD_QAS_CONSTANTS (mapping.py) is a FLAT dict keyed by TSS field name:
@@ -598,6 +1142,11 @@ def enrich(db: ProcessingDb, movement: dict[str, Any], choice_cache: dict[str, s
     header = movement["header"]
     eref = _entity_ref(movement_key)
     header["Status"] = "ENRICHED"
+    product_master = fetch_product_master(db, client_code)
+    partner_master = fetch_partner_master(db, client_code)
+    birkdale_partner = _find_birkdale_partner(partner_master, BKD_QAS_CONSTANTS.get(QAS_IMPORTER_FALLBACK_KEY))
+
+    _apply_existing_header_submission_context(db, header, movement_key)
 
     # Apply BKD QAS hardcoded constants (Q4) at header level, with citations.
     # arrival_port (Rule 12) + transport_charges (Rule 11).
@@ -623,10 +1172,43 @@ def enrich(db: ProcessingDb, movement: dict[str, Any], choice_cache: dict[str, s
             _set_field(db, cons, "Consignment", "importer_eori", cref, fallback, rule)
             _set_field(db, cons, "Consignment", "consignor_eori", cref, fallback, rule)
 
-        # No goods-level QAS constants in the flat BKD set; goods enrichment is
-        # choice-value resolution only (advanced in a later module). Mark status.
-        for goods in cons.get("goods", []):
+        _apply_consignment_partner_master(db, cons, partner_master, birkdale_partner, cref)
+
+        # Minimal BKD defaults needed for ENS consignment shape. These are logged
+        # as assumptions, not hidden as source data. Consignee postcode is never
+        # defaulted globally; it must come from source/masterdata or stay missing.
+        for column, value, label in (
+            ("destination_country", "GB", "BKD_DEFAULT_DESTINATION_COUNTRY_GB"),
+            ("consignee_country", "GB", "BKD_DEFAULT_CONSIGNEE_COUNTRY_GB"),
+            ("container_indicator", "0", "BKD_DEFAULT_NOT_CONTAINERISED"),
+        ):
+            if not _filled(cons.get(column)):
+                _set_field(db, cons, "Consignment", column, cref, value, f"ASSUMPTION:{label}")
+
+        if fallback and not (cons.get("exporter_eori") or "").strip():
+            _set_field(db, cons, "Consignment", "exporter_eori", cref, fallback,
+                       "ASSUMPTION:BKD_EXPORTER_EORI_FALLBACK")
+
+        for goods_index, goods in enumerate(cons.get("goods", []), 1):
+            gref = _entity_ref(movement_key, cons=ci, goods=goods_index)
+            sku = _normalise_sku(goods.get("_source_sku") or goods.get("package_marks") or goods.get("goods_id"))
+            _apply_product_master_enrichment(db, goods, product_master.get(sku or ""), gref)
+            if not _filled(goods.get("controlled_goods")):
+                _set_field(db, goods, "Goods_Item", "controlled_goods", gref,
+                           "no", "ASSUMPTION:BKD_DEFAULT_CONTROLLED_GOODS_NO")
             goods["Status"] = "ENRICHED"
+
+        goods_control = [str(g.get("controlled_goods") or "").strip().lower() for g in cons.get("goods", [])]
+        if not _filled(cons.get("controlled_goods")):
+            if "yes" in goods_control:
+                _set_field(db, cons, "Consignment", "controlled_goods", cref, "yes",
+                           "MASTERDATA:BKD_PRODUCT_MASTER_CONTROLLED_GOODS_ROLLUP")
+            elif goods_control and all(g.get("_controlled_goods_from_master") for g in cons.get("goods", [])):
+                _set_field(db, cons, "Consignment", "controlled_goods", cref, "no",
+                           "MASTERDATA:BKD_PRODUCT_MASTER_CONTROLLED_GOODS_ROLLUP")
+            else:
+                _set_field(db, cons, "Consignment", "controlled_goods", cref, "no",
+                           "ASSUMPTION:BKD_DEFAULT_CONTROLLED_GOODS_NO")
 
     # Stash the resolved choice cache on the movement for VALIDATE membership checks.
     movement["_choice_cache"] = choice_cache
@@ -732,6 +1314,13 @@ def _missing(obj: dict[str, Any], field: str) -> bool:
     return val is None or (isinstance(val, str) and not val.strip())
 
 
+def _has_party_address(obj: dict[str, Any], prefix: str) -> bool:
+    return all(
+        not _missing(obj, f"{prefix}_{field}")
+        for field in ("name", "street_number", "city", "postcode", "country")
+    )
+
+
 def validate(db: ProcessingDb, movement: dict[str, Any], run_date: datetime) -> tuple[str, str]:
     """Run mandatory/conditional + cross-cutting rules. Returns (status, reason)."""
     movement_key = movement["movement_key"]
@@ -778,8 +1367,15 @@ def validate(db: ProcessingDb, movement: dict[str, Any], run_date: datetime) -> 
 
     for ci, cons in enumerate(consignments, 1):
         for field in CONSIGNMENT_ALWAYS_MANDATORY:
+            if field == "consignee_eori" and _has_party_address(cons, "consignee"):
+                continue
             if _missing(cons, field):
-                reasons.append(f"cons[{ci}].{field} mandatory and missing")
+                if field == "consignee_eori":
+                    reasons.append(
+                        f"cons[{ci}].consignee_eori or full consignee address mandatory and missing"
+                    )
+                else:
+                    reasons.append(f"cons[{ci}].{field} mandatory and missing")
 
         goods_list = cons.get("goods", [])
         # >=1 goods per consignment; <=99 cardinality.
@@ -794,7 +1390,7 @@ def validate(db: ProcessingDb, movement: dict[str, Any], run_date: datetime) -> 
                 if _missing(goods, field):
                     reasons.append(f"cons[{ci}].goods[{gi}].{field} mandatory and missing")
 
-        # Conditional rules (each entry: predicate + required field, per §5).
+        # Conditional rules (each entry: predicate + required field, per section 5).
         reasons.extend(_apply_conditional_rules(mtype, header, cons))
 
     status = "VALIDATED" if not reasons else "REJECTED"
@@ -821,7 +1417,7 @@ def _apply_conditional_rules(mtype: str, header: dict[str, Any],
 
     Each rule is a dict: {when_field, when_equals|when_in, when_scope,
     require:[fields], scope, note}. The predicate is read from `when_scope`; the
-    required field(s) are checked in `scope`. (Spec §5 conditional matrix.)
+    required field(s) are checked in `scope`. (Spec section 5 conditional matrix.)
     """
     reasons: list[str] = []
     goods_list = cons.get("goods", [])

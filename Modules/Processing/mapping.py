@@ -80,12 +80,15 @@ SALES_ORDER_TO_GOODS: dict[str, str] = {
     "packages": "number_of_packages",
     "package_count": "number_of_packages",
     "no_of_packages": "number_of_packages",
+    "quantity": "number_of_packages",
+    "quantity_base": "number_of_individual_pieces",
     "number_packages": "number_of_packages",
     # type of packages
     "type_of_packages": "type_of_packages",
     "package_type": "type_of_packages",
     "kind_of_packages": "type_of_packages",
     "package_kind": "type_of_packages",
+    "unit_of_measure_code": "type_of_packages",
     # gross mass
     "gross_mass_kg": "gross_mass_kg",
     "gross_mass": "gross_mass_kg",
@@ -110,6 +113,10 @@ SALES_ORDER_TO_GOODS: dict[str, str] = {
     "item_value": "item_invoice_amount",
     "value": "item_invoice_amount",
     "customs_value": "item_invoice_amount",
+    "amount": "item_invoice_amount",
+    "line_amount_excl_vat": "item_invoice_amount",
+    "line_amount_excl_vat_1": "item_invoice_amount",
+    "sales_amount_1": "item_invoice_amount",
     # invoice currency
     "item_invoice_currency": "item_invoice_currency",
     "invoice_currency": "item_invoice_currency",
@@ -124,6 +131,7 @@ SALES_ORDER_TO_GOODS: dict[str, str] = {
     "package_marks": "package_marks",
     "marks": "package_marks",
     "shipping_marks": "package_marks",
+    "no": "package_marks",
     # controlled-goods type (goods-level)
     "controlled_goods_type": "controlled_goods_type",
     "controlled_type": "controlled_goods_type",
@@ -154,6 +162,7 @@ SALES_ORDER_TO_GOODS: dict[str, str] = {
     "ni_addl_info_code": "ni_additional_information_codes",
     "invoice_number": "invoice_number",
     "invoice_no": "invoice_number",
+    "document_no": "invoice_number",
     "commercial_invoice": "invoice_number",
 }
 
@@ -170,7 +179,7 @@ SALES_ORDER_TO_CONSIGNMENT: dict[str, str] = {
     "trader_ref": "trader_reference",
     "customer_reference": "trader_reference",
     "manifest_reference": "trader_reference",
-    "document_no": "trader_reference",
+    "document_no": "transport_document_number",
     # consignment-level description
     "consignment_description": "goods_description",  # TODO confirm vs item desc
     "consignment_desc": "goods_description",          # TODO confirm
@@ -218,10 +227,13 @@ SALES_ORDER_TO_CONSIGNMENT: dict[str, str] = {
     "receiver_eori": "consignee_eori",
     "consignee_name": "consignee_name",
     "receiver_name": "consignee_name",
+    "sales_header_ship_to_name": "consignee_name",
     "consignee_street_number": "consignee_street_number",
     "consignee_street_and_number": "consignee_street_number",
     "consignee_address": "consignee_street_number",
+    "sales_header_ship_to_address": "consignee_street_number",
     "consignee_city": "consignee_city",
+    "sales_header_ship_to_city": "consignee_city",
     "consignee_postcode": "consignee_postcode",
     "consignee_post_code": "consignee_postcode",
     "consignee_country": "consignee_country",
@@ -469,10 +481,26 @@ def normalise_text(value) -> str | None:
     return text or None
 
 
+COUNTRY_NAME_TO_ISO2 = {
+    "GB": "GB",
+    "UK": "GB",
+    "UNITED KINGDOM": "GB",
+    "GREAT BRITAIN": "GB",
+    "BRITAIN": "GB",
+    "ENGLAND": "GB",
+    "SCOTLAND": "GB",
+    "WALES": "GB",
+    "NORTHERN IRELAND": "GB",
+}
+
+
 def normalise_code(value) -> str | None:
-    """Trim and upper-case (EORI / country / port / currency codes). None if blank."""
+    """Trim and upper-case code-like values; map common country names to ISO2."""
     text = normalise_text(value)
-    return text.upper() if text is not None else None
+    if text is None:
+        return None
+    upper = text.upper()
+    return COUNTRY_NAME_TO_ISO2.get(upper, upper)
 
 
 # Truthy / falsey token vocabularies for to_yes_no.
