@@ -13,6 +13,10 @@ The flow is: **acquire → load raw → transform + validate → promote → sub
 with every step tracked in the `EXC` execution spine and every TSS call logged to
 `API.Call`.
 
+> **Deployment is hybrid** — one core database (Azure SQL), jobs run **locally**
+> (on-prem, near the mailbox/files/TSS), and the **hosted portal** connects to the same
+> database and enqueues work for a local worker. See **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
 ---
 
 ## The portal — `liveWeb/`
