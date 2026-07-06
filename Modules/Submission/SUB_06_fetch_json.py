@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Fusion Flow V3 QAS - dump TSS responses for submitted ENS headers to disk.
+"""Fusion Flow V3 QAS - fetch TSS responses for submitted ENS headers into the DB.
 
 For every submitted movement (STG.BKD_ENS_Header with a declaration_number), GETs
-the header back from TSS and writes ONE JSON file per record - containing the full
-REQUEST and the full RESPONSE - to an output folder, for offline analysis (to design
-the TSS.* live-mirror table and the next process step). Each call is also logged to
-API.Call.
+the header back from TSS and stores ONE row per fetch - the full REQUEST + RESPONSE -
+in API.Response_Document (DB-driven; no files). Each call is also logged to API.Call,
+step logs to LOG.Process_Log, failures to LOG.Error_Log.
 
 This is a READ (GET) - safe - so it contacts TSS regardless of SUBMISSION_DRY_RUN,
-using SUBMISSION_ENV (default TST). Output folder: SUBMISSION_JSON_DIR, else
-<repo>/Development/json. An optional positional arg overrides the folder.
+using SUBMISSION_ENV (default TST). Files are OFF by default; pass a folder (positional
+arg or SUBMISSION_JSON_DIR) only if you also want a local copy for offline analysis.
 
-    python fetch_submitted_json.py ["D:\\some\\folder"]
+    python SUB_06_fetch_json.py ["D:\\optional\\folder"]
 
 Controls (CFG.Application_Parameters): SUBMISSION_CLIENT, SUBMISSION_ENV,
 SUBMISSION_MOVEMENT_KEY (single), SUBMISSION_MAX_ROWS (cap; 0 = all),
@@ -55,16 +54,18 @@ def run(ini_path: Path = DEFAULT_INI, output_override: str | None = None,
     except ValueError:
         max_rows = 0
 
-    out_dir = (output_override or db.param("SUBMISSION_JSON_DIR", "")
-               or str(REPO_ROOT / "Development" / "json")).strip()
+    # Files are opt-in now (DB-driven by default). Only write files if a folder is given.
+    file_dir = (output_override or db.param("SUBMISSION_JSON_DIR", "")).strip()
 
     found = done = failed = 0
     try:
         db.open_execution("MONITORING", client, env, "read")
         # READ-only GET: contact TSS for real regardless of dry-run.
         api = TssClient.from_cfg(db, env, client, base_path, dry_run=False)
-        os.makedirs(out_dir, exist_ok=True)
-        db.log("START", f"Dump TSS responses for submitted {client} ENS -> {out_dir} (env={env})"
+        if file_dir:
+            os.makedirs(file_dir, exist_ok=True)
+        db.log("START", f"Fetch TSS responses for submitted {client} ENS -> API.Response_Document"
+               + (f" (+files {file_dir})" if file_dir else "") + f" (env={env})"
                + (f" MK={target_mk}" if target_mk else ""))
 
         top = f"TOP ({max_rows}) " if max_rows > 0 else ""
@@ -108,10 +109,20 @@ def run(ini_path: Path = DEFAULT_INI, output_override: str | None = None,
                         "error": result.get("error"),
                     },
                 }
-                fname = f"{_safe(decl)}__{_safe(mk)}.json"
-                Path(out_dir, fname).write_text(
-                    json.dumps(record, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
-                db.log("WROTE", f"MK={mk} decl={decl} status={result.get('status_code')} -> {fname}",
+                resp_body = record["response"]["body"]
+                db.exec(
+                    "INSERT INTO API.Response_Document (ExecutionID, ClientCode, MovementKey, "
+                    "Declaration_Number, EnvCode, StatusCode, Success, ResponseJson, DocumentJson) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    db.execution_id, client, mk, decl, env, result.get("status_code"),
+                    1 if result.get("ok") else 0,
+                    (resp_body if isinstance(resp_body, str) else json.dumps(resp_body, ensure_ascii=False, default=str)),
+                    json.dumps(record, ensure_ascii=False, default=str))
+                if file_dir:
+                    fname = f"{_safe(decl)}__{_safe(mk)}.json"
+                    Path(file_dir, fname).write_text(
+                        json.dumps(record, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+                db.log("STORED", f"MK={mk} decl={decl} status={result.get('status_code')} -> API.Response_Document",
                        "OK" if result.get("ok") else "WARN")
                 done += 1
                 if not result.get("ok"):
@@ -123,9 +134,9 @@ def run(ini_path: Path = DEFAULT_INI, output_override: str | None = None,
                 db.log_error("FETCH_ROW", f"MK={mk}: {e}", type(e).__name__, traceback.format_exc())
 
         db.finish("COMPLETED" if failed == 0 else "COMPLETED_WITH_WARNINGS", found, done, failed)
-        db.log("FINISH", f"found={found} written={done} failed={failed} dir={out_dir}", "OK")
-        print(f"Fetch {client} ENS JSON ({env}): found={found} written={done} failed={failed}")
-        print(f"Output: {out_dir}")
+        db.log("FINISH", f"found={found} stored={done} failed={failed} -> API.Response_Document"
+               + (f" (+files {file_dir})" if file_dir else ""), "OK")
+        print(f"Fetch {client} ENS JSON ({env}): found={found} stored={done} failed={failed} -> API.Response_Document")
         return 0 if failed == 0 else 1
     except Exception as e:  # noqa: BLE001
         db.log_error("RUN", str(e), type(e).__name__, traceback.format_exc())
