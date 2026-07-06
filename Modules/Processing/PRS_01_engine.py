@@ -449,7 +449,11 @@ def run(ini_path: Path = DEFAULT_INI, mode: str | None = None,
             tsql = (f"SELECT MovementKey, SourceEnsLoadID FROM {profile['TargetSchema']}.{profile['TargetTable']} "
                     f"WHERE ClientCode = ?")
             tparams: list[Any] = [client]
-            if scope != "ALL":
+            # A targeted single-movement reprocess (e.g. the portal's Fix arrival &
+            # resubmit) re-runs THAT movement regardless of status — a valid arrival can
+            # go stale (fall into the past) after it was validated, so we must recompute
+            # it even though it isn't REJECTED. The REJECTED scope only applies to batch runs.
+            if scope != "ALL" and not target_mk:
                 tsql += " AND Fusion_Status = 'REJECTED'"
             if target_mk:
                 tsql += " AND MovementKey = ?"; tparams.append(target_mk)
