@@ -248,13 +248,30 @@ def api_executions():
         try:
             q = cur.execute(
                 "SELECT TOP (100) QueueID, Verb, MovementKey, Status, RequestedBy, RequestedAt, "
-                "StartedAt, FinishedAt, ExitCode, ResultMessage FROM EXC.Job_Queue ORDER BY QueueID DESC").fetchall()
+                "StartedAt, FinishedAt, ExitCode, ResultMessage, ExecutionID FROM EXC.Job_Queue ORDER BY QueueID DESC").fetchall()
             queue = [{"id": r[0], "verb": r[1], "mk": r[2], "status": r[3], "by": r[4],
                       "requested": str(r[5]) if r[5] else None, "started": str(r[6]) if r[6] else None,
-                      "finished": str(r[7]) if r[7] else None, "exit": r[8], "message": r[9]} for r in q]
+                      "finished": str(r[7]) if r[7] else None, "exit": r[8], "message": r[9],
+                      "executionId": r[10]} for r in q]
         except Exception:  # queue table not deployed yet
             pass
-        return jsonify({"executions": executions, "queue": queue})
+        # Scheduler/worker health: last run per module + last worker activity + pending depth.
+        health = {"modules": [], "worker": None, "pending": None}
+        try:
+            for r in cur.execute(
+                "SELECT ModuleName, MAX(StartedAt) last, COUNT(*) n FROM EXC.Execution "
+                "GROUP BY ModuleName").fetchall():
+                health["modules"].append({"module": r[0], "last": str(r[1]) if r[1] else None, "runs": r[2]})
+        except Exception:
+            pass
+        try:
+            w = cur.execute("SELECT MAX(StartedAt), SUM(CASE WHEN Status='PENDING' THEN 1 ELSE 0 END) "
+                            "FROM EXC.Job_Queue").fetchone()
+            health["worker"] = str(w[0]) if w and w[0] else None
+            health["pending"] = int(w[1]) if w and w[1] is not None else 0
+        except Exception:
+            pass
+        return jsonify({"executions": executions, "queue": queue, "health": health})
     except Exception as e:  # noqa: BLE001
         return jsonify({"error": str(e), "executions": [], "queue": []}), 503
     finally:
