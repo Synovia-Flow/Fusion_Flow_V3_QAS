@@ -700,17 +700,34 @@ const ACTIONS = {   // current stage index -> the action that advances it
 };
 const DOWNSTREAM = ["Consignment","Goods (≤99)","Submit consignment","SFD lookup","GMR","Supplementary"];
 
+/* Rule 4 preview: echo the movement's arrival; if it is in the past, show TOMORROW at
+   the same time (what the engine does on process/reprocess). Not hardcoded to a date. */
+function futureArrival(a){
+  if(!a || a==='—') return '—';
+  const m=String(a).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if(!m) return a;
+  let dt=new Date(Date.UTC(+m[3],+m[2]-1,+m[1],+(m[4]||6),+(m[5]||30),+(m[6]||0)));
+  const now=new Date();
+  if(dt.getTime()<now.getTime()){
+    const tm=new Date(now.getTime()+86400000);
+    dt=new Date(Date.UTC(tm.getUTCFullYear(),tm.getUTCMonth(),tm.getUTCDate(),dt.getUTCHours(),dt.getUTCMinutes(),dt.getUTCSeconds()));
+  }
+  const p=n=>String(n).padStart(2,'0');
+  return `${p(dt.getUTCDate())}/${p(dt.getUTCMonth()+1)}/${dt.getUTCFullYear()} ${p(dt.getUTCHours())}:${p(dt.getUTCMinutes())}:${p(dt.getUTCSeconds())}`;
+}
+
 function transformsFor(s){
   // Representative ING -> PRS transformation set for a BKD ENS header (grounded in the
   // real field map + local translations). A live build would read EXC.Data_Processing_Enhancement.
   const port = s.port && s.port!=="—" ? s.port : "GBAUBELBELBEL";
+  const arr = s.arrival && s.arrival!=="—" ? s.arrival : "—";
   return [
     {f:"op_type",                   src:"—",                     tt:"CONST",         out:"create",        rule:"op_type"},
     {f:"movement_type",             src:"RoRo Accompanied ICS2", tt:"CHOICE",        out:"3a",            rule:"Value_Translation"},
     {f:"type_of_passive_transport", src:"3103",                  tt:"CHOICE",        out:"3103",          rule:"Rule 3 (3a)"},
     {f:"identity_no_of_transport",  src:"IMO9244116#MV72WNH",    tt:"PASSTHROUGH",   out:"IMO9244116#MV72WNH", rule:"—"},
     {f:"nationality_of_transport",  src:"GB",                    tt:"CHOICE",        out:"GB",            rule:"country"},
-    {f:"arrival_date_time",         src:"04/07/2026 06:30",      tt:"DATE_UTC",      out:(s.arrival&&s.arrival!=="—"?s.arrival:"04/07/2026 10:42:12"), rule:"Rule 4"},
+    {f:"arrival_date_time",         src:arr,                     tt:"DATE_UTC",      out:futureArrival(arr),  rule:"Rule 4 (future; past → tomorrow)"},
     {f:"arrival_port",              src:"Belfast Port",          tt:"CHOICE",        out:port,            rule:"Value_Translation / Rule 12"},
     {f:"place_of_loading",          src:"Warwick",               tt:"PASSTHROUGH",   out:"Warwick",       rule:"—"},
     {f:"transport_charges",         src:"—",                     tt:"QAS",           out:"Y",             rule:"Rule 11"},
