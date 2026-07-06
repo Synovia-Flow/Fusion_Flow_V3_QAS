@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import configparser
 import json
+import os
 import re
 from datetime import date
 from pathlib import Path
@@ -45,9 +46,20 @@ PARAM_KEYS = ["SUBMISSION_ENV", "SUBMISSION_DRY_RUN", "SUBMISSION_MAX_ROWS", "PR
 
 
 # --------------------------------------------------------------------------- #
+def _from_map(m: dict) -> dict[str, str]:
+    return {"server": m.get("DB_SERVER", ""), "database": m.get("DB_NAME", ""),
+            "user": m.get("DB_USER", ""), "password": m.get("DB_PASSWORD", ""),
+            "driver": m.get("DB_DRIVER", "{ODBC Driver 18 for SQL Server}"),
+            "encrypt": m.get("DB_ENCRYPT", "yes"), "trust_server_certificate": m.get("DB_TRUST", "no")}
+
+
 def load_conn() -> dict[str, str]:
-    """Prefer liveWeb/.env, else the .ini [database]."""
-    if ENVF.exists():
+    """DB config in priority order: DB_* environment variables (Render / container),
+    then liveWeb/.env file, then the .ini [database] (local). Raises a normal
+    RuntimeError (NOT SystemExit) so callers' `except Exception` can fall back."""
+    if os.environ.get("DB_SERVER"):                       # Render / container env group
+        return _from_map(os.environ)
+    if ENVF.exists():                                     # local .env file
         env: dict[str, str] = {}
         for line in ENVF.read_text(encoding="utf-8").splitlines():
             line = line.strip()
@@ -55,14 +67,12 @@ def load_conn() -> dict[str, str]:
                 k, v = line.split("=", 1)
                 env[k.strip()] = v.strip()
         if env.get("DB_SERVER"):
-            return {"server": env.get("DB_SERVER", ""), "database": env.get("DB_NAME", ""),
-                    "user": env.get("DB_USER", ""), "password": env.get("DB_PASSWORD", ""),
-                    "driver": env.get("DB_DRIVER", "{ODBC Driver 17 for SQL Server}"),
-                    "encrypt": env.get("DB_ENCRYPT", "yes"), "trust_server_certificate": env.get("DB_TRUST", "no")}
-    if not INI.exists():
-        raise SystemExit(f"No liveWeb/.env and no {INI}. Run make_env.py or create the .ini.")
-    cp = configparser.ConfigParser(); cp.read(INI, encoding="utf-8")
-    return {k.lower(): v for k, v in cp["database"].items()}
+            return _from_map(env)
+    if INI.exists():                                      # local .ini
+        cp = configparser.ConfigParser(); cp.read(INI, encoding="utf-8")
+        if "database" in cp:
+            return {k.lower(): v for k, v in cp["database"].items()}
+    raise RuntimeError("No DB config: set DB_* env vars, create liveWeb/.env (make_env.py), or the .ini.")
 
 
 def conn_str(db: dict[str, str]) -> str:

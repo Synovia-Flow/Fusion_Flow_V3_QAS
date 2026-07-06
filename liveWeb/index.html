@@ -291,6 +291,7 @@ svg .hit{fill:transparent;cursor:crosshair}
     <section class="view" id="v-Clients"></section>
     <section class="view" id="v-Submissions"></section>
     <section class="view" id="v-Admin"></section>
+    <section class="view" id="v-Connectivity"></section>
   </main>
   <div class="footer">
     <span>Synovia Flow 3 · Powered by Fusion · Frankfurt</span>
@@ -497,7 +498,50 @@ function renderAdmin(){
   animateCounters(v);
 }
 
-const RENDERERS={Dashboard:renderDashboard,Jobs:renderJobs,Analytics:renderAnalytics,Clients:renderClients,Submissions:renderSubmissions,Admin:renderAdmin};
+function renderConnectivity(){
+  const v=$('#v-Connectivity');
+  v.innerHTML=`<div class="page-head"><div><div class="eyebrow">Diagnostics</div><h2>Connectivity</h2>
+      <p>Test the live database connection this service is using. Read-only — runs <code>SELECT 1</code> and a few table counts.</p></div>
+      <button class="act" id="cxTest" style="flex-direction:row"><span>Test connection</span></button></div>
+    <div id="cxResult"><div class="empty">Click <b>Test connection</b> to check the DB.</div></div>`;
+  const run=async()=>{
+    $('#cxResult',v).innerHTML='<div class="empty">Testing…</div>';
+    let j;
+    try{ const r=await fetch('/api/health/db',{cache:'no-store'}); j=await r.json(); }
+    catch(e){ $('#cxResult',v).innerHTML=`<div class="panel"><span class="pill p-bad">No API</span> This build has no backend (static site). The DB test needs the live service.</div>`; return; }
+    const ok=j.ok;
+    const row=(k,val)=>`<tr><td class="mono" style="color:var(--muted)">${k}</td><td class="mono">${val==null?'—':val}</td></tr>`;
+    const checks=Object.entries(j.checks||{}).map(([t,n])=>`<span class="chip">${t}: ${n==null?'n/a':n}</span>`).join(' ');
+    v.querySelector('#cxResult').innerHTML=`
+      <div class="tile" style="border-left:4px solid ${ok?'var(--good)':'var(--bad)'}">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="pill ${ok?'p-good':'p-bad'}" style="font-size:13px">${ok?'CONNECTED':'FAILED'}</span>
+          <b style="font-size:16px">${j.database||'—'} @ ${j.server||'—'}</b>
+          ${j.elapsed_ms!=null?`<span class="chip">${j.elapsed_ms} ms</span>`:''}
+          <span class="chip">config: ${j.source||'?'}</span>
+        </div>
+        ${ok?'':`<div style="margin-top:12px;padding:12px;border-radius:10px;background:rgba(240,68,56,.08);color:var(--bad);font-size:12.5px"><b>${j.stage||'error'}:</b> ${(j.error||'').replace(/</g,'&lt;')}</div>`}
+      </div>
+      <div class="cols" style="margin-top:16px">
+        <div class="panel"><h3>Connection</h3><div class="tablewrap"><table>
+          ${row('Server',j.server)}${row('Database',j.database)}${row('User',j.user)}${row('Driver',j.driver)}
+          ${row('Encrypt',j.encrypt)}${row('TrustServerCertificate',j.trust)}${row('Server version',j.server_version)}
+        </table></div></div>
+        <div class="panel"><h3>Environment</h3>
+          <div style="font-size:12.5px;color:var(--muted);margin-bottom:8px">ODBC drivers on host:</div>
+          ${(j.odbc_drivers||[]).map(d=>`<span class="chip">${d}</span>`).join(' ')||'<span class="chip">none</span>'}
+          <div style="margin-top:14px;font-size:12.5px;color:var(--muted);margin-bottom:8px">Table counts:</div>${checks||'<span class="chip">—</span>'}
+        </div>
+      </div>
+      ${ok?'':`<div class="panel" style="margin-top:16px"><h3>Likely fixes</h3><ul style="font-size:13px;color:var(--muted);line-height:1.9;margin:6px 0 0;padding-left:18px">
+        <li>Open the <b>Azure SQL firewall</b> to this service's outbound IPs (Render → service → Connect).</li>
+        <li>Set <code>DB_SERVER / DB_USER / DB_PASSWORD</code> in the <b>fusion-db</b> env group (DB_PASSWORD as a secret).</li>
+        <li>Use <code>DB_DRIVER={ODBC Driver 18 for SQL Server}</code> — the driver listed on the right must match.</li></ul></div>`}`;
+  };
+  $('#cxTest',v).addEventListener('click',run);
+  run();
+}
+const RENDERERS={Dashboard:renderDashboard,Jobs:renderJobs,Analytics:renderAnalytics,Clients:renderClients,Submissions:renderSubmissions,Admin:renderAdmin,Connectivity:renderConnectivity};
 
 /* ---------------- shell wiring ---------------- */
 function clientMeta(){return BP.clients.find(c=>c.code===CURRENT)||BP.clients[0];}
@@ -515,7 +559,8 @@ function setClient(code){
   (RENDERERS[ACTIVE]||(()=>{}))();
 }
 function buildNav(){
-  $('#nav').innerHTML=BP.nav.map((n,i)=>`<button data-v="${n}" class="${i===0?'active':''}">${n}</button>`).join('');
+  const items=[...BP.nav]; if(!items.includes('Connectivity'))items.push('Connectivity');  // always present (diagnostics)
+  $('#nav').innerHTML=items.map((n,i)=>`<button data-v="${n}" class="${i===0?'active':''}">${n}</button>`).join('');
   document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.v)));
 }
 function buildClientMenu(){

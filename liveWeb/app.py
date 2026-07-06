@@ -74,6 +74,57 @@ def health():
     return jsonify({"ok": True, "service": "synovia-flow-3", "region": "frankfurt"})
 
 
+@app.route("/api/health/db")
+def health_db():
+    """Read-only DB connectivity diagnostic for the Connectivity tab. Attempts a real
+    connection + SELECT 1, reports where the config came from, the ODBC drivers the
+    image has, latency, a couple of table counts, and the exact error on failure.
+    Password is never returned. Always available (no PORTAL_ACTIONS_ENABLED gate)."""
+    try:
+        cfg = xb.load_conn()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, "stage": "config", "error": str(e)}), 200
+    source = "env (DB_*)" if os.environ.get("DB_SERVER") else "ini"
+    info = {
+        "source": source,
+        "server": cfg.get("server"), "database": cfg.get("database"),
+        "user": cfg.get("user") or "(integrated)", "driver": cfg.get("driver"),
+        "encrypt": cfg.get("encrypt", "yes"), "trust": cfg.get("trust_server_certificate", "no"),
+    }
+    try:
+        import pyodbc
+        info["odbc_drivers"] = pyodbc.drivers()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"ok": False, **info, "stage": "import-pyodbc", "error": str(e)}), 200
+    if not cfg.get("server"):
+        return jsonify({"ok": False, **info, "stage": "config",
+                        "error": "No DB_SERVER/.ini connection configured."}), 200
+    t0 = time.time()
+    try:
+        conn = pyodbc.connect(xb.conn_str(cfg), autocommit=True, timeout=8)
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        info["elapsed_ms"] = int((time.time() - t0) * 1000)
+        try:
+            row = cur.execute("SELECT @@VERSION").fetchone()
+            info["server_version"] = (row[0].splitlines()[0] if row and row[0] else "")[:120]
+        except Exception:
+            pass
+        checks = {}
+        for t in ("CFG.Clients", "CFG.Job", "PRS.BKD_ENS_Header_Tracking", "STG.BKD_ENS_Header", "TSS.BKD_ENS_Header"):
+            try:
+                checks[t] = int(cur.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0])
+            except Exception:
+                checks[t] = None
+        info["checks"] = checks
+        conn.close()
+        return jsonify({"ok": True, **info})
+    except Exception as e:  # noqa: BLE001
+        info["elapsed_ms"] = int((time.time() - t0) * 1000)
+        return jsonify({"ok": False, **info, "stage": "connect", "error": str(e)}), 200
+
+
 @app.route("/api/blueprint")
 def api_blueprint():
     now = time.time()
@@ -112,8 +163,9 @@ def api_action(verb):
     # Per-run scope passed straight into the runner — NO shared CFG mutation, so two
     # concurrent actions (or a scheduled batch) can't overwrite each other's movement key.
     overrides = {mk_param: mk, **extra}
-    conn = _connect(); cur = conn.cursor()
+    conn = None
     try:
+        conn = _connect(); cur = conn.cursor()
         mod = importlib.import_module(module_name)
         code = mod.run(overrides=overrides)
         row = cur.execute("SELECT Fusion_Status, Tss_Status, declaration_number "
@@ -123,7 +175,8 @@ def api_action(verb):
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "verb": verb, "mk": mk, "error": str(e)}), 500
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 @app.route("/api/enqueue/<verb>", methods=["POST"])
@@ -137,8 +190,9 @@ def api_enqueue(verb):
     mk = (request.args.get("mk") or (request.get_json(silent=True) or {}).get("mk") or "").strip()
     if not mk:
         return jsonify({"ok": False, "error": "mk (MovementKey) required"}), 400
-    conn = _connect(); cur = conn.cursor()
+    conn = None
     try:
+        conn = _connect(); cur = conn.cursor()
         row = cur.execute(
             "INSERT INTO EXC.Job_Queue (Verb, MovementKey, Status, RequestedBy) "
             "OUTPUT INSERTED.QueueID VALUES (?, ?, 'PENDING', ?)",
@@ -147,7 +201,8 @@ def api_enqueue(verb):
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": str(e)}), 500
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 @app.route("/api/edit", methods=["POST"])
@@ -159,15 +214,17 @@ def api_edit():
     fields = {k: v for k, v in (body.get("fields") or {}).items() if k in EDITABLE}
     if not mk or not fields:
         return jsonify({"ok": False, "error": "mk and at least one editable field required"}), 400
-    conn = _connect(); cur = conn.cursor()
+    conn = None
     try:
+        conn = _connect(); cur = conn.cursor()
         sets = ", ".join(f"[{k}]=?" for k in fields) + ", UpdatedAt=SYSUTCDATETIME()"
         cur.execute(f"UPDATE STG.BKD_ENS_Header SET {sets} WHERE MovementKey=?", *fields.values(), mk)
         return jsonify({"ok": True, "mk": mk, "updated": list(fields)})
     except Exception as e:  # noqa: BLE001
         return jsonify({"ok": False, "error": str(e)}), 500
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 @app.route("/")
