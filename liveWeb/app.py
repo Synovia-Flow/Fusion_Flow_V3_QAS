@@ -297,6 +297,31 @@ def api_execution_log(eid):
         conn.close()
 
 
+@app.route("/api/movement/<path:mk>/response")
+def api_movement_response(mk):
+    """Latest TSS response document for one movement (API.Response_Document) — powers the
+    'TSS response' view in the pipeline drill-down. Shows whether TSS confirmed it."""
+    try:
+        conn = _connect(); cur = conn.cursor()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": str(e)}), 503
+    try:
+        r = cur.execute(
+            "SELECT TOP (1) DocID, Declaration_Number, StatusCode, Success, ResponseJson, "
+            "DocumentJson, FetchedAt FROM API.Response_Document WHERE MovementKey = ? "
+            "ORDER BY DocID DESC", mk).fetchone()
+        if not r:
+            return jsonify({"found": False, "mk": mk})
+        return jsonify({"found": True, "mk": mk, "docId": r[0], "decl": r[1], "statusCode": r[2],
+                        "success": (bool(r[3]) if r[3] is not None else None),
+                        "responseJson": r[4], "documentJson": r[5],
+                        "fetchedAt": str(r[6]) if r[6] else None})
+    except Exception as e:  # noqa: BLE001 - table may not be deployed yet
+        return jsonify({"error": str(e)}), 503
+    finally:
+        conn.close()
+
+
 @app.route("/")
 def index():
     return send_from_directory(HERE, "index.html")

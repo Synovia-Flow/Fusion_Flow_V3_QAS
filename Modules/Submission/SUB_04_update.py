@@ -52,16 +52,26 @@ def run(ini_path: Path = DEFAULT_INI, overrides: dict[str, str] | None = None) -
         api = TssClient.from_cfg(db, env, client, base_path, dry_run)
         db.log("START", f"Update {client} ENS on {env} dry_run={dry_run}" + (f" MK={target_mk}" if target_mk else ""))
 
+        # State gate: only UPDATE a declaration that is CONFIRMED live in TSS - i.e. the
+        # mirror (SUB_03) has fetched it back and holds a live row (TSS.BKD_ENS_Header
+        # IsLive=1). This prevents updating a decl that was never confirmed (e.g. a TSS
+        # 400 "Unable to access target record"). Flow: submit -> mirror confirms -> update.
         top = f"TOP ({max_rows}) " if max_rows > 0 else ""
-        sql = (f"SELECT {top}* FROM STG.BKD_ENS_Header WHERE ClientCode = ? "
-               f"AND declaration_number IS NOT NULL AND Fusion_Status <> 'CANCELLED'")
+        sql = (f"SELECT {top}s.* FROM STG.BKD_ENS_Header s "
+               f"WHERE s.ClientCode = ? AND s.declaration_number IS NOT NULL "
+               f"AND s.Fusion_Status <> 'CANCELLED' "
+               f"AND EXISTS (SELECT 1 FROM TSS.BKD_ENS_Header m "
+               f"           WHERE m.Declaration_Number = s.declaration_number AND m.IsLive = 1)")
         params = [client]
         if target_mk:
-            sql += " AND MovementKey = ?"; params.append(target_mk)
-        sql += " ORDER BY StgID"
+            sql += " AND s.MovementKey = ?"; params.append(target_mk)
+        sql += " ORDER BY s.StgID"
         rows = db.q(sql, *params)
         found = len(rows)
-        db.log("SOURCE", f"{found} live movement(s) to update.")
+        db.log("SOURCE", f"{found} TSS-confirmed movement(s) eligible to update.")
+        if target_mk and found == 0:
+            db.log("GUARD", f"MK={target_mk}: not updatable - no confirmed-live TSS mirror "
+                   f"(run mirror/status check first).", "WARN")
 
         for r in rows:
             mk = (r.get("MovementKey") or "").strip()

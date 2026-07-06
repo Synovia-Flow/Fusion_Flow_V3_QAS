@@ -56,16 +56,23 @@ def run(ini_path: Path = DEFAULT_INI, overrides: dict[str, str] | None = None) -
         api = TssClient.from_cfg(db, env, client, base_path, dry_run)
         db.log("START", f"Cancel {client} ENS on {env} dry_run={dry_run}" + (f" MK={target_mk}" if target_mk else ""))
 
+        # State gate: only CANCEL a declaration CONFIRMED live in TSS (mirror holds a live
+        # row). You can't cancel what TSS never confirmed. Flow: submit -> mirror -> cancel.
         top = f"TOP ({max_rows}) " if max_rows > 0 else ""
-        sql = (f"SELECT {top}MovementKey, declaration_number FROM STG.BKD_ENS_Header WHERE ClientCode = ? "
-               f"AND declaration_number IS NOT NULL AND Fusion_Status <> 'CANCELLED'")
+        sql = (f"SELECT {top}s.MovementKey, s.declaration_number FROM STG.BKD_ENS_Header s "
+               f"WHERE s.ClientCode = ? AND s.declaration_number IS NOT NULL "
+               f"AND s.Fusion_Status <> 'CANCELLED' "
+               f"AND EXISTS (SELECT 1 FROM TSS.BKD_ENS_Header m "
+               f"           WHERE m.Declaration_Number = s.declaration_number AND m.IsLive = 1)")
         params = [client]
         if target_mk:
-            sql += " AND MovementKey = ?"; params.append(target_mk)
-        sql += " ORDER BY StgID"
+            sql += " AND s.MovementKey = ?"; params.append(target_mk)
+        sql += " ORDER BY s.StgID"
         rows = db.q(sql, *params)
         found = len(rows)
-        db.log("SOURCE", f"{found} live movement(s) to cancel.")
+        db.log("SOURCE", f"{found} TSS-confirmed movement(s) eligible to cancel.")
+        if target_mk and found == 0:
+            db.log("GUARD", f"MK={target_mk}: not cancellable - no confirmed-live TSS mirror.", "WARN")
 
         for r in rows:
             mk = (r.get("MovementKey") or "").strip()
