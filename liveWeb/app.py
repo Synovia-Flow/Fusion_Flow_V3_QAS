@@ -261,6 +261,42 @@ def api_executions():
         conn.close()
 
 
+@app.route("/api/execution/<int:eid>/log")
+def api_execution_log(eid):
+    """Full log for one run (drill-down from the Log page): LOG.Process_Log lines +
+    LOG.Error_Log rows for the given ExecutionID, plus the EXC.Execution header."""
+    try:
+        conn = _connect(); cur = conn.cursor()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": str(e), "lines": [], "errors": []}), 503
+    try:
+        h = cur.execute(
+            "SELECT ExecutionID, ModuleName, ProcessName, Status, RunMode, StartedAt, EndedAt, "
+            "ItemsFound, ItemsProcessed, ItemsFailed, ErrorMessage FROM EXC.Execution "
+            "WHERE ExecutionID = ?", eid).fetchone()
+        header = ({"id": h[0], "module": h[1], "process": h[2], "status": h[3], "mode": h[4],
+                   "started": str(h[5]) if h[5] else None, "ended": str(h[6]) if h[6] else None,
+                   "found": h[7], "processed": h[8], "failed": h[9], "error": h[10]} if h else None)
+        rows = cur.execute(
+            "SELECT StepName, LogLevel, Message, CreatedAt FROM LOG.Process_Log "
+            "WHERE ExecutionID = ? ORDER BY LogID", eid).fetchall()
+        lines = [{"step": r[0], "level": r[1], "message": r[2], "at": str(r[3]) if r[3] else None} for r in rows]
+        errors = []
+        try:
+            er = cur.execute(
+                "SELECT StepName, ErrorType, Message, StackTrace, CreatedAt FROM LOG.Error_Log "
+                "WHERE ExecutionID = ? ORDER BY CreatedAt", eid).fetchall()
+            errors = [{"step": r[0], "type": r[1], "message": r[2], "trace": r[3],
+                       "at": str(r[4]) if r[4] else None} for r in er]
+        except Exception:  # Error_Log not deployed / different shape
+            pass
+        return jsonify({"execution": header, "lines": lines, "errors": errors})
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": str(e), "lines": [], "errors": []}), 503
+    finally:
+        conn.close()
+
+
 @app.route("/")
 def index():
     return send_from_directory(HERE, "index.html")

@@ -309,6 +309,15 @@ svg .hit{fill:transparent;cursor:crosshair}
     <div class="sheet-body" id="pl-body"></div>
   </div>
 </div>
+<div class="modal" id="logModal" role="dialog" aria-modal="true" aria-label="Run log">
+  <div class="sheet">
+    <div class="sheet-head">
+      <div><h3 id="lm-title">Run log</h3><div class="mk" id="lm-sub"></div></div>
+      <button class="x" id="lm-close" aria-label="Close">✕</button>
+    </div>
+    <div class="sheet-body" id="lm-body"></div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 <div class="tooltip" id="tip"></div>
 
@@ -559,7 +568,8 @@ async function renderLog(){
       <td class="mono">${x.mk||''}</td><td><span class="chip">${x.status||''}</span></td>
       <td class="mono" style="font-size:11px">${t(x.finished||x.started||x.requested)}</td>
       <td style="font-size:11px">${x.message?String(x.message).slice(0,90):''}</td></tr>`).join('');
-  const e=(d.executions||[]).map(x=>`<tr><td class="mono">${x.id}</td><td>${x.module||''}</td>
+  const e=(d.executions||[]).map(x=>`<tr data-eid="${x.id}" style="cursor:pointer" title="View this run's log">
+      <td class="mono">${x.id}</td><td>${x.module||''}</td>
       <td>${x.process||''}</td><td><span class="chip">${x.status||''}</span></td>
       <td class="mono">${x.found??''}/${x.processed??''}/${x.failed??''}</td>
       <td class="mono" style="font-size:11px">${t(x.started)}</td>
@@ -568,10 +578,39 @@ async function renderLog(){
     <div class="panel"><h3>Portal job queue <span class="sub">EXC.Job_Queue · latest 100</span></h3>
       <div class="tablewrap"><table><thead><tr><th>#</th><th>Verb</th><th>Movement</th><th>Status</th><th>When</th><th>Result</th></tr></thead>
       <tbody>${q||'<tr><td colspan="6" style="color:var(--muted)">No queued jobs yet.</td></tr>'}</tbody></table></div></div>
-    <div class="panel" style="margin-top:16px"><h3>Executions <span class="sub">EXC.Execution · latest 100</span></h3>
+    <div class="panel" style="margin-top:16px"><h3>Executions <span class="sub">EXC.Execution · latest 100 · click a row for its log</span></h3>
       <div class="tablewrap"><table><thead><tr><th>#</th><th>Module</th><th>Process</th><th>Status</th><th>Found/Proc/Fail</th><th>Started</th><th>Error</th></tr></thead>
       <tbody>${e||'<tr><td colspan="7" style="color:var(--muted)">No executions yet.</td></tr>'}</tbody></table></div></div>`;
+  $('#logBody').querySelectorAll('[data-eid]').forEach(b=>b.addEventListener('click',()=>openExecLog(b.dataset.eid)));
 }
+
+/* Drill-down: full LOG.Process_Log + LOG.Error_Log for one execution. */
+async function openExecLog(id){
+  const m=$('#logModal');
+  $('#lm-title').textContent='Run log — execution '+id;
+  $('#lm-sub').innerHTML=''; $('#lm-body').innerHTML='<div class="panel">Loading…</div>';
+  m.classList.add('open');
+  let d;
+  try{ const r=await fetch(`/api/execution/${id}/log`,{cache:'no-store'}); d=await r.json(); }
+  catch(e){ $('#lm-body').innerHTML='<div class="panel">Log unavailable — API offline.</div>'; return; }
+  if(d.error){ $('#lm-body').innerHTML=`<div class="panel">Log unavailable: ${d.error}</div>`; return; }
+  const h=d.execution, tt=s=>(s||'').replace('T',' ').slice(11,19);
+  if(h)$('#lm-sub').innerHTML=`<span>${h.module||''} · ${h.process||''}</span><span>Status ${h.status||''}</span><span>${h.found??''}/${h.processed??''}/${h.failed??''}</span>`;
+  const col=l=>/error/i.test(l||'')?'var(--bad)':(/warn/i.test(l||'')?'#c98a00':'var(--muted)');
+  const lines=(d.lines||[]).map(x=>`<tr><td class="mono" style="color:var(--muted);font-size:11px">${tt(x.at)}</td>
+      <td class="mono" style="color:${col(x.level)};font-size:11px">${x.level||''}</td>
+      <td class="mono" style="font-size:11px">${x.step||''}</td>
+      <td style="font-size:12px">${(x.message||'').replace(/</g,'&lt;')}</td></tr>`).join('');
+  const errs=(d.errors||[]).map(x=>`<tr><td class="mono" style="color:var(--bad);font-size:11px">${tt(x.at)}</td>
+      <td class="mono" style="color:var(--bad);font-size:11px">${x.type||''}</td><td class="mono" style="font-size:11px">${x.step||''}</td>
+      <td style="font-size:12px;color:var(--bad)">${(x.message||'').replace(/</g,'&lt;')}</td></tr>`).join('');
+  $('#lm-body').innerHTML=`
+    ${errs?`<div class="panel"><h3 style="color:var(--bad)">Errors <span class="sub">LOG.Error_Log</span></h3><div class="tablewrap"><table><thead><tr><th>Time</th><th>Type</th><th>Step</th><th>Message</th></tr></thead><tbody>${errs}</tbody></table></div></div>`:''}
+    <div class="panel" ${errs?'style="margin-top:16px"':''}><h3>Log <span class="sub">LOG.Process_Log</span></h3>
+      <div class="tablewrap"><table><thead><tr><th>Time</th><th>Level</th><th>Step</th><th>Message</th></tr></thead>
+      <tbody>${lines||'<tr><td colspan="4" style="color:var(--muted)">No log lines recorded for this run.</td></tr>'}</tbody></table></div></div>`;
+}
+function closeLogModal(){$('#logModal').classList.remove('open');}
 
 const RENDERERS={Dashboard:renderDashboard,Jobs:renderJobs,Analytics:renderAnalytics,Clients:renderClients,Submissions:renderSubmissions,Admin:renderAdmin,Connectivity:renderConnectivity,Log:renderLog};
 
@@ -822,7 +861,9 @@ function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('on');
 
 $('#pl-close').addEventListener('click',closePipeline);
 $('#pipeline').addEventListener('click',e=>{if(e.target.id==='pipeline')closePipeline();});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closePipeline();});
+$('#lm-close').addEventListener('click',closeLogModal);
+$('#logModal').addEventListener('click',e=>{if(e.target.id==='logModal')closeLogModal();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closePipeline();closeLogModal();}});
 
 /* data source: live API -> static blueprint.json -> inline fallback */
 function load(url,next){return fetch(url,{cache:'no-store'}).then(r=>r.ok?r.json():Promise.reject()).then(j=>{BP=j;boot();}).catch(next);}
