@@ -44,6 +44,10 @@ not by a UI toggle. See [`liveWeb/README.md`](liveWeb/README.md) for the portal 
 | `POST /api/action/<verb>` | run a job for one movement (in-process) |
 | `POST /api/enqueue/<verb>` | queue a job for the worker (returns 202) |
 | `POST /api/edit` | patch whitelisted STG payload fields |
+| `GET /api/executions` | recent `EXC.Execution` + `EXC.Job_Queue` rows (the **Log** page) |
+
+The portal's **Log** view shows recent job executions and the portal queue, so you can
+watch what the scheduled crons and the on-prem worker are doing.
 
 ---
 
@@ -70,6 +74,9 @@ shared libraries keep descriptive names. Every job reads scope from
 | Fetch JSON | `SUB_06_fetch_json.py` | pull TSS response JSON (status evidence) |
 | Reference | `Modules/Global/REF_01_choice_values.py`, `REF_02_commodity_codes.py` | refresh TSS reference data |
 | Reporting | `Modules/Global/REP_01_db_snapshot.py`, `REP_02_reference_lists.py` | Excel exports |
+
+Run the whole local cycle by hand with **`python Modules/run_all.py`** (ingest →
+process → promote → submit → mirror → fetch; `--only` / `--skip` / `--list` / `--stop-on-error`).
 
 **Libraries / infra (imported by name, not run directly):** `ingest`, `graph_email`,
 `xlsx_reader`, `submission_db`, `tss_client`, `process_data`, `mapping`,

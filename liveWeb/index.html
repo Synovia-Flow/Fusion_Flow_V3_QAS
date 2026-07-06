@@ -292,6 +292,7 @@ svg .hit{fill:transparent;cursor:crosshair}
     <section class="view" id="v-Submissions"></section>
     <section class="view" id="v-Admin"></section>
     <section class="view" id="v-Connectivity"></section>
+    <section class="view" id="v-Log"></section>
   </main>
   <div class="footer">
     <span>Synovia Flow 3 · Powered by Fusion · Frankfurt</span>
@@ -541,7 +542,38 @@ function renderConnectivity(){
   $('#cxTest',v).addEventListener('click',run);
   run();
 }
-const RENDERERS={Dashboard:renderDashboard,Jobs:renderJobs,Analytics:renderAnalytics,Clients:renderClients,Submissions:renderSubmissions,Admin:renderAdmin,Connectivity:renderConnectivity};
+/* Job Log — executions (EXC.Execution) + the portal job queue (EXC.Job_Queue). */
+async function renderLog(){
+  const v=$('#v-Log');
+  v.innerHTML=`<div class="page-head"><div><div class="eyebrow">executions</div><h2>Job Log</h2>
+      <p>Scheduled + portal-triggered job runs and their outcome. Times are UTC.</p></div>
+      <button class="chip" id="logRefresh" style="cursor:pointer">↻ Refresh</button></div>
+      <div id="logBody"><div class="panel">Loading…</div></div>`;
+  $('#logRefresh').addEventListener('click',renderLog);
+  let d;
+  try{ const r=await fetch('/api/executions',{cache:'no-store'}); d=await r.json(); }
+  catch(e){ $('#logBody').innerHTML='<div class="panel">Log unavailable — API offline.</div>'; return; }
+  if(d.error){ $('#logBody').innerHTML=`<div class="panel">Log unavailable: ${d.error}</div>`; return; }
+  const t=s=>(s||'').replace('T',' ').slice(0,19);
+  const q=(d.queue||[]).map(x=>`<tr><td class="mono">${x.id}</td><td>${x.verb||''}</td>
+      <td class="mono">${x.mk||''}</td><td><span class="chip">${x.status||''}</span></td>
+      <td class="mono" style="font-size:11px">${t(x.finished||x.started||x.requested)}</td>
+      <td style="font-size:11px">${x.message?String(x.message).slice(0,90):''}</td></tr>`).join('');
+  const e=(d.executions||[]).map(x=>`<tr><td class="mono">${x.id}</td><td>${x.module||''}</td>
+      <td>${x.process||''}</td><td><span class="chip">${x.status||''}</span></td>
+      <td class="mono">${x.found??''}/${x.processed??''}/${x.failed??''}</td>
+      <td class="mono" style="font-size:11px">${t(x.started)}</td>
+      <td style="color:var(--bad);font-size:11px">${x.error?String(x.error).slice(0,90):''}</td></tr>`).join('');
+  $('#logBody').innerHTML=`
+    <div class="panel"><h3>Portal job queue <span class="sub">EXC.Job_Queue · latest 100</span></h3>
+      <div class="tablewrap"><table><thead><tr><th>#</th><th>Verb</th><th>Movement</th><th>Status</th><th>When</th><th>Result</th></tr></thead>
+      <tbody>${q||'<tr><td colspan="6" style="color:var(--muted)">No queued jobs yet.</td></tr>'}</tbody></table></div></div>
+    <div class="panel" style="margin-top:16px"><h3>Executions <span class="sub">EXC.Execution · latest 100</span></h3>
+      <div class="tablewrap"><table><thead><tr><th>#</th><th>Module</th><th>Process</th><th>Status</th><th>Found/Proc/Fail</th><th>Started</th><th>Error</th></tr></thead>
+      <tbody>${e||'<tr><td colspan="7" style="color:var(--muted)">No executions yet.</td></tr>'}</tbody></table></div></div>`;
+}
+
+const RENDERERS={Dashboard:renderDashboard,Jobs:renderJobs,Analytics:renderAnalytics,Clients:renderClients,Submissions:renderSubmissions,Admin:renderAdmin,Connectivity:renderConnectivity,Log:renderLog};
 
 /* ---------------- shell wiring ---------------- */
 function clientMeta(){return BP.clients.find(c=>c.code===CURRENT)||BP.clients[0];}
@@ -559,7 +591,9 @@ function setClient(code){
   (RENDERERS[ACTIVE]||(()=>{}))();
 }
 function buildNav(){
-  const items=[...BP.nav]; if(!items.includes('Connectivity'))items.push('Connectivity');  // always present (diagnostics)
+  const items=[...(BP.nav||[])];                       // always expose diagnostics + log
+  if(!items.includes('Connectivity'))items.push('Connectivity');
+  if(!items.includes('Log'))items.push('Log');
   $('#nav').innerHTML=items.map((n,i)=>`<button data-v="${n}" class="${i===0?'active':''}">${n}</button>`).join('');
   document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.v)));
 }

@@ -227,6 +227,40 @@ def api_edit():
             conn.close()
 
 
+@app.route("/api/executions")
+def api_executions():
+    """Recent job runs for the portal Log page: EXC.Execution (every scheduled/portal
+    job run) + EXC.Job_Queue (portal-enqueued jobs and their outcome)."""
+    try:
+        conn = _connect(); cur = conn.cursor()
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": str(e), "executions": [], "queue": []}), 503
+    try:
+        ex = cur.execute(
+            "SELECT TOP (100) ExecutionID, EnvCode, ClientCode, ModuleName, ProcessName, RunMode, "
+            "Status, StartedAt, EndedAt, ItemsFound, ItemsProcessed, ItemsFailed, ErrorMessage "
+            "FROM EXC.Execution ORDER BY ExecutionID DESC").fetchall()
+        executions = [{"id": r[0], "env": r[1], "client": r[2], "module": r[3], "process": r[4],
+                       "mode": r[5], "status": r[6], "started": str(r[7]) if r[7] else None,
+                       "ended": str(r[8]) if r[8] else None, "found": r[9], "processed": r[10],
+                       "failed": r[11], "error": r[12]} for r in ex]
+        queue = []
+        try:
+            q = cur.execute(
+                "SELECT TOP (100) QueueID, Verb, MovementKey, Status, RequestedBy, RequestedAt, "
+                "StartedAt, FinishedAt, ExitCode, ResultMessage FROM EXC.Job_Queue ORDER BY QueueID DESC").fetchall()
+            queue = [{"id": r[0], "verb": r[1], "mk": r[2], "status": r[3], "by": r[4],
+                      "requested": str(r[5]) if r[5] else None, "started": str(r[6]) if r[6] else None,
+                      "finished": str(r[7]) if r[7] else None, "exit": r[8], "message": r[9]} for r in q]
+        except Exception:  # queue table not deployed yet
+            pass
+        return jsonify({"executions": executions, "queue": queue})
+    except Exception as e:  # noqa: BLE001
+        return jsonify({"error": str(e), "executions": [], "queue": []}), 503
+    finally:
+        conn.close()
+
+
 @app.route("/")
 def index():
     return send_from_directory(HERE, "index.html")
