@@ -82,5 +82,5 @@ run these jobs for one movement:
   server-side.
 - `POST /api/edit` — patch whitelisted STG payload fields for a movement (the Edit form).
 
-Both are **OFF by default** — set `PORTAL_ACTIONS_ENABLED=1` on the service to allow
-them. When disabled, the portal buttons fall back to a visual-only advance.
+Both run for real (no demo gate). Scope and safety come from `SUBMISSION_ENV`
+(e.g. `TST`) and `SUBMISSION_DRY_RUN` in `CFG.Application_Parameters`.
