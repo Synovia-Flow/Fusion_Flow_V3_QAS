@@ -34,18 +34,22 @@ def _truthy(s: str) -> bool:
 
 
 def extract_declaration_number(payload) -> str | None:
-    """Pull the ENS number from a TSS create response, tolerant of shape."""
+    """Pull the TSS declaration reference from a create response.
+
+    Only the authoritative ENS reference fields are trusted. We deliberately do NOT
+    fall back to generic id/number/header_id/headerId — those are ServiceNow internal
+    identifiers that GET /?reference= cannot resolve, which is what produced later
+    400 'Unable to access target record' rejections."""
     rec = payload
     if isinstance(payload, dict):
         rec = payload.get("result") or payload.get("data") or payload
         if isinstance(rec, list):
             rec = rec[0] if rec else {}
     if isinstance(rec, dict):
-        for k in ("declaration_number", "declarationNumber", "reference", "ens_number",
-                  "header_id", "headerId", "id", "number"):
+        for k in ("declaration_number", "declarationNumber", "reference", "ens_number"):
             v = rec.get(k)
-            if v:
-                return str(v)
+            if v and str(v).strip():
+                return str(v).strip()
     return None
 
 
