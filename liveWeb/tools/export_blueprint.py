@@ -46,11 +46,21 @@ PARAM_KEYS = ["SUBMISSION_ENV", "SUBMISSION_DRY_RUN", "SUBMISSION_MAX_ROWS", "PR
 
 
 # --------------------------------------------------------------------------- #
+def _clean(v: str) -> str:
+    """Trim whitespace and any surrounding quotes (Render env values are sometimes
+    pasted with quotes, e.g. DB_DRIVER=\"{ODBC Driver 18 for SQL Server}\")."""
+    v = (v or "").strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+        v = v[1:-1].strip()
+    return v
+
+
 def _from_map(m: dict) -> dict[str, str]:
-    return {"server": m.get("DB_SERVER", ""), "database": m.get("DB_NAME", ""),
-            "user": m.get("DB_USER", ""), "password": m.get("DB_PASSWORD", ""),
-            "driver": m.get("DB_DRIVER", "{ODBC Driver 18 for SQL Server}"),
-            "encrypt": m.get("DB_ENCRYPT", "yes"), "trust_server_certificate": m.get("DB_TRUST", "no")}
+    g = lambda k, d="": _clean(m.get(k, d))
+    return {"server": g("DB_SERVER"), "database": g("DB_NAME"),
+            "user": g("DB_USER"), "password": g("DB_PASSWORD"),
+            "driver": g("DB_DRIVER", "{ODBC Driver 18 for SQL Server}"),
+            "encrypt": g("DB_ENCRYPT", "yes"), "trust_server_certificate": g("DB_TRUST", "no")}
 
 
 def load_conn() -> dict[str, str]:
