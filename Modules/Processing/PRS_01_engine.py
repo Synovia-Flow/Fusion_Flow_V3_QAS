@@ -315,6 +315,13 @@ def process_row(db: ProcessingDb, raw: dict, profile: dict, fmap: list[dict],
             rec[fm["TargetField"]] = new
 
     arr_utc = mapping.parse_arrival_to_utc(rec.get("arrival_date_time"), now_utc=run_date)
+    # Rule 4: arrival must never be in the past. Auto-bump a past arrival to TOMORROW
+    # (same time of day) instead of rejecting, then re-render the strict string TSS gets.
+    arr_utc, _bumped = mapping.enforce_future_arrival(arr_utc, now_utc=run_date)
+    if _bumped:
+        rec["arrival_date_time"] = mapping.normalise_datetime(arr_utc)
+        db.log("ARRIVAL_BUMP", f"{eref}: arrival was in the past; moved to tomorrow "
+               f"-> {rec['arrival_date_time']}", "OK")
     rec["arrival_date_time_utc"] = arr_utc.replace(tzinfo=None) if arr_utc is not None else None
     db.log_transition(profile["EntityKind"], eref, "ENRICHING", "ENRICHED")
 
