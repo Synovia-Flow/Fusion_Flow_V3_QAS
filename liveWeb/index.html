@@ -679,39 +679,37 @@ function renderPipeline(first){
 
 /* One-click recovery for a past-arrival (or other reprocessable) reject: run
    reprocess -> promote -> submit in sequence, scoped to this movement. reprocess
-   re-runs the engine, which auto-bumps a past arrival_date_time to tomorrow. Stops
-   and stops, reporting the real error, on the first step that fails. */
+   which auto-bumps a past arrival_date_time to tomorrow. Hybrid model: the portal
+   ENQUEUES the jobs (EXC.Job_Queue) and the on-prem worker runs them in queue order. */
 async function fixArrivalResubmit(){
   const steps=[['reprocess','PRS_REPROCESS_BKD_ENS'],['promote','PRS_PROMOTE_BKD_ENS'],['submit','SUB_CREATE_BKD_ENS']];
+  const ids=[];
   for(const [verb,job] of steps){
-    toast(`${job}…`);
     let r,j;
     try{
-      r=await fetch(`/api/action/${verb}?mk=`+encodeURIComponent(PL.mk),{method:'POST'});
+      r=await fetch(`/api/enqueue/${verb}?mk=`+encodeURIComponent(PL.mk),{method:'POST'});
       j=await r.json().catch(()=>({}));
-    }catch(e){toast(`${job} failed: network error`);addAct(`${job} failed (network): ${PL.mk}`);return;}
-    if(!r.ok||j.ok===false){toast(`${job} failed: `+(j.error||('HTTP '+r.status)));addAct(`${job} failed: ${PL.mk}`);renderPipeline(false);return;}
-    addAct(`${job}: ${PL.mk}`);
-    if(j.status&&j.status.fusion){const i=STATUS_STAGE[j.status.fusion];if(i!=null)PL.idx=i;PL.rejected=/reject/i.test(j.status.fusion);if(j.status.decl&&j.status.decl!=='—')PL.decl=j.status.decl;}
+    }catch(e){toast('Queue failed: network error');return;}
+    if(!r.ok||j.ok===false){toast(`Queue ${job} failed: `+(j.error||('HTTP '+r.status)));return;}
+    ids.push(j.queueId);
   }
-  toast('Fixed arrival & resubmitted ✓');
-  renderPipeline(false);
+  toast(`Queued fix: reprocess → promote → submit (#${ids.join(', #')}) — worker runs them`);
+  addAct(`Queued fix arrival (reprocess/promote/submit): ${PL.mk}`);
 }
 
-/* run a real job (scoped to this movement) via the API. Everything is tracked server-side. */
+/* Enqueue a job scoped to this movement (EXC.Job_Queue). The on-prem worker claims and
+   runs it; status updates on the next blueprint refresh. Edits (/api/edit) still write
+   the DB directly since they are not TSS calls. Everything is tracked server-side. */
 async function runAction(verb, job, to){
-  toast(`${job}…`);
+  toast(`Queueing ${job}…`);
   let r,j;
   try{
-    r=await fetch(`/api/action/${verb}?mk=`+encodeURIComponent(PL.mk),{method:'POST'});
+    r=await fetch(`/api/enqueue/${verb}?mk=`+encodeURIComponent(PL.mk),{method:'POST'});
     j=await r.json().catch(()=>({}));
-  }catch(e){toast(`${job} failed: network error`);return;}
-  if(!r.ok||j.ok===false){toast('Failed: '+(j.error||('HTTP '+r.status)));return;}
-  toast(`Ran ${job} ✓`); addAct(`${job}: ${PL.mk}`);
-  if(verb==='cancel'){PL.cancelled=true;}
-  else if(j.status&&j.status.fusion){const i=STATUS_STAGE[j.status.fusion];if(i!=null)PL.idx=i;PL.rejected=/reject/i.test(j.status.fusion);if(j.status.decl&&j.status.decl!=='—')PL.decl=j.status.decl;}
-  else if(to!=null){PL.idx=to;}
-  renderPipeline(false);
+  }catch(e){toast(`${job}: network error`);return;}
+  if(!r.ok||j.ok===false){toast('Queue failed: '+(j.error||('HTTP '+r.status)));return;}
+  toast(`Queued ${job} (#${j.queueId}) — the worker will run it`);
+  addAct(`Queued ${job}: ${PL.mk} (queue #${j.queueId})`);
 }
 function addAct(text){const d=cd();(d.activity=d.activity||[]).unshift({time:'now',text,tone:'flow'});}
 

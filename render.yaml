@@ -56,80 +56,75 @@ services:
       # Portal actions always run (no demo gate). Jobs still honour SUBMISSION_ENV (TST)
       # and SUBMISSION_DRY_RUN, so behaviour against the environment stays controlled.
 
-  # --- Background worker: drains the job queue ------------------------------
-  - type: worker
-    name: ff-worker
-    runtime: docker
-    region: frankfurt
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    dockerCommand: python Modules/Global/job_worker.py
-    envVars:
-      - fromGroup: fusion-db
-      - key: WORKER_POLL_SECONDS
-        value: "10"
-
-  # --- Cron: ingestion cycle (pull + load raw) -----------------------------
-  # Every 30 min during UK business hours. Schedule is UTC (05-19 UTC ~ 06-20 BST).
-  - type: cron
-    name: ff-cron-ingestion
-    runtime: docker
-    region: frankfurt
-    schedule: "*/30 5-19 * * 1-5"
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    dockerCommand: python Modules/Ingestion/ING_00_run_cycle.py
-    envVars:
-      - fromGroup: fusion-db
-
-  # --- Cron: processing engine (transform + validate) ----------------------
-  - type: cron
-    name: ff-cron-processing
-    runtime: docker
-    region: frankfurt
-    schedule: "10,40 5-19 * * 1-5"
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    dockerCommand: python Modules/Processing/PRS_01_engine.py
-    envVars:
-      - fromGroup: fusion-db
-
-  # --- Cron: TSS status check (mirror header status back for all live movements) ----
-  # This is the "check status in TSS" job: GET each live declaration, refresh Tss_Status.
-  - type: cron
-    name: ff-cron-mirror
-    runtime: docker
-    region: frankfurt
-    schedule: "*/30 * * * *"
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    dockerCommand: python Modules/Submission/SUB_03_mirror.py
-    envVars:
-      - fromGroup: fusion-db
-
-  # --- Cron: pull TSS response JSON for submitted movements (status evidence) ----
-  - type: cron
-    name: ff-cron-fetch-json
-    runtime: docker
-    region: frankfurt
-    schedule: "15,45 * * * *"
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    dockerCommand: python Modules/Submission/SUB_06_fetch_json.py
-    envVars:
-      - fromGroup: fusion-db
-
-  # --- Cron: refresh TSS choice values (reference data) ---------------------
-  - type: cron
-    name: ff-cron-ref-choice
-    runtime: docker
-    region: frankfurt
-    schedule: "0 3 * * 1"
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    dockerCommand: python Modules/Global/REF_01_choice_values.py
-    envVars:
-      - fromGroup: fusion-db
+  # ======================================================================
+  # HYBRID: the worker and all recurring jobs run ON-PREM, not on Render.
+  # The portal (above) only enqueues to EXC.Job_Queue; the local worker + Task
+  # Scheduler execute the jobs near the mailbox/files and the allow-listed TSS/DB
+  # IP. See ARCHITECTURE.md and Development/Deploy/scheduler/. The service defs
+  # below are kept (commented) so you can move scheduling to Render later — if you
+  # do, allow Render's egress IPs on Azure SQL + TSS and run only ONE scheduler.
+  # ======================================================================
+  # - type: worker
+  #   name: ff-worker
+  #   runtime: docker
+  #   region: frankfurt
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Global/job_worker.py
+  #   envVars:
+  #     - fromGroup: fusion-db
+  #     - key: WORKER_POLL_SECONDS
+  #       value: "10"
+  #
+  # - type: cron   # ingestion cycle
+  #   name: ff-cron-ingestion
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "*/30 5-19 * * 1-5"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Ingestion/ING_00_run_cycle.py
+  #   envVars: [{ fromGroup: fusion-db }]
+  #
+  # - type: cron   # processing engine
+  #   name: ff-cron-processing
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "10,40 5-19 * * 1-5"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Processing/PRS_01_engine.py
+  #   envVars: [{ fromGroup: fusion-db }]
+  #
+  # - type: cron   # TSS status check (mirror)
+  #   name: ff-cron-mirror
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "*/30 * * * *"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Submission/SUB_03_mirror.py
+  #   envVars: [{ fromGroup: fusion-db }]
+  #
+  # - type: cron   # pull TSS response JSON
+  #   name: ff-cron-fetch-json
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "15,45 * * * *"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Submission/SUB_06_fetch_json.py
+  #   envVars: [{ fromGroup: fusion-db }]
+  #
+  # - type: cron   # refresh TSS choice values
+  #   name: ff-cron-ref-choice
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "0 3 * * 1"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Global/REF_01_choice_values.py
+  #   envVars: [{ fromGroup: fusion-db }]
 
   # ======================================================================
   # STACK B - fusion_api backend + Vite fusion_portal SPA (from dev)
