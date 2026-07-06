@@ -796,13 +796,18 @@ function renderPipeline(first){
     stageBtn=`<span class="done-badge">✓ Reconciled — live in TSS mirror</span>`;
   }
 
-  const live = PL.decl && PL.decl!=='—' && !PL.cancelled;
-  const tssActions = live ? `
+  const hasDecl = PL.decl && PL.decl!=='—' && !PL.cancelled;
+  // Confirmed = mirror-confirmed live in TSS (RECONCILED). Update/Cancel only unlock then,
+  // matching the server guard (SUB_04/SUB_05 require TSS.BKD_ENS_Header IsLive=1).
+  const live = hasDecl && PL.idx>=5;
+  const tssActions = hasDecl ? `
     <div class="actions" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--hairline)">
-      <span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);width:100%">TSS layer — declaration is live (${PL.decl})</span>
+      <span style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);width:100%">TSS layer — declaration ${PL.decl} ${live?'· confirmed live':'· awaiting confirmation'}</span>
       <button class="act secondary" data-do="edit"><span>Edit fields</span><span class="job">then Update</span></button>
+      ${live ? `
       <button class="act" data-verb="update" data-job="SUB_UPDATE_BKD_ENS"><span>Update (Rule 16) →</span><span class="job">runs SUB_UPDATE_BKD_ENS</span></button>
-      <button class="act danger" data-verb="cancel" data-job="SUB_CANCEL_BKD_ENS"><span>Cancel →</span><span class="job">runs SUB_CANCEL_BKD_ENS</span></button>
+      <button class="act danger" data-verb="cancel" data-job="SUB_CANCEL_BKD_ENS"><span>Cancel →</span><span class="job">runs SUB_CANCEL_BKD_ENS</span></button>`
+      : `<span style="font-size:11.5px;color:var(--muted);width:100%">Update / Cancel unlock once TSS confirms this declaration — run <b>Mirror</b> (status check) first.</span>`}
     </div>` : '';
 
   // Pre-submit editing: once staged (STG row exists) but not yet live in TSS, allow
