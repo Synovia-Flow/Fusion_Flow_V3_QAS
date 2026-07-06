@@ -8,7 +8,7 @@ const DEFAULT_SESSION = {
   role: 'CentralAdmin',
   mode: 'DEMO_ADMIN',
 };
-const DEFAULT_OPERATIONAL_CLIENT_CODE = 'CWD';
+const DEFAULT_OPERATIONAL_CLIENT_CODE = 'BKD';
 const TSS_ENVIRONMENT_DEMO_OPTION = { value: 'DEMO', label: 'Demo' };
 const MASTER_LIVE_URL = 'https://synovia-flow-3-live.onrender.com/';
 const MASTER_LIVE_EMBED_URL = '/master-live/index.html';
@@ -46,6 +46,7 @@ function isTssEnvironmentUpdate(update) {
 }
 
 const PORTAL_CLIENTS = [
+  { tenantCode: 'BKD', tenantName: 'Birkdale' },
   { tenantCode: 'PLE', tenantName: 'Primeline Express' },
   { tenantCode: 'CWD', tenantName: 'Countrywide' },
 ];

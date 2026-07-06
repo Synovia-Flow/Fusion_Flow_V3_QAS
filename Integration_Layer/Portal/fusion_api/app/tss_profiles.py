@@ -6,6 +6,21 @@ from copy import deepcopy
 # Data ownership and TSS credential state are verified from CFG.Clients and
 # CFG.TSS_Credential at request time.
 FALLBACK_PORTAL_PROFILES: dict[str, dict[str, object]] = {
+    "BKD": {
+        "portalClientCode": "BKD",
+        "clientCode": "BKD",
+        "clientName": "Birkdale",
+        "tssCredentialClientCode": "BKD",
+        "preferredEnvCode": "TST",
+        "requiresEnsBeforeSubmit": True,
+        "fileSelection": {
+            "requiredFileOrdinal": 1,
+            "acceptedExtensions": ".xlsx,.xls,.csv,.pdf",
+            "targetLandingTable": "ING.Inbound_File / ING.Raw_Record",
+            "targetCanonicalRoot": "PRS.Consignment / PRS.Goods_Item",
+            "notes": "Birkdale maps the first attached file for BKD parity previews.",
+        },
+    },
     "PLE": {
         "portalClientCode": "PLE",
         "clientCode": "PLE",
@@ -39,6 +54,8 @@ FALLBACK_PORTAL_PROFILES: dict[str, dict[str, object]] = {
 }
 
 ALIASES = {
+    "BIRKDALE": "BKD",
+    "BKD": "BKD",
     "PRIMELINE": "PLE",
     "PRIMELINE EXPRESS": "PLE",
     "PLE": "PLE",

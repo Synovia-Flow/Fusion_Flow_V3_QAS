@@ -366,6 +366,24 @@ def _set_field(db: ProcessingDb, obj: dict[str, Any], table: str, column: str,
     if db.log_enhancement("PRS", table, column, entity_ref, old_value, new_value, rule):
         obj[column] = new_value
 
+def _split_reference(value: Any, part_number: int, max_length: int) -> Any:
+    """Suffix references for automatic >99 goods split parts without exceeding TSS field limits."""
+    if part_number <= 1 or not _filled(value):
+        return value
+    text = str(value).strip()
+    suffix = f"-{part_number:02d}"
+    if text.endswith(suffix):
+        return text[:max_length]
+    prefix_len = max(1, max_length - len(suffix))
+    return f"{text[:prefix_len]}{suffix}"
+
+
+def _bkd_assumption_rule(field: str, label: str) -> str:
+    citation = QAS_RULE_CITATIONS.get(field)
+    suffix = f" ({citation})" if citation else ""
+    return f"ASSUMPTION:{label}{suffix}"
+
+
 
 # =============================================================================
 # Source reads
@@ -464,6 +482,14 @@ def normalise(db: ProcessingDb, ens_row: dict[str, Any], so_rows: list[dict[str,
     }
     goods_items: list[dict[str, Any]] = []
     cref = _entity_ref(movement_key, cons=1)
+    if not so_rows:
+        db.log(
+            "NORMALISE",
+            f"{eref}: no Sales-Order lines resolved; PRS header will be rejected without creating an orphan consignment.",
+            "WARN",
+        )
+        return {"movement_key": movement_key, "header": header, "consignments": []}
+
     if so_rows:
         first = so_rows[0]
         for src_col, dest_col in SALES_ORDER_TO_CONSIGNMENT.items():
@@ -497,10 +523,38 @@ def normalise(db: ProcessingDb, ens_row: dict[str, Any], so_rows: list[dict[str,
                 _set_field(db, goods, "Goods_Item", dest_col, gref, value,
                            "DP-FR-01:MAP_SO_GOODS")
             goods_items.append(goods)
-    else:
-        db.log("NORMALISE", f"{eref}: no Sales-Order lines resolved; "
-               "attaching empty consignment skeleton (documented assumption - NOTE).",
-               "WARN")
+
+    if len(goods_items) > MAX_GOODS_PER_CONSIGNMENT:
+        consignments: list[dict[str, Any]] = []
+        for part_number, start in enumerate(range(0, len(goods_items), MAX_GOODS_PER_CONSIGNMENT), 1):
+            part_cons = dict(cons)
+            pref = _entity_ref(movement_key, cons=part_number)
+            part_cons["ConsignmentOrdinal"] = part_number
+            part_cons["goods"] = goods_items[start:start + MAX_GOODS_PER_CONSIGNMENT]
+            if part_number > 1:
+                for field, max_length in (
+                    ("consignment_number", 40),
+                    ("trader_reference", 100),
+                    ("transport_document_number", 35),
+                ):
+                    split_value = _split_reference(part_cons.get(field), part_number, max_length)
+                    if split_value != part_cons.get(field):
+                        _set_field(
+                            db,
+                            part_cons,
+                            "Consignment",
+                            field,
+                            pref,
+                            split_value,
+                            "ASSUMPTION:SPLIT_REFERENCE (>99 goods per TSS consignment limit)",
+                        )
+            consignments.append(part_cons)
+        db.log(
+            "NORMALISE",
+            f"{eref}: split {len(goods_items)} goods into {len(consignments)} consignments using max {MAX_GOODS_PER_CONSIGNMENT} goods each.",
+            "WARN",
+        )
+        return {"movement_key": movement_key, "header": header, "consignments": consignments}
 
     cons["goods"] = goods_items
     return {"movement_key": movement_key, "header": header, "consignments": [cons]}
@@ -549,7 +603,7 @@ def enrich(db: ProcessingDb, movement: dict[str, Any], choice_cache: dict[str, s
     # arrival_port (Rule 12) + transport_charges (Rule 11).
     for column in QAS_HEADER_FIELDS:
         if column in BKD_QAS_CONSTANTS:
-            rule = QAS_RULE_CITATIONS.get(column, f"QAS:BKD ({column})")
+            rule = _bkd_assumption_rule(column, f"BKD_QAS_CONSTANT:{column}")
             _set_field(db, header, "ENS_Header", column, eref, BKD_QAS_CONSTANTS[column], rule)
 
     for ci, cons in enumerate(movement["consignments"], 1):
@@ -558,15 +612,14 @@ def enrich(db: ProcessingDb, movement: dict[str, Any], choice_cache: dict[str, s
         # goods_domestic_status='D' single char (Rule 10), at consignment level.
         for column in QAS_CONSIGNMENT_FIELDS:
             if column in BKD_QAS_CONSTANTS:
-                rule = QAS_RULE_CITATIONS.get(column, f"QAS:BKD ({column})")
+                rule = _bkd_assumption_rule(column, f"BKD_QAS_CONSTANT:{column}")
                 _set_field(db, cons, "Consignment", column, cref, BKD_QAS_CONSTANTS[column], rule)
 
         # BKD importer fallback (Rule 13): no importer EORI -> Birkdale is importer
         # AND consignor (literal XI379692092000).
         fallback = BKD_QAS_CONSTANTS.get(QAS_IMPORTER_FALLBACK_KEY)
         if fallback and not (cons.get("importer_eori") or "").strip():
-            rule = QAS_RULE_CITATIONS.get("importer_eori_fallback",
-                                          "QAS:BKD_IMPORTER_FALLBACK (Rule 13)")
+            rule = _bkd_assumption_rule("importer_eori_fallback", "BKD_IMPORTER_FALLBACK")
             _set_field(db, cons, "Consignment", "importer_eori", cref, fallback, rule)
             _set_field(db, cons, "Consignment", "consignor_eori", cref, fallback, rule)
 
@@ -720,6 +773,9 @@ def validate(db: ProcessingDb, movement: dict[str, Any], run_date: datetime) -> 
         reasons.append(f"movement_type '{mtype}' not in choice cache")
 
     consignments = movement.get("consignments", [])
+    if not consignments:
+        reasons.append("movement has no linked Sales Orders / consignments; no orphan consignment created")
+
     for ci, cons in enumerate(consignments, 1):
         for field in CONSIGNMENT_ALWAYS_MANDATORY:
             if _missing(cons, field):

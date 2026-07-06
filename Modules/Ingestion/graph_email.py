@@ -256,9 +256,11 @@ def run_email_ingest(db: Any, client_code: str, params: dict[str, str], dry_run:
                         stats["files"] += 1
                         stats["rows"] += db.land_raw_rows(file_id, client_code, parse_rows(name, content))
                         saved_any = True
-                # Move the scanned message into the processed folder.
-                client.post(f"/users/{mailbox}/messages/{msg['id']}/move", {"destinationId": processed_id})
-                stats["moved"] += 1
+                if saved_any:
+                    client.post(f"/users/{mailbox}/messages/{msg['id']}/move", {"destinationId": processed_id})
+                    stats["moved"] += 1
+                else:
+                    db.log("EMAIL", f"Message {str(msg.get('id'))[:12]} had no landed business attachments; left in place.", "WARN")
             except Exception as error:  # noqa: BLE001
                 stats["errors"] += 1
                 db.log_error("EMAIL", f"Message {str(msg.get('id'))[:12]}: {error}", "GraphIngestError")
@@ -272,15 +274,24 @@ def _record_email(db: Any, client_code: str, mailbox: str, msg: dict) -> None:
         return
     sender = (msg.get("from", {}).get("emailAddress", {}) or {}).get("address", "")
     received = msg.get("receivedDateTime")
+    graph_message_id = str(msg.get("id") or "")[:450]
+    internet_message_id = (msg.get("internetMessageId") or "")[:1000]
     cur = db.conn.cursor()
+    cur.execute(
+        "SELECT TOP 1 EmailID FROM ING.Source_Email "
+        "WHERE ClientCode = ? AND (GraphMessageID = ? OR InternetMessageID = ?)",
+        client_code, graph_message_id, internet_message_id,
+    )
+    if cur.fetchone():
+        return
     cur.execute(
         "INSERT INTO ING.Source_Email (ExecutionID, TransactionID, ClientCode, Mailbox, GraphMessageID, "
         "InternetMessageID, Sender, SenderDomain, Subject, ReceivedUtc, HasAttachments, BodyText, Status) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INGESTED')",
-        db.execution_id, db.transaction_id, client_code, mailbox, str(msg.get("id"))[:450],
-        (msg.get("internetMessageId") or "")[:1000], sender[:320],
+        db.execution_id, db.transaction_id, client_code, mailbox, graph_message_id,
+        internet_message_id, sender[:320],
         (sender.split("@")[-1] if "@" in sender else "")[:320], (msg.get("subject") or "")[:998],
-        _parse_dt(received), 1, (msg.get("bodyPreview") or "")[:4000])
+        _parse_dt(received), 1 if msg.get("hasAttachments") else 0, (msg.get("bodyPreview") or "")[:4000])
     db.conn.commit()
 
 

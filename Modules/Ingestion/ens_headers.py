@@ -70,6 +70,9 @@ CSV_COLUMNS = [
 ENS_SUBJECT_HINTS = ("tss details", "details for")
 
 STOP_WORDS = {"from", "sent", "to", "subject", "cc", "bcc"}
+DETAILS_FOR_RE = re.compile(r"^\s*details\s+for\s+(.+?)\s*$", re.I)
+FORWARDED_HEADER_RE = re.compile(r"^\s*(from|sent|to|subject|cc|bcc)\s*:", re.I)
+PRIMELINE_BODY_STOP_EMAIL = "customsadmin@primelineexpress.co.uk"
 
 
 def is_stop_line(norm: str) -> bool:
@@ -81,6 +84,15 @@ def is_stop_line(norm: str) -> bool:
     if norm.startswith("please email completed"):
         return True
     return norm.split(" ", 1)[0] in STOP_WORDS
+
+
+def is_body_stop_line(line: str) -> bool:
+    text = str(line or "").strip()
+    if not text:
+        return False
+    if PRIMELINE_BODY_STOP_EMAIL in text.lower():
+        return True
+    return bool(FORWARDED_HEADER_RE.match(text))
 
 
 def normalize(text: str) -> str:
@@ -103,18 +115,74 @@ def flatten_body(msg: email.message.Message) -> str:
     return "\n".join(ln for ln in lines if ln)
 
 
-def parse_details(body_text: str) -> dict[str, Any]:
-    """Parse the FIRST (top / most-recent) DETAILS FOR block into ENS fields."""
+def _details_date(label: str) -> datetime | None:
+    text = str(label or "").strip()
+    match = re.search(r"(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})", text)
+    if not match:
+        return None
+    day, month, year = match.groups()
+    year_int = int(year)
+    if year_int < 100:
+        year_int += 2000
+    try:
+        return datetime(year_int, int(month), int(day))
+    except ValueError:
+        return None
+
+
+def _details_candidates(lines: list[str]) -> list[tuple[int, str, datetime | None]]:
+    candidates = []
+    for index, line in enumerate(lines):
+        match = DETAILS_FOR_RE.match(line)
+        if match:
+            label = match.group(1).strip()
+            candidates.append((index, label, _details_date(label)))
+    return candidates
+
+
+def _select_details_start(lines: list[str]) -> int | None:
+    candidates = _details_candidates(lines)
+    if not candidates:
+        return None
+    dated = [candidate for candidate in candidates if candidate[2] is not None]
+    if dated:
+        return max(dated, key=lambda candidate: (candidate[2], candidate[0]))[0]
+    return candidates[0][0]
+
+
+def extract_details_body(body_text: str) -> str:
+    """Return the usable DETAILS block without the forwarded mail chain below it."""
     lines = [ln.strip() for ln in body_text.splitlines() if ln.strip()]
-    start = next((i for i, ln in enumerate(lines) if normalize(ln).startswith("details for")), None)
+    start = _select_details_start(lines)
+    if start is None:
+        return ""
+
+    selected: list[str] = []
+    for offset, line in enumerate(lines[start:]):
+        if offset and DETAILS_FOR_RE.match(line):
+            break
+        if is_body_stop_line(line):
+            if PRIMELINE_BODY_STOP_EMAIL in line.lower():
+                selected.append(line)
+            break
+        selected.append(line)
+    return "\n".join(selected).strip()
+
+
+def parse_details(body_text: str) -> dict[str, Any]:
+    """Parse the newest usable DETAILS FOR block into ENS fields."""
+    details_body = extract_details_body(body_text)
+    lines = [ln.strip() for ln in details_body.splitlines() if ln.strip()]
+    start = next((i for i, ln in enumerate(lines) if DETAILS_FOR_RE.match(ln)), None)
     result: dict[str, Any] = {f: "" for f in API_FIELDS}
     result["DetailsDate"] = ""
     if start is None:
         result["ParseStatus"] = "no_details_block"
+        result["OriginalFrom"], result["OriginalSent"] = extract_forwarded(body_text)
         return result
 
     # DetailsDate from "DETAILS FOR 25.06.26"
-    m = re.search(r"details for\s+(.+)", lines[start], flags=re.I)
+    m = DETAILS_FOR_RE.match(lines[start])
     result["DetailsDate"] = (m.group(1).strip() if m else "")
 
     window = lines[start + 1:]
@@ -239,13 +307,52 @@ def _graph_dt(value: str | None) -> str:
 
 
 def row_from_graph(msg: dict[str, Any], sender: str) -> dict[str, Any]:
-    parsed = parse_details(flatten_graph_body(msg.get("body")))
+    body_text = flatten_graph_body(msg.get("body"))
+    parsed = parse_details(body_text)
+    parsed["_DetailsBodyText"] = extract_details_body(body_text)
     parsed["SourceSender"] = sender
     parsed["SourceSubject"] = str(msg.get("subject") or "")
     parsed["SourceReceivedUtc"] = _graph_dt(msg.get("receivedDateTime"))
     parsed["SourceFile"] = str(msg.get("internetMessageId") or msg.get("id") or "")
     parsed["DedupKey"] = dedup_key(parsed)
     return parsed
+
+
+def _record_source_email(db: Any, client_code: str, mailbox: str, msg: dict[str, Any], sender: str, body_text: str) -> None:
+    """Record body-only DETAILS evidence in ING without storing the forwarded chain."""
+    if db.dry_run or not db.execution_id or not body_text:
+        return
+    graph_message_id = str(msg.get("id") or "")
+    internet_message_id = str(msg.get("internetMessageId") or "")
+    if not (graph_message_id or internet_message_id):
+        return
+    sender_domain = sender.rsplit("@", 1)[-1].lower() if "@" in sender else ""
+    cur = db.conn.cursor()
+    cur.execute(
+        "SELECT TOP 1 EmailID FROM ING.Source_Email "
+        "WHERE ClientCode = ? AND (GraphMessageID = ? OR InternetMessageID = ?)",
+        client_code, graph_message_id, internet_message_id,
+    )
+    if cur.fetchone():
+        return
+    cur.execute(
+        "INSERT INTO ING.Source_Email (ExecutionID, TransactionID, ClientCode, Mailbox, GraphMessageID, "
+        "InternetMessageID, Sender, SenderDomain, Subject, ReceivedUtc, HasAttachments, BodyText, Status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'INGESTED')",
+        db.execution_id,
+        db.transaction_id,
+        client_code,
+        mailbox,
+        graph_message_id or None,
+        internet_message_id or None,
+        sender or None,
+        sender_domain or None,
+        str(msg.get("subject") or "")[:500],
+        _graph_dt(msg.get("receivedDateTime")) or None,
+        1 if msg.get("hasAttachments") else 0,
+        body_text,
+    )
+    db.conn.commit()
 
 
 def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | None, dry_run: bool) -> int:
@@ -296,7 +403,7 @@ def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | Non
         for label, fid in targets:
             msgs = client.get_all(
                 f"/users/{mailbox}/mailFolders/{fid}/messages",
-                {"$select": "id,subject,from,receivedDateTime,internetMessageId", "$top": 50})
+                {"$select": "id,subject,from,receivedDateTime,internetMessageId,hasAttachments", "$top": 50})
             scanned += len(msgs)
             for msg in msgs:
                 sender = (msg.get("from", {}).get("emailAddress", {}) or {}).get("address", "").lower()
@@ -309,6 +416,7 @@ def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | Non
                 row = row_from_graph(msg, sender)
                 if row["ParseStatus"] == "no_details_block":
                     continue
+                _record_source_email(db, client_code, mailbox, msg, sender, row.get("_DetailsBodyText", ""))
                 rows.append(row)
                 db.log("ENS", f"{row['DedupKey']} ({row['ParseStatus']}) from {sender} [{label}]")
         db.log("SCAN", f"scanned={scanned} sender_matched={sender_matched} ens_rows={len(rows)} domain=@{domain}")

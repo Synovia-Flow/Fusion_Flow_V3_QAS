@@ -8,10 +8,13 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import allowed_origins, config_value
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
@@ -1062,11 +1065,13 @@ def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, ob
             FROM CFG.TSS_Credential
             WHERE UPPER(TssUsername) = UPPER(?)
               AND IsActive = 1
-              AND ClientCode IN ('PLE', 'CWF')
+              AND ClientCode IN ('BKD', 'PLE', 'CWF')
             ORDER BY CASE
-                WHEN ClientCode = 'PLE' AND EnvCode = 'PRD' THEN 0
-                WHEN ClientCode = 'CWF' AND EnvCode = 'TST' THEN 0
-                ELSE 1
+                WHEN ClientCode = 'BKD' AND EnvCode IN ('TST', 'QAS') THEN 0
+                WHEN ClientCode = 'BKD' THEN 1
+                WHEN ClientCode = 'PLE' AND EnvCode = 'PRD' THEN 2
+                WHEN ClientCode = 'CWF' AND EnvCode = 'TST' THEN 2
+                ELSE 3
             END, EnvCode
             """,
             [username],
@@ -1085,7 +1090,7 @@ def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, ob
             }
 
         if env_app_login_matches(username, password):
-            default_profile = load_portal_profile("CWD")
+            default_profile = load_portal_profile("BKD")
             return {
                 "authenticated": True,
                 "source": "FLOW_V1_USER",
@@ -1097,7 +1102,7 @@ def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, ob
                     "mode": "DEMO_ADMIN",
                 },
                 "connection": public_connection_payload(default_profile),
-                "defaultClientCode": "CWD",
+                "defaultClientCode": "BKD",
                 "demoMode": True,
                 "databaseWrite": False,
                 "tssWrite": False,
@@ -2343,3 +2348,30 @@ def upload_consignment_preview(
         },
         "nextStep": "Review validation output only; demo mode does not land rows, create ENS, or submit to TSS." if demo_mode else "Use Module 1 ingestion/processing logic to land and transform rows before enabling DB writes from the portal.",
     }
+
+
+PORTAL_DIST = Path(__file__).resolve().parents[2] / "fusion_portal" / "dist"
+
+if PORTAL_DIST.exists():
+    assets_dir = PORTAL_DIST / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="portal-assets")
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_portal(full_path: str = ""):
+        reserved_prefixes = ("api/", "docs", "redoc", "openapi.json")
+        if full_path.startswith(reserved_prefixes):
+            raise HTTPException(status_code=404, detail="Not found")
+        candidate = (PORTAL_DIST / full_path).resolve()
+        dist_root = PORTAL_DIST.resolve()
+        try:
+            candidate.relative_to(dist_root)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Not found") from None
+        if candidate.is_file():
+            return FileResponse(candidate)
+        index_path = PORTAL_DIST / "index.html"
+        if not index_path.exists():
+            raise HTTPException(status_code=404, detail="Portal build not found")
+        return FileResponse(index_path)
