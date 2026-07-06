@@ -6,7 +6,7 @@ for Windows Task Scheduler / SQL Agent, not interactive use.
 
 No CLI (design decision): the scheduler simply runs
 
-    python Modules/Ingestion/run_ingestion.py
+    python Modules/Ingestion/ING_00_run_cycle.py
 
 The job list is DATA, not code: the runner reads the active INGESTION steps for
 the client from CFG.Job (ordered by StepNo) and dispatches each by its JobCode.
@@ -26,9 +26,9 @@ import os
 from pathlib import Path
 
 from ingest import DEFAULT_INI, IngestionDb, load_db_config
-import birkdale_sales_orders as DL
-import ens_headers as ENS
-import load_raw as LOAD
+import ING_01_acquire_email as DL
+import ING_02_parse_ens as ENS
+import ING_03_load_raw as LOAD
 
 MODULE = "INGESTION"
 DEFAULT_CLIENT = "BKD"

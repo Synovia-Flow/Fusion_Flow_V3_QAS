@@ -48,13 +48,13 @@ ACTIONS_ON = os.environ.get("PORTAL_ACTIONS_ENABLED", "").lower() in ("1", "true
 # shared CFG.Application_Parameters, so concurrent portal actions (and a scheduled batch
 # running at the same time) can't clobber each other's scope.
 VERB = {
-    "promote":   ("promote_ens",      "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
-    "submit":    ("submit_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
-    "mirror":    ("mirror_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
-    "update":    ("update_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
-    "cancel":    ("cancel_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "promote":   ("SUB_01_promote",   "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "submit":    ("SUB_02_submit",    "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "mirror":    ("SUB_03_mirror",    "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "update":    ("SUB_04_update",    "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "cancel":    ("SUB_05_cancel",    "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
     # reprocess runs the processing engine in REPROCESS mode for the one movement.
-    "reprocess": ("reprocess_engine", "PROCESSING_MOVEMENT_KEY", {"PROCESSING_MODE": "REPROCESS"}),
+    "reprocess": ("PRS_02_reprocess", "PROCESSING_MOVEMENT_KEY", {"PROCESSING_MODE": "REPROCESS"}),
 }
 EDITABLE = {"movement_type", "type_of_passive_transport", "identity_no_of_transport",
             "nationality_of_transport", "conveyance_ref", "arrival_date_time", "arrival_port",

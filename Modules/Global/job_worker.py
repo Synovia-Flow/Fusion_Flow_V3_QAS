@@ -34,12 +34,12 @@ from submission_db import DEFAULT_INI, _conn_str, load_db_config  # noqa: E402
 # verb -> (runner module, movement-scope param, extra per-run overrides).
 # Mirrors liveWeb/app.py:VERB so a queued run behaves identically to a portal click.
 VERB = {
-    "promote":   ("promote_ens",      "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
-    "submit":    ("submit_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
-    "mirror":    ("mirror_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
-    "update":    ("update_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
-    "cancel":    ("cancel_ens",       "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
-    "reprocess": ("reprocess_engine", "PROCESSING_MOVEMENT_KEY", {"PROCESSING_MODE": "REPROCESS"}),
+    "promote":   ("SUB_01_promote",   "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "submit":    ("SUB_02_submit",    "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "mirror":    ("SUB_03_mirror",    "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "update":    ("SUB_04_update",    "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "cancel":    ("SUB_05_cancel",    "SUBMISSION_MOVEMENT_KEY", {"SUBMISSION_MAX_ROWS": "1"}),
+    "reprocess": ("PRS_02_reprocess", "PROCESSING_MOVEMENT_KEY", {"PROCESSING_MODE": "REPROCESS"}),
 }
 
 CLAIM_SQL = """

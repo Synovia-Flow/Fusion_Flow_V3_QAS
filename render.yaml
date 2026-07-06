@@ -80,7 +80,7 @@ services:
     schedule: "*/30 5-19 * * 1-5"
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: python Modules/Ingestion/run_ingestion.py
+    dockerCommand: python Modules/Ingestion/ING_00_run_cycle.py
     envVars:
       - fromGroup: fusion-db
 
@@ -92,7 +92,7 @@ services:
     schedule: "10,40 5-19 * * 1-5"
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: python Modules/Processing/process_engine.py
+    dockerCommand: python Modules/Processing/PRS_01_engine.py
     envVars:
       - fromGroup: fusion-db
 
@@ -104,7 +104,7 @@ services:
     schedule: "0 * * * *"
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: python Modules/Submission/mirror_ens.py
+    dockerCommand: python Modules/Submission/SUB_03_mirror.py
     envVars:
       - fromGroup: fusion-db
 
@@ -116,7 +116,7 @@ services:
     schedule: "0 3 * * 1"
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    dockerCommand: python Modules/Global/fetch_choice_values.py
+    dockerCommand: python Modules/Global/REF_01_choice_values.py
     envVars:
       - fromGroup: fusion-db
 

@@ -24,10 +24,10 @@ import sys
 from pathlib import Path
 
 try:
-    from .process_engine import run, DEFAULT_INI
+    from .PRS_01_engine import run, DEFAULT_INI
 except Exception:  # pragma: no cover - script context
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from process_engine import run, DEFAULT_INI  # type: ignore
+    from PRS_01_engine import run, DEFAULT_INI  # type: ignore
 
 
 def main() -> int:
