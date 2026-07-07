@@ -482,11 +482,11 @@ function renderSubmissions(){
   const statuses=['All',...new Set((d.submissions||[]).map(s=>s.status))];
   v.innerHTML=`<div class="page-head"><div><div class="eyebrow">${CURRENT}</div><h2>Submissions</h2><p>Movements and their TSS declaration state — <code>PRS</code> → <code>STG</code> → <code>TSS</code> mirror. <b>Click a row</b> to open its pipeline.</p></div>
     <div class="filters"><select class="mini" id="stFilter">${statuses.map(s=>`<option>${s}</option>`).join('')}</select></div></div>
-    <div class="panel"><div class="tablewrap"><table><thead><tr><th>Movement</th><th>ENS number</th><th>Arrival (UTC)</th><th>Port</th><th>Status</th></tr></thead>
+    <div class="panel"><div class="tablewrap"><table><thead><tr><th>Movement</th><th>ENS number</th><th>Arrival (UTC)</th><th>Port</th><th>Stage</th><th>TSS</th></tr></thead>
     <tbody id="subBody"></tbody></table></div>${(d.submissions||[]).length?'':'<div class="empty">No submissions for this client yet.</div>'}</div>`;
   const body=$('#subBody',v);
   const draw=f=>{
-    body.innerHTML=(d.submissions||[]).filter(s=>f==='All'||s.status===f).map(s=>`<tr class="rowlink" data-mk="${s.mk}"><td class="mono">${s.mk}</td><td class="mono">${s.decl}</td><td class="mono">${s.arrival}</td><td class="mono">${s.port}</td><td>${statusPill(s.status)}</td></tr>`).join('');
+    body.innerHTML=(d.submissions||[]).filter(s=>f==='All'||s.status===f).map(s=>`<tr class="rowlink" data-mk="${s.mk}"><td class="mono">${s.mk}</td><td class="mono">${s.decl}</td><td class="mono">${s.arrival}</td><td class="mono">${s.port}</td><td>${statusPill(s.status)}</td><td class="mono" style="font-size:11.5px">${s.tssStatus&&s.tssStatus!=='—'?s.tssStatus:'—'}</td></tr>`).join('');
     body.querySelectorAll('.rowlink').forEach(tr=>tr.addEventListener('click',()=>openPipeline(tr.dataset.mk)));
   };
   draw('All');
@@ -564,7 +564,21 @@ async function renderLog(){
   catch(e){ $('#logBody').innerHTML='<div class="panel">Log unavailable — API offline.</div>'; return; }
   if(d.error){ $('#logBody').innerHTML=`<div class="panel">Log unavailable: ${d.error}</div>`; return; }
   const t=s=>(s||'').replace('T',' ').slice(0,19);
-  const q=(d.queue||[]).map(x=>`<tr><td class="mono">${x.id}</td><td>${x.verb||''}</td>
+  // Scheduler / worker health strip (amber if a source hasn't run in >1h).
+  const nowMs=Date.now();
+  const tms=s=>{ if(!s) return NaN; const x=new Date(String(s).replace(' ','T')+(String(s).endsWith('Z')?'':'Z')).getTime(); return x; };
+  const ago=s=>{ const x=tms(s); if(isNaN(x)) return '—'; const m=Math.round((nowMs-x)/60000); return m<1?'just now':m<60?m+'m ago':Math.round(m/60)+'h ago'; };
+  const stale=s=>{ const x=tms(s); return isNaN(x)?true:(nowMs-x)>3600000; };
+  const h=d.health||{};
+  const hc=(lbl,ts)=>`<span class="chip" style="border-left:3px solid ${stale(ts)?'var(--bad)':'var(--good)'}">${lbl}: ${ago(ts)}</span>`;
+  const healthStrip=`<div class="panel"><h3>Scheduler &amp; worker health <span class="sub">last activity · amber if &gt;1h</span></h3>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${(h.modules||[]).map(m=>hc(m.module,m.last)).join('')}
+        ${hc('worker',h.worker)}
+        <span class="chip">queue pending: ${h.pending??'—'}</span>
+      </div></div>`;
+  const q=(d.queue||[]).map(x=>`<tr ${x.executionId?`data-eid="${x.executionId}" style="cursor:pointer" title="View this run's log"`:''}>
+      <td class="mono">${x.id}</td><td>${x.verb||''}</td>
       <td class="mono">${x.mk||''}</td><td><span class="chip">${x.status||''}</span></td>
       <td class="mono" style="font-size:11px">${t(x.finished||x.started||x.requested)}</td>
       <td style="font-size:11px">${x.message?String(x.message).slice(0,90):''}</td></tr>`).join('');
@@ -575,7 +589,8 @@ async function renderLog(){
       <td class="mono" style="font-size:11px">${t(x.started)}</td>
       <td style="color:var(--bad);font-size:11px">${x.error?String(x.error).slice(0,90):''}</td></tr>`).join('');
   $('#logBody').innerHTML=`
-    <div class="panel"><h3>Portal job queue <span class="sub">EXC.Job_Queue · latest 100</span></h3>
+    ${healthStrip}
+    <div class="panel" style="margin-top:16px"><h3>Portal job queue <span class="sub">EXC.Job_Queue · latest 100 · click a row for its run log</span></h3>
       <div class="tablewrap"><table><thead><tr><th>#</th><th>Verb</th><th>Movement</th><th>Status</th><th>When</th><th>Result</th></tr></thead>
       <tbody>${q||'<tr><td colspan="6" style="color:var(--muted)">No queued jobs yet.</td></tr>'}</tbody></table></div></div>
     <div class="panel" style="margin-top:16px"><h3>Executions <span class="sub">EXC.Execution · latest 100 · click a row for its log</span></h3>
@@ -712,7 +727,8 @@ const STAGES = [
   {key:"RECONCILED", n:"6", lbl:"Reconciled",  sub:"TSS mirror"},
 ];
 const STATUS_STAGE = {REJECTED:2,Rejected:2,VALIDATED:2,Validated:2,"STG_MATERIALISED":3,READY:3,
-  Staged:3,STAGED:3,SUBMITTED:4,Submitted:4,Draft:4,RECONCILED:5,Reconciled:5};
+  Staged:3,STAGED:3,SUBMITTING:4,SUBMITTED:4,Submitted:4,Draft:4,RECONCILED:5,Reconciled:5,
+  CANCELLED:5,Cancelled:5};
 const ACTIONS = {   // current stage index -> the action that advances it
   1:{label:"Validate",          job:"PRS_ENGINE_BKD_ENS",   to:2, cls:"", v:"reprocess"},
   2:{label:"Promote to STG",    job:"PRS_PROMOTE_BKD_ENS",  to:3, cls:"", v:"promote"},
@@ -763,9 +779,11 @@ let PL = {mk:null, idx:1, rejected:false, decl:"—"};
 function openPipeline(mk){
   const d=cd(); const s=(d.submissions||[]).find(x=>x.mk===mk); if(!s)return;
   const st=s.status||"";
-  PL={mk, decl:s.decl||"—", rejected:/reject/i.test(st), idx:(STATUS_STAGE[st]!=null?STATUS_STAGE[st]:1), sub:s};
+  PL={mk, decl:s.decl||"—", rejected:/reject/i.test(st), cancelled:/cancel/i.test(st),
+      idx:(STATUS_STAGE[st]!=null?STATUS_STAGE[st]:1), sub:s};
   $('#pl-title').textContent=`${clientMeta().name} · Movement pipeline`;
-  $('#pl-mk').innerHTML=`<span>MK ${mk}</span><span>ENS ${PL.decl}</span><span>Status ${statusPill(st)}</span>`;
+  const tss=s.tssStatus&&s.tssStatus!=='—'?`<span>TSS ${statusPill(s.tssStatus)}</span>`:'';
+  $('#pl-mk').innerHTML=`<span>MK ${mk}</span><span>ENS ${PL.decl}</span><span>Stage ${statusPill(st)}</span>${tss}`;
   renderPipeline(true);
   $('#pipeline').classList.add('open');
 }

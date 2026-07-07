@@ -77,12 +77,16 @@ def process_next(conn) -> bool:
         return False
     qid, verb, mk = int(row[0]), row[1], row[2]
     print(f"[WORKER] claim #{qid} {verb} mk={mk}")
+    # Capture the EXC.Execution the runner opens, so the queue row links to its log.
+    before = int(cur.execute("SELECT ISNULL(MAX(ExecutionID), 0) FROM EXC.Execution").fetchone()[0])
     try:
         code, msg = _run_job(verb, mk)
+        after = int(cur.execute("SELECT ISNULL(MAX(ExecutionID), 0) FROM EXC.Execution").fetchone()[0])
+        exec_id = after if after > before else None
         conn.cursor().execute(
             "UPDATE EXC.Job_Queue SET Status = ?, FinishedAt = SYSUTCDATETIME(), "
-            "ExitCode = ?, ResultMessage = ? WHERE QueueID = ?",
-            ("DONE" if code == 0 else "FAILED"), code, msg[:2000], qid)
+            "ExitCode = ?, ResultMessage = ?, ExecutionID = ? WHERE QueueID = ?",
+            ("DONE" if code == 0 else "FAILED"), code, msg[:2000], exec_id, qid)
         print(f"[WORKER] #{qid} {'DONE' if code == 0 else 'FAILED'} ({msg})")
     except Exception as e:  # noqa: BLE001 - never let one bad job kill the worker
         conn.cursor().execute(
