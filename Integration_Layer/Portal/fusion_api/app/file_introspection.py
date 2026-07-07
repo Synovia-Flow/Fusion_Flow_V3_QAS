@@ -5,7 +5,9 @@ import csv
 import json
 import os
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pathlib import Path
 import re
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -14,6 +16,12 @@ import zipfile
 from io import BytesIO, StringIO
 from typing import Any
 from xml.etree import ElementTree as ET
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from Modules.Processing.preview_enrichment import normalise_package_type
 
 MAX_DATA_ROWS = 1000
 MAX_SCAN_ROWS = MAX_DATA_ROWS + 20
@@ -250,7 +258,7 @@ PDF_OUTPUT_COLUMNS = [
 EORI_RE = re.compile(r"\b(?:(?:GB|XI)\d{12}[A-Z0-9]{0,3}|IE[A-Z0-9]{8,12})\b", re.I)
 POSTCODE_RE = re.compile(r"\b(?:[A-Z]{1,2}\d[A-Z\d]?\s*[0-9O][A-Z]{2}|[A-Z]\d{2}\s?[A-Z0-9]{4})\b", re.I)
 COMMODITY_RE = re.compile(r"(?<!\d)\d{8,10}(?!\d)")
-MONEY_RE = re.compile(r"(?:[\u00a3\u0141]\s*|GBP\s*)?([0-9][0-9,]*\.\d{2})(?:\s*GBP)?", re.I)
+MONEY_RE = re.compile(r"(?:(?:\u00c2\u00a3|[\u00a3\u0141])\s*|GBP\s*)?([0-9][0-9,]*\.\d{2})(?:\s*GBP)?", re.I)
 NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 COUNTY_HINT_RE = re.compile(r"^(?:West Sussex|East Sussex|Cambridgeshire|Leicestershire|Hertfordshire|Essex|Kent|Surrey|Lancashire|Yorkshire|Middlesex)$", re.I)
 PDF_REVERSED_METRIC_RE = re.compile(
@@ -759,12 +767,14 @@ def _first_number(value: str) -> str:
 def _package_type(text: str) -> str:
     lowered = (text or "").lower()
     if "pallet" in lowered:
-        return "Pallet"
-    if "carton" in lowered or "ctn" in lowered or "box" in lowered:
-        return "Boxes"
-    if "can" in lowered:
-        return "Cans"
-    return "PK"
+        candidate = "pallets"
+    elif "carton" in lowered or "ctn" in lowered or "box" in lowered:
+        candidate = "Boxes"
+    elif "can" in lowered:
+        candidate = "Cans"
+    else:
+        candidate = text or "PK"
+    return normalise_package_type(candidate, default="PK") or "PK"
 
 
 def _money_values(text: str) -> list[str]:
@@ -1083,13 +1093,19 @@ def _parse_pdf_goods_line(line: str, next_line: str, meta: dict[str, Any], previ
     if reversed_metrics.get("quantity"):
         qty = reversed_metrics["quantity"]
     else:
-        qty_match = re.search(r"\s(\d+(?:\.\d+)?)\s+(?:[\u00a3\u0141]|GBP)?\s*\d", before, re.I)
+        qty_match = re.search(r"\s(\d+(?:\.\d+)?)\s+(?:(?:\u00c2\u00a3|[\u00a3\u0141])|GBP)?\s*\d", before, re.I)
         if qty_match:
             qty = qty_match.group(1)
             description_source = description_source[:description_source.rfind(qty)].strip() if qty in description_source else description_source
-    description_source = re.sub(r"\s+[\u00a3\u0141]?\d[\d,.]*(?:\.\d+)?\s*$", "", description_source).strip(" -")
+    description_source = re.sub(
+        r"\s+\d+(?:\.\d+)?\s+(?:(?:\u00c2\u00a3|[\u00a3\u0141])|GBP)\s*\d[\d,.]*(?:\.\d+)?\s*$",
+        "",
+        description_source,
+        flags=re.I,
+    ).strip(" -")
+    description_source = re.sub(r"\s+(?:(?:\u00c2\u00a3|[\u00a3\u0141])\s*)?\d[\d,.]*(?:\.\d+)?\s*$", "", description_source).strip(" -")
 
-    after_description = re.sub(r"^[\s\d.,\u00a3\u0141GBP]+", "", after, flags=re.I).strip(" -")
+    after_description = re.sub(r"^(?:[\s\d.,GBP]|\u00c2\u00a3|[\u00a3\u0141])+", "", after, flags=re.I).strip(" -")
     if len(after_description) > len(description_source):
         description_source = after_description
         if next_line and not COMMODITY_RE.search(next_line) and not re.search(r"Invoice|Order Total|Exporter|Payment", next_line, re.I):

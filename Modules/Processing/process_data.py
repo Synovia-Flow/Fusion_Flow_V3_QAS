@@ -68,9 +68,19 @@ DEFAULT_DRY_RUN = False
 # --------------------------------------------------------------------------- #
 try:  # package context
     from . import mapping  # type: ignore
+    from .preview_enrichment import (
+        normalise_package_type as _shared_normalise_package_type,
+        product_master_get as _shared_product_master_get,
+        product_master_lookup as _shared_product_master_lookup,
+    )
 except Exception:  # pragma: no cover - script context fallback
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import mapping  # type: ignore
+    from preview_enrichment import (
+        normalise_package_type as _shared_normalise_package_type,
+        product_master_get as _shared_product_master_get,
+        product_master_lookup as _shared_product_master_lookup,
+    )
 
 # Locked symbols from mapping.py (do NOT redefine - import only).
 ENS_CSV_TO_HEADER = mapping.ENS_CSV_TO_HEADER
@@ -397,6 +407,7 @@ def _set_field(db: ProcessingDb, obj: dict[str, Any], table: str, column: str,
     old_value = obj.get(column)
     if db.log_enhancement("PRS", table, column, entity_ref, old_value, new_value, rule):
         obj[column] = new_value
+        obj.setdefault("_field_rules", {})[column] = rule
 
 def _split_reference(value: Any, part_number: int, max_length: int) -> Any:
     """Suffix references for automatic >99 goods split parts without exceeding TSS field limits."""
@@ -414,6 +425,14 @@ def _bkd_assumption_rule(field: str, label: str) -> str:
     citation = QAS_RULE_CITATIONS.get(field)
     suffix = f" ({citation})" if citation else ""
     return f"ASSUMPTION:{label}{suffix}"
+
+
+def _field_rule(obj: dict[str, Any], field: str) -> str:
+    return str((obj.get("_field_rules") or {}).get(field) or "")
+
+
+def _is_assumption_rule(rule: str) -> bool:
+    return str(rule or "").upper().startswith("ASSUMPTION:")
 
 
 def _normalise_source_key(value: str) -> str:
@@ -474,15 +493,7 @@ def _weight_quantity(goods: dict[str, Any]) -> tuple[Decimal, str]:
 
 
 def _normalise_package_type(value: Any) -> str | None:
-    text = normalise_text(value)
-    if text is None:
-        return None
-    upper = text.upper()
-    if "BOX" in upper:
-        return "Boxes"
-    if "PALLET" in upper:
-        return "Pallets"
-    return text
+    return _shared_normalise_package_type(value)
 
 
 def _normalise_movement_type(value: Any) -> str | None:
@@ -670,6 +681,15 @@ def normalise(db: ProcessingDb, ens_row: dict[str, Any], so_rows: list[dict[str,
             "ConsignmentOrdinal": len(consignments) + 1,
             "Status": "NORMALISED",
         }
+        source_customer_code = normalise_text(
+            first.get("sell_to_customer_no")
+            or first.get("sell_to_customer_number")
+            or first.get("customer_code")
+            or first.get("customer_no")
+            or first.get("customer_number")
+        )
+        if source_customer_code:
+            cons["_source_customer_code"] = source_customer_code
         for src_col, dest_col in SALES_ORDER_TO_CONSIGNMENT.items():
             raw = first.get(src_col)
             if dest_col.endswith("_country") or dest_col == "destination_country":
@@ -715,8 +735,10 @@ def normalise(db: ProcessingDb, ens_row: dict[str, Any], so_rows: list[dict[str,
                     value = normalise_code(raw)
                 elif dest_col == "type_of_packages":
                     value = _normalise_package_type(raw)
-                    if value is not None and normalise_text(raw) != value:
+                    if value is not None and src_col == "unit_of_measure_code":
                         rule = "ASSUMPTION:PACKAGE_TYPE_FROM_UOM"
+                    elif value is not None and normalise_text(raw) != value:
+                        rule = "DP-FR-01:NORMALISE_PACKAGE_TYPE"
                 elif dest_col in ("number_of_packages", "number_of_individual_pieces"):
                     value = _normalise_intish(raw)
                 elif dest_col in ("gross_mass_kg", "net_mass_kg", "item_invoice_amount"):
@@ -804,7 +826,7 @@ def fetch_product_master(db: ProcessingDb, client_code: str) -> dict[str, dict[s
         return {}
 
     rows = db._query(
-        "SELECT ClientCode, SKU, ProductCode, ProductName, GoodsDescription, "
+        "SELECT ClientCode, CustomerCode, SKU, ProductCode, ProductName, GoodsDescription, "
         "CommodityCode, CountryOfOrigin, PackageType, PackageMarks, ProcedureCode, "
         "AdditionalProcedureCode, ValuationMethod, ValuationIndicator, PreferenceCode, "
         "NiAdditionalInfoCode, NatureOfTransaction, CountryOfPreferentialOrigin, "
@@ -816,12 +838,7 @@ def fetch_product_master(db: ProcessingDb, client_code: str) -> dict[str, dict[s
         "ORDER BY CASE WHEN ClientCode = ? THEN 0 ELSE 1 END",
         client_code, client_code,
     )
-    master: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        sku = _normalise_sku(row.get("SKU"))
-        if sku and sku not in master:
-            master[sku] = row
-    return master
+    return _shared_product_master_lookup(rows)
 
 
 def _set_goods_master_field(db: ProcessingDb, goods: dict[str, Any], field: str, value: Any,
@@ -829,7 +846,8 @@ def _set_goods_master_field(db: ProcessingDb, goods: dict[str, Any], field: str,
     if value is None or value == "":
         return
     current = goods.get(field)
-    if not replace_assumed and _filled(current):
+    can_replace_current = replace_assumed or _is_assumption_rule(_field_rule(goods, field))
+    if _filled(current) and not can_replace_current:
         return
     _set_field(db, goods, "Goods_Item", field, gref, value, rule)
 
@@ -863,7 +881,7 @@ def _apply_product_master_enrichment(db: ProcessingDb, goods: dict[str, Any], pr
     field_map = (
         ("CommodityCode", "commodity_code", normalise_code, "MASTERDATA:BKD_PRODUCT_MASTER_COMMODITY_CODE"),
         ("CountryOfOrigin", "country_of_origin", normalise_code, "MASTERDATA:BKD_PRODUCT_MASTER_COUNTRY_OF_ORIGIN"),
-        ("PackageType", "type_of_packages", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_PACKAGE_TYPE"),
+        ("PackageType", "type_of_packages", _normalise_package_type, "MASTERDATA:BKD_PRODUCT_MASTER_PACKAGE_TYPE"),
         ("PackageMarks", "package_marks", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_PACKAGE_MARKS"),
         ("ProcedureCode", "procedure_code", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_PROCEDURE_CODE"),
         ("AdditionalProcedureCode", "additional_procedure_code", normalise_text, "MASTERDATA:BKD_PRODUCT_MASTER_ADDITIONAL_PROCEDURE_CODE"),
@@ -1222,7 +1240,7 @@ def enrich(db: ProcessingDb, movement: dict[str, Any], choice_cache: dict[str, s
         for goods_index, goods in enumerate(cons.get("goods", []), 1):
             gref = _entity_ref(movement_key, cons=ci, goods=goods_index)
             sku = _normalise_sku(goods.get("_source_sku") or goods.get("package_marks") or goods.get("goods_id"))
-            _apply_product_master_enrichment(db, goods, product_master.get(sku or ""), gref)
+            _apply_product_master_enrichment(db, goods, _shared_product_master_get(product_master, goods, cons), gref)
             if not _filled(goods.get("controlled_goods")):
                 _set_field(db, goods, "Goods_Item", "controlled_goods", gref,
                            "no", "ASSUMPTION:BKD_DEFAULT_CONTROLLED_GOODS_NO")

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import re
+import sys
+from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from Modules.Processing.preview_validation import CONSIGNMENT_REQUIRED_FIELDS
+
 from .file_introspection import clean_cell
-from .tss_submission import CONSIGNMENT_REQUIRED_FIELDS
 
 TARGET_FIELDS: dict[str, set[str]] = {
     "PRS.Consignment": {
@@ -121,6 +128,11 @@ ALIASES: dict[str, tuple[str, str]] = {
     "countryofdestination": ("PRS.Consignment", "destination_country"),
     "packagetype": ("PRS.Goods_Item", "type_of_packages"),
     "typeofpackages": ("PRS.Goods_Item", "type_of_packages"),
+    "unitofmeasurecode": ("PRS.Goods_Item", "type_of_packages"),
+    "unitofmeasure": ("PRS.Goods_Item", "type_of_packages"),
+    "uomcode": ("PRS.Goods_Item", "type_of_packages"),
+    "uom": ("PRS.Goods_Item", "type_of_packages"),
+    "saleslineunitofmeasurecode": ("PRS.Goods_Item", "type_of_packages"),
     "packages": ("PRS.Goods_Item", "number_of_packages"),
     "numberofpackages": ("PRS.Goods_Item", "number_of_packages"),
     "packagemarks": ("PRS.Goods_Item", "package_marks"),

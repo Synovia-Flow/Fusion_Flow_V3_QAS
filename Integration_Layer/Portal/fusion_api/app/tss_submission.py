@@ -5,8 +5,20 @@ import json
 import time
 import urllib.error
 import urllib.request
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+import sys
+from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from Modules.Processing.preview_validation import (
+    CONSIGNMENT_REQUIRED_FIELDS,
+    compact,
+    required_consignment_fields_for_payload,
+    tss_payload_value,
+)
 
 CONS_META_FIELDS = {
     "ConsignmentRowID",
@@ -24,70 +36,6 @@ CONS_META_FIELDS = {
     "HeaderArrivalDateTime",
     "HeaderMovementKey",
 }
-
-# Baseline from the local TSS v2.9.5 notes in the repo. Party EORI values are
-# conditional: TSS can accept a full party address when the EORI is unknown.
-CONSIGNMENT_REQUIRED_FIELDS = (
-    "declaration_number",
-    "consignment_number",
-    "goods_description",
-    "transport_document_number",
-    "controlled_goods",
-)
-PARTY_PREFIXES = ("consignor", "consignee", "importer", "exporter")
-PARTY_ADDRESS_SUFFIXES = ("name", "street_number", "city", "postcode", "country")
-TSS_TWO_DECIMAL_FIELDS = {"gross_mass_kg", "net_mass_kg", "item_invoice_amount"}
-
-
-def compact(value: Any) -> Any:
-    if isinstance(value, str):
-        clean = value.strip()
-        return clean or None
-    return value
-
-
-def tss_decimal_2(value: Any) -> str | None:
-    clean = compact(value)
-    if clean is None:
-        return None
-    text = str(clean).strip().replace(",", "")
-    try:
-        number = Decimal(text)
-    except (InvalidOperation, ValueError):
-        return str(clean)
-    return format(number.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "f")
-
-
-def tss_payload_value(field: str, value: Any) -> Any:
-    clean = compact(value)
-    if clean is None:
-        return None
-    if field in TSS_TWO_DECIMAL_FIELDS:
-        return tss_decimal_2(clean)
-    return clean
-
-
-def party_address_fields(prefix: str) -> tuple[str, ...]:
-    return tuple(f"{prefix}_{suffix}" for suffix in PARTY_ADDRESS_SUFFIXES)
-
-
-def has_full_party_address(payload: dict[str, Any], prefix: str) -> bool:
-    return all(compact(payload.get(field)) is not None for field in party_address_fields(prefix))
-
-
-def required_consignment_fields_for_payload(payload: dict[str, Any]) -> set[str]:
-    required = set(CONSIGNMENT_REQUIRED_FIELDS)
-    for prefix in PARTY_PREFIXES:
-        eori_field = f"{prefix}_eori"
-        if compact(payload.get(eori_field)) is not None:
-            continue
-        if has_full_party_address(payload, prefix):
-            required.update(party_address_fields(prefix))
-            continue
-        required.add(eori_field)
-        required.update(field for field in party_address_fields(prefix) if compact(payload.get(field)) is None)
-    return required
-
 
 def normalise(value: Any) -> str:
     return str(value or "").strip().lower().replace(" ", "_")
