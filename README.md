@@ -96,17 +96,7 @@ No database table was created for this inspection. Proposed names such as
 current rule is to reuse the existing V3 model unless a real schema gap is proven
 and explicitly approved.
 
-The current simplified workbook is:
-
-`Documentation_Layer/BKD_Sheet3_API_Needs_Only_With_ING_Execution_78_20260707_110018.xlsx`
-
-It contains one purpose sheet and four simple IN/OUT sheets. The simplified workbook includes `ING_ExecutionID` and `ING_LoadID` traceability from the pasted `ING` rows. OUT sheets are intentionally API-needs-only, not full PRS/STG internal records:
-
-- `PURPOSE`: arrows and intent for the logical shapes.
-- `Consigments_IN`: what the client supplied for candidate consignments.
-- `Consigments_OUT`: the CFG-enriched consignment shape expected by the TSS API.
-- `GoodsItems_IN`: what the client supplied for goods lines.
-- `GoodsItems_OUT`: the CFG-enriched goods payload shape expected under each consignment.
+Any Excel exports generated during this inspection are temporary local review artifacts and should not be committed. The durable contract is the logical IN/OUT shape below: IN is what the client supplied; OUT is the CFG-enriched API-needs-only payload shape for consignments and goods.
 
 The logical names are:
 
