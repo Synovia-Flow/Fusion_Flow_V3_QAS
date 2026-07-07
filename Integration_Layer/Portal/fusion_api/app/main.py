@@ -777,6 +777,10 @@ def tss_api_base_path() -> str:
     return cfg_parameter_value("SUBMISSION_API_BASE_PATH", "/x_fhmrc_tss_api/v1/tss_api")
 
 
+def tss_choice_values_base_path() -> str:
+    return cfg_parameter_value("CHOICE_VALUES_PATH", "/x_fhmrc_tss_api/v1/choice_values")
+
+
 def normalize_tss_endpoint(endpoint: str) -> str:
     return "/" + str(endpoint or "").strip("/")
 
@@ -1293,8 +1297,8 @@ def test_tss_connection(client_code: str = Query("PLE"), env_code: str | None = 
     if not credential.get("baseUrl"):
         raise HTTPException(status_code=409, detail="TSS environment has no BaseUrl configured.")
 
-    api_base_path = tss_api_base_path()
-    test_endpoint = "/choice_values/country"
+    api_base_path = tss_choice_values_base_path()
+    test_endpoint = "/country"
     url = join_tss_url(credential["baseUrl"], api_base_path, test_endpoint)
     token = base64.b64encode(f"{credential['tssUsername']}:{credential['password']}".encode("utf-8")).decode("ascii")
     request = urllib.request.Request(url, headers={"Authorization": f"Basic {token}", "Accept": "application/json"})
