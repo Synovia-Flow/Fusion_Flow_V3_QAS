@@ -628,7 +628,7 @@ button:disabled { cursor: default; }
   background: #fff;
   box-shadow: 0 4px 12px rgba(15, 23, 42, .2);
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   padding: 30px 28px 28px;
 }
@@ -4106,6 +4106,8 @@ button:disabled { cursor: default; }
 .app-shell[data-theme="dark"] .v2-like-consignments-table th { background: rgba(15, 23, 42, .65); }
 .app-shell[data-theme="dark"] .v2-like-consignments-table tr.row-needs-attention { background: rgba(180, 83, 9, .16); }
 .app-shell[data-theme="dark"] .v2-like-consignments-table tr.row-needs-attention.selected { background: rgba(180, 83, 9, .24); }
+.app-shell[data-theme="dark"] .v2-like-consignments-table tbody tr.selection-checked { background: rgba(96, 165, 250, .2); }
+.app-shell[data-theme="dark"] .v2-like-consignments-table tbody tr.selection-checked:hover { background: rgba(96, 165, 250, .28); }
 .app-shell[data-theme="dark"] .clear-filters-button { background: rgba(127, 29, 29, .18); border-color: rgba(248, 113, 113, .35); color: #fecaca; }
 /* V2 BKD-inspired consignments view */
 .consignment-page-actions {
@@ -4126,12 +4128,23 @@ button:disabled { cursor: default; }
   background: #f8fafc !important;
   border-color: #e2e8f0 !important;
 }
-.v2-like-consignments-table tbody tr[role="link"] {
+.v2-like-consignments-table tbody tr[role="link"],
+.v2-like-consignments-table tbody tr[role="checkbox"] {
   cursor: pointer;
 }
-.v2-like-consignments-table tbody tr[role="link"]:focus-visible {
+.v2-like-consignments-table tbody tr[role="link"]:focus-visible,
+.v2-like-consignments-table tbody tr[role="checkbox"]:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: -2px;
+}
+.v2-like-consignments-table tbody tr.selection-checked {
+  background: #eaf4ff;
+}
+.v2-like-consignments-table tbody tr.selection-checked:hover {
+  background: #e1f0ff;
+}
+.v2-like-consignments-table tbody tr.select-mode-row .ref-cell button {
+  pointer-events: none;
 }
 .app-shell[data-theme="dark"] .danger-action {
   border-color: rgba(248, 113, 113, .38) !important;

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminSettings, getApiDocsUrl, getConsignmentDetail, getConsignments, getControlTower, getDashboard, getSession, getTssConnections, getValidationDiagnostics, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings, validateConsignmentPreview, testTssConnection } from './api';
+import { getAdminSettings, getApiDocsUrl, getConsignmentDetail, getConsignments, getControlTower, getDashboard, getDeclarations, getSession, getTssConnections, getValidationDiagnostics, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings, validateConsignmentPreview, testTssConnection } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'SYNOVIA',
@@ -119,7 +119,7 @@ function isSynoviaSession(session) {
 }
 
 const PORTAL_SESSION_STORAGE_KEY = 'fusion_portal_session_v1';
-const PERSISTABLE_VIEWS = new Set(['dashboard', 'upload', 'consignments', 'controlTower', 'masterLive', 'settings']);
+const PERSISTABLE_VIEWS = new Set(['dashboard', 'declarations', 'upload', 'consignments', 'controlTower', 'masterLive', 'settings']);
 
 function getPortalSessionStorage() {
   if (typeof window === 'undefined') return null;
@@ -138,6 +138,67 @@ function normalizeStoredSettingsSection(sectionId) {
   return SETTINGS_NAV_SECTIONS.some((section) => section.id === sectionId)
     ? sectionId
     : SETTINGS_NAV_SECTIONS[0].id;
+}
+function normalizeRouteSettingsSection(sectionId) {
+  const normalized = String(sectionId || '')
+    .trim()
+    .replace(/[-\s]+/g, '_')
+    .toUpperCase();
+  if (!normalized) return SETTINGS_NAV_SECTIONS[0].id;
+  const match = SETTINGS_NAV_SECTIONS.find((section) => section.id.toUpperCase() === normalized);
+  return match?.id || SETTINGS_NAV_SECTIONS[0].id;
+}
+
+function portalRouteFromLocation(location = typeof window !== 'undefined' ? window.location : null) {
+  if (!location) return { view: '' };
+  const parts = String(location.pathname || '/')
+    .replace(/\/+$/, '')
+    .split('/')
+    .filter(Boolean)
+    .map((part) => decodeURIComponent(part));
+
+  if (!parts.length) return { view: '' };
+
+  const route = parts[0].toLowerCase();
+  if (route === 'login') return { view: 'login' };
+  if (route === 'dashboard') return { view: 'dashboard' };
+  if (route === 'upload') return { view: 'upload' };
+  if (route === 'declarations' || route === 'ens') return { view: 'declarations', declarationId: parts[1] || '' };
+  if (route === 'consignments') return { view: 'consignments', consignmentId: parts[1] || '' };
+  if (route === 'control-tower' || route === 'controltower') return { view: 'controlTower' };
+  if (route === 'master-live' || route === 'masterlive') return { view: 'masterLive' };
+  if (route === 'settings') {
+    const params = new URLSearchParams(location.search || '');
+    const querySection = params.get('section') || params.get('settings') || (params.has('tss-api') ? 'TSS_API' : '');
+    return { view: 'settings', settingsSection: normalizeRouteSettingsSection(parts[1] || querySection) };
+  }
+  return { view: 'dashboard' };
+}
+
+function portalPathForRoute(view, options = {}) {
+  if (view === 'login') return '/login';
+  if (view === 'upload') return '/upload';
+  if (view === 'declarations') {
+    const token = String(options.declarationId || '').trim();
+    return token ? `/declarations/${encodeURIComponent(token)}` : '/declarations';
+  }
+  if (view === 'consignments') {
+    const token = String(options.consignmentId || '').trim();
+    return token ? `/consignments/${encodeURIComponent(token)}` : '/consignments';
+  }
+  if (view === 'controlTower') return '/control-tower';
+  if (view === 'masterLive') return '/master-live';
+  if (view === 'settings') return `/settings/${encodeURIComponent(options.settingsSection || SETTINGS_NAV_SECTIONS[0].id)}`;
+  return '/dashboard';
+}
+
+function updateBrowserRoute(view, options = {}, { replace = false } = {}) {
+  if (typeof window === 'undefined' || !window.history?.pushState) return;
+  const nextPath = portalPathForRoute(view, options);
+  const currentPath = `${window.location.pathname}${window.location.search || ''}`;
+  if (currentPath === nextPath) return;
+  const method = replace ? 'replaceState' : 'pushState';
+  window.history[method]({ view, ...options }, '', nextPath);
 }
 
 function normalizeStoredSession(rawSession) {
@@ -406,6 +467,88 @@ function normalizeConsignment(row) {
   };
 }
 
+function normalizeDeclaration(row) {
+  const ensHeaderRowId = row.EnsHeaderRowID ?? row.ensHeaderRowID ?? row.ensHeaderRowId;
+  const movementKey = row.MovementKey ?? row.movementKey ?? '';
+  const declarationNumber = row.DeclarationNumber ?? row.declarationNumber ?? row.Declaration_Number ?? '';
+  const fallbackId = movementKey || declarationNumber || ensHeaderRowId || 'DRAFT';
+  return {
+    id: `PRS-H${String(fallbackId).replace(/[^A-Za-z0-9_-]+/g, '-')}`,
+    clientCode: row.ClientCode ?? row.clientCode ?? '',
+    ensHeaderRowId,
+    movementKey,
+    declarationNumber,
+    status: row.Status ?? row.status ?? row.Fusion_Status ?? 'DRAFT',
+    tssStatus: deriveTssStatus(row),
+    movementType: row.MovementType ?? row.movementType ?? row.movement_type ?? '',
+    arrivalPort: row.ArrivalPort ?? row.arrivalPort ?? row.arrival_port ?? '',
+    arrivalDateTime: row.ArrivalDateTime ?? row.arrivalDateTime ?? row.arrival_date_time ?? '',
+    carrierName: row.CarrierName ?? row.carrierName ?? row.carrier_name ?? '',
+    carrierEori: row.CarrierEori ?? row.carrierEori ?? row.carrier_eori ?? '',
+    consignments: Number(row.Consignments ?? row.consignments ?? row.ConsignmentCount ?? 0),
+    goodsItems: Number(row.GoodsItems ?? row.goodsItems ?? row.GoodsItemCount ?? 0),
+    sourceChannel: row.SourceChannel ?? row.sourceChannel ?? '',
+    sourceFile: row.SourceFile ?? row.sourceFile ?? '',
+    source: row.SourceTable ?? row.sourceTable ?? row.Source ?? row.source ?? 'PRS.ENS_Header',
+    lastExecutionId: row.LastExecutionID ?? row.lastExecutionID ?? row.ExecutionID ?? '',
+    createdAt: row.CreatedAt ?? row.createdAt ?? '',
+    updatedAt: row.UpdatedAt ?? row.updatedAt ?? '',
+  };
+}
+
+function declarationDateValue(row) {
+  return row?.arrivalDateTime || row?.updatedAt || row?.createdAt || '';
+}
+
+function declarationTimestamp(row) {
+  const raw = declarationDateValue(row);
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function declarationPrimaryRef(row) {
+  if (row?.declarationNumber) return row.declarationNumber;
+  if (row?.ensHeaderRowId) return `ENS #${row.ensHeaderRowId}`;
+  return row?.movementKey || '-';
+}
+
+function localDeclarationStatus(row) {
+  return normalizeStatusText(row?.status ?? row?.Status, 'DRAFT');
+}
+
+function buildDeclarationsFromConsignments(rows = []) {
+  const grouped = new Map();
+  rows.forEach((item) => {
+    const row = normalizeConsignment(item);
+    const key = row.movementKey || row.declarationNumber || row.ensHeaderRowId || row.id;
+    const current = grouped.get(key) || {
+      MovementKey: row.movementKey,
+      DeclarationNumber: row.declarationNumber,
+      EnsHeaderRowID: row.ensHeaderRowId,
+      ClientCode: row.clientCode,
+      Status: row.status,
+      TssStatus: row.tssStatus,
+      ArrivalDateTime: row.arrivalDateTime,
+      Consignments: 0,
+      GoodsItems: 0,
+      SourceTable: 'Derived from PRS.Consignment',
+      UpdatedAt: row.updatedAt,
+    };
+    current.Consignments += 1;
+    current.GoodsItems += Number(row.goodsItems || 0);
+    current.DeclarationNumber = current.DeclarationNumber || row.declarationNumber;
+    current.EnsHeaderRowID = current.EnsHeaderRowID || row.ensHeaderRowId;
+    current.ArrivalDateTime = current.ArrivalDateTime || row.arrivalDateTime;
+    current.UpdatedAt = row.updatedAt || current.UpdatedAt;
+    if (['ERROR', 'REJECTED', 'NEEDS_REVIEW'].includes(localConsignmentStatus(row))) current.Status = row.status;
+    else if (['VALIDATED', 'READY'].includes(localConsignmentStatus(row))) current.Status = row.status;
+    if (row.tssStatus && current.TssStatus === 'PENDING_TSS') current.TssStatus = row.tssStatus;
+    grouped.set(key, current);
+  });
+  return [...grouped.values()].map(normalizeDeclaration);
+}
+
+const DECLARATIONS = buildDeclarationsFromConsignments(CONSIGNMENTS);
 const STATUS_VOCABULARY_FALLBACK = [
   { resultStatus: 'INGESTED', processName: 'INGESTION', meaning: 'Raw evidence has landed.', sortOrder: 10 },
   { resultStatus: 'NORMALISED', processName: 'PROCESSING', meaning: 'Source data has been normalised.', sortOrder: 20 },
@@ -681,6 +824,7 @@ function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [
         <DrawerRow icon="home" label="Home" active={view === 'dashboard'} onClick={() => onNavigate(isAuthenticated ? 'dashboard' : 'login')} />
         {isAuthenticated && (
           <>
+            <DrawerRow icon="fact_check" label="ENS / Declarations" active={view === 'declarations'} onClick={() => onNavigate('declarations')} />
             <DrawerRow icon="upload_file" label="Upload Consignments" active={view === 'upload'} onClick={() => onNavigate('upload')} />
             <DrawerRow icon="list_alt" label="View Consignments" active={view === 'consignments'} onClick={() => onNavigate('consignments')} />
             <DrawerRow icon="hub" label="Control Tower" active={view === 'controlTower'} onClick={() => onNavigate('controlTower')} />
@@ -896,6 +1040,14 @@ function DashboardPage({ onNavigate, connection, activeClientCode, onClientChang
       <OperationalContextPanel activeClientCode={activeClientCode} onClientChange={onClientChange} isDemoAdmin={isDemoAdmin} />
       <TssConnectionStrip connection={connection} />
       <div className="action-panel" aria-label="Workflow actions">
+        <div className="action-column">
+          <MaterialIcon className="action-icon">fact_check</MaterialIcon>
+          <h2>ENS / Declarations</h2>
+          <button className="primary-action blue" type="button" onClick={() => onNavigate('declarations')}>
+            <MaterialIcon>fact_check</MaterialIcon>
+            <span>View Declarations</span>
+          </button>
+        </div>
         <div className="action-column">
           <MaterialIcon className="action-icon">upload_file</MaterialIcon>
           <h2>Create or Upload Consignments</h2>
@@ -2813,7 +2965,433 @@ function ConsignmentDetailModal({ row, onClose, onSave, onQueueForTss }) {
   );
 }
 
-function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVocabulary = STATUS_VOCABULARY_FALLBACK, onQueueForTss, onUpdateConsignment, onRefresh }) {
+function DeclarationDetailModal({ row, onClose, onOpenConsignments }) {
+  const primaryRef = declarationPrimaryRef(row);
+  const localStatus = localDeclarationStatus(row);
+  const tssStatus = deriveTssStatus(row);
+  const sourceLabel = row.source || 'PRS.ENS_Header';
+  const canOpenConsignments = Boolean(onOpenConsignments);
+
+  return (
+    <div className="preview-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="consignment-detail-modal declaration-detail-modal" role="dialog" aria-modal="true" aria-label="ENS declaration detail">
+        <header className="preview-modal-header consignment-detail-modal-header">
+          <div>
+            <span className="preview-eyebrow">PRS.ENS_Header</span>
+            <h2>{primaryRef}</h2>
+            <p>{row.movementKey || 'Movement key pending'} / {sourceLabel}</p>
+          </div>
+          <div className="consignment-modal-status">
+            <span>Local / TSS</span>
+            <StatusBadge status={localStatus} />
+            <StatusBadge status={tssStatus} />
+          </div>
+          <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close declaration detail">
+            <MaterialIcon>close</MaterialIcon>
+          </button>
+        </header>
+
+        <div className="consignment-detail-body">
+          <div className="v2-consignment-status-strip" aria-label="Declaration references">
+            <span className="v2-ref-chip local"><strong>Local</strong><StatusBadge status={localStatus} /></span>
+            <span className="v2-ref-chip tss"><strong>TSS</strong><StatusBadge status={tssStatus} /></span>
+            <span className="v2-ref-chip"><strong>Movement</strong><em>{row.movementType || '-'}</em></span>
+            <span className="v2-ref-chip"><strong>Cons</strong><em>{row.consignments || 0}</em></span>
+            <span className="v2-ref-chip"><strong>Goods</strong><em>{row.goodsItems || 0}</em></span>
+          </div>
+
+          <section className="v2-detail-panel" aria-label="ENS declaration details">
+            <div className="consignment-section-heading">
+              <span>ENS / Declarations</span>
+              <strong>PRS canonical header with STG/API/TSS status context.</strong>
+            </div>
+            <div className="v2-detail-grid">
+              <div><span>ENS Header Row</span><strong>{row.ensHeaderRowId || '-'}</strong></div>
+              <div><span>Declaration Number</span><strong>{row.declarationNumber || '-'}</strong></div>
+              <div><span>Movement Key</span><strong>{row.movementKey || '-'}</strong></div>
+              <div><span>Client Code</span><strong>{row.clientCode || '-'}</strong></div>
+              <div><span>Movement Type</span><strong>{row.movementType || '-'}</strong></div>
+              <div><span>Arrival Port</span><strong>{row.arrivalPort || '-'}</strong></div>
+              <div><span>Arrival</span><strong>{formatDateTime(row.arrivalDateTime)}</strong></div>
+              <div><span>Carrier</span><strong>{row.carrierName || '-'}</strong></div>
+              <div><span>Carrier EORI</span><strong>{row.carrierEori || '-'}</strong></div>
+              <div><span>Consignments</span><strong>{row.consignments || 0}</strong></div>
+              <div><span>Goods Items</span><strong>{row.goodsItems || 0}</strong></div>
+              <div><span>Source Channel</span><strong>{row.sourceChannel || '-'}</strong></div>
+              <div><span>Source File</span><strong>{row.sourceFile || '-'}</strong></div>
+              <div><span>Execution</span><strong>{row.lastExecutionId || '-'}</strong></div>
+              <div><span>Updated</span><strong>{formatDateTime(row.updatedAt || row.createdAt)}</strong></div>
+              <div><span>Source</span><strong>{sourceLabel}</strong></div>
+            </div>
+          </section>
+        </div>
+
+        <footer className="consignment-detail-footer">
+          <button className="outline-action" type="button" onClick={onClose}>Close</button>
+          <button className="primary-action blue" type="button" disabled={!canOpenConsignments} onClick={() => onOpenConsignments?.(row)}>
+            <MaterialIcon>list_alt</MaterialIcon><span>View Consignments</span>
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_VOCABULARY_FALLBACK, routeDeclarationId = '', onDetailRoute, onClearDetailRoute, onOpenConsignments, onRefresh }) {
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('ALL');
+  const [dateMonth, setDateMonth] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [sort, setSort] = useState('arrival_desc');
+  const [pageSize, setPageSize] = useState('20');
+  const [page, setPage] = useState(1);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedRows, setSelectedRows] = useState(() => new Set());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
+  const sourceRows = rows.length ? rows : DECLARATIONS;
+  const [selectedId, setSelectedId] = useState(sourceRows[0]?.id || '');
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  useEffect(() => {
+    if (sourceRows.length && !sourceRows.some((row) => row.id === selectedId)) {
+      setSelectedId(sourceRows[0].id);
+    }
+  }, [sourceRows, selectedId]);
+
+  useEffect(() => {
+    const routeToken = String(routeDeclarationId || '').trim();
+    if (!routeToken) {
+      setDetailOpen(false);
+      return;
+    }
+    const routeRow = sourceRows.find((row) => [row.id, row.ensHeaderRowId, row.declarationNumber, row.movementKey, declarationPrimaryRef(row)]
+      .some((value) => String(value || '').trim() === routeToken));
+    if (routeRow) {
+      setSelectedId(routeRow.id);
+      setDetailOpen(true);
+    }
+  }, [routeDeclarationId, sourceRows]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, status, dateMonth, dateFrom, dateTo, pageSize, sort]);
+
+  useEffect(() => {
+    const validIds = new Set(sourceRows.map((row) => row.id));
+    setSelectedRows((current) => {
+      const next = new Set([...current].filter((id) => validIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [sourceRows]);
+
+  const statusMetadata = useMemo(() => statusVocabularyMap(statusVocabulary), [statusVocabulary]);
+  const statusCounts = useMemo(() => {
+    const counts = { ALL: sourceRows.length };
+    sourceRows.forEach((row) => {
+      const key = localDeclarationStatus(row);
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }, [sourceRows]);
+
+  const statusTabs = useMemo(() => {
+    const configured = normalizeStatusVocabulary(statusVocabulary).map((row) => row.resultStatus);
+    const dynamic = sourceRows.map((row) => localDeclarationStatus(row)).filter(Boolean);
+    return ['ALL', ...new Set([...configured, ...dynamic])]
+      .filter((item) => item === 'ALL' || statusCounts[item] > 0);
+  }, [sourceRows, statusCounts, statusVocabulary]);
+
+  const filtered = useMemo(() => {
+    const value = query.trim().toLowerCase();
+    return sourceRows.filter((row) => {
+      const tssStatus = deriveTssStatus(row);
+      const localStatus = localDeclarationStatus(row);
+      const matchesStatus = status === 'ALL' || localStatus === status;
+      const haystack = [
+        row.ensHeaderRowId,
+        declarationPrimaryRef(row),
+        row.declarationNumber,
+        row.movementKey,
+        row.movementType,
+        row.arrivalPort,
+        row.carrierName,
+        row.carrierEori,
+        row.sourceChannel,
+        row.sourceFile,
+        row.source,
+        row.lastExecutionId,
+        localStatus,
+        tssStatus,
+      ].join(' ').toLowerCase();
+      return matchesStatus && rowMatchesDateFilters(row, dateMonth, dateFrom, dateTo) && (!value || haystack.includes(value));
+    });
+  }, [query, status, dateMonth, dateFrom, dateTo, sourceRows]);
+
+  const sorted = useMemo(() => {
+    const direction = sort === 'arrival_asc' ? 1 : -1;
+    return [...filtered].sort((left, right) => {
+      const diff = declarationTimestamp(left) - declarationTimestamp(right);
+      if (diff !== 0) return diff * direction;
+      return Number(right.ensHeaderRowId || 0) - Number(left.ensHeaderRowId || 0);
+    });
+  }, [filtered, sort]);
+
+  const pageSizeNumber = pageSize === 'all' ? sorted.length || 1 : Number(pageSize);
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(sorted.length / pageSizeNumber));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = pageSize === 'all' ? 0 : (safePage - 1) * pageSizeNumber;
+  const pagedRows = pageSize === 'all' ? sorted : sorted.slice(pageStart, pageStart + pageSizeNumber);
+  const selected = sorted.find((row) => row.id === selectedId) || pagedRows[0] || sourceRows[0] || DECLARATIONS[0];
+  const filtersActive = Boolean(query || dateMonth || dateFrom || dateTo || status !== 'ALL');
+  const allPageSelected = pagedRows.length > 0 && pagedRows.every((row) => selectedRows.has(row.id));
+  const showingStart = sorted.length ? pageStart + 1 : 0;
+  const showingEnd = pageSize === 'all' ? sorted.length : Math.min(pageStart + pageSizeNumber, sorted.length);
+
+  async function refreshRows() {
+    if (!onRefresh || isRefreshing) return;
+    setIsRefreshing(true);
+    setRefreshError('');
+    try {
+      await onRefresh();
+    } catch (error) {
+      setRefreshError(error.message);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
+  function clearFilters() {
+    setQuery('');
+    setStatus('ALL');
+    setDateMonth('');
+    setDateFrom('');
+    setDateTo('');
+  }
+
+  function toggleRowSelection(row, event) {
+    event?.stopPropagation();
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      if (next.has(row.id)) next.delete(row.id);
+      else next.add(row.id);
+      return next;
+    });
+  }
+
+  function togglePageSelection(event) {
+    event.stopPropagation();
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      if (allPageSelected) pagedRows.forEach((row) => next.delete(row.id));
+      else pagedRows.forEach((row) => next.add(row.id));
+      return next;
+    });
+  }
+
+  function openDetail(row = selected, { syncRoute = true } = {}) {
+    setSelectedId(row.id);
+    setDetailOpen(true);
+    if (syncRoute) onDetailRoute?.(row.ensHeaderRowId || row.declarationNumber || row.movementKey || row.id);
+  }
+
+  function closeDetail() {
+    setDetailOpen(false);
+    onClearDetailRoute?.();
+  }
+
+  function handleRowClick(row) {
+    if (selectMode) {
+      toggleRowSelection(row);
+      return;
+    }
+    openDetail(row);
+  }
+
+  function handleRowKeyDown(row, event) {
+    if (selectMode && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      toggleRowSelection(row, event);
+      return;
+    }
+    if (!selectMode && event.key === 'Enter') openDetail(row);
+  }
+
+  return (
+    <section className="consignments-page declarations-page" aria-label="ENS declarations">
+      <div className="consignments-header consignment-list-header">
+        <button className="back-button" type="button" onClick={onBack}>
+          <MaterialIcon>arrow_back</MaterialIcon>
+          <span>Back</span>
+        </button>
+        <div>
+          <h1>ENS / Declarations</h1>
+          <p>PRS ENS headers with movement, arrival, carrier, consignment counts and TSS status context.</p>
+        </div>
+        <div className="page-actions consignment-page-actions">
+          <button className="outline-action compact-action" type="button" onClick={refreshRows} disabled={isRefreshing} aria-busy={isRefreshing}>
+            {isRefreshing ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>refresh</MaterialIcon>}
+            <span>{isRefreshing ? 'Refreshing' : 'Refresh'}</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="consignment-status-tabs" role="tablist" aria-label="Declaration status filters">
+        {statusTabs.map((item) => {
+          const count = item === 'ALL' ? sourceRows.length : statusCounts[item] || 0;
+          return (
+            <button key={item} className={status === item ? 'active' : ''} type="button" role="tab" aria-selected={status === item} onClick={() => setStatus(item)}>
+              <span title={statusMetadata.get(item)?.meaning || item}>{displayStatusLabel(item, statusMetadata)}</span>
+              <strong>{count}</strong>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="consignments-list-card declarations-list-card">
+        <div className="consignment-filter-bar">
+          <label className="search-box consignment-search-box">
+            <MaterialIcon>search</MaterialIcon>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ENS ref, carrier, port, movement, source..." />
+          </label>
+          <label className="filter-field month-field">
+            <MaterialIcon>calendar_month</MaterialIcon>
+            <input type="month" value={dateMonth} aria-label="Filter by arrival month" onChange={(event) => { setDateMonth(event.target.value); setDateFrom(''); setDateTo(''); }} />
+          </label>
+          <label className="filter-field">
+            <MaterialIcon>calendar_today</MaterialIcon>
+            <input type="date" value={dateFrom} aria-label="Arrival from" onChange={(event) => { setDateFrom(event.target.value); setDateMonth(''); }} />
+          </label>
+          <label className="filter-field">
+            <MaterialIcon>event_available</MaterialIcon>
+            <input type="date" value={dateTo} aria-label="Arrival to" onChange={(event) => { setDateTo(event.target.value); setDateMonth(''); }} />
+          </label>
+          <label className="compact-select rows-select">
+            <span>Rows</span>
+            <select value={pageSize} onChange={(event) => setPageSize(event.target.value)}>
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="all">All</option>
+            </select>
+          </label>
+          {filtersActive && <button className="clear-filters-button" type="button" onClick={clearFilters}>Clear</button>}
+        </div>
+
+        <div className="consignment-card-header">
+          <div className="consignment-list-summary">
+            <strong>ENS headers are the movement-level view.</strong>
+            <span>{showingStart}-{showingEnd} of {sorted.length} declarations shown from {sourceRows.length} PRS rows for {clientCode}. Consignments stay in their own view.</span>
+          </div>
+          <div className="consignment-toolbar-actions">
+            <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort declarations">
+              <option value="arrival_desc">Newest arrival first</option>
+              <option value="arrival_asc">Oldest arrival first</option>
+            </select>
+            <button className="outline-action compact-action" type="button" disabled title="Excel export endpoint is not enabled in V3 yet.">
+              <MaterialIcon>download</MaterialIcon><span>Excel</span>
+            </button>
+            <button className="outline-action compact-action danger-action" type="button" disabled title="Local delete endpoint is not enabled in V3 yet. TSS records are not cancelled from this view.">
+              <MaterialIcon>delete</MaterialIcon><span>Delete</span>
+            </button>
+            <button className={`select-mode-toggle ${selectMode ? 'active' : ''}`} type="button" aria-pressed={selectMode} onClick={() => setSelectMode((value) => !value)}>
+              <span className="toggle-dot" aria-hidden="true" />
+              <span>Select mode</span>
+            </button>
+          </div>
+        </div>
+
+        {refreshError && (
+          <div className="action-feedback is-error consignment-refresh-error" role="alert">
+            <strong>Refresh failed</strong>
+            <span>{refreshError}</span>
+          </div>
+        )}
+
+        {(selectMode || selectedRows.size > 0) && (
+          <div className="selection-strip">
+            <span>{selectedRows.size} selected</span>
+            <button type="button" onClick={() => setSelectedRows(new Set())}>Clear selection</button>
+            <span>TSS records are not cancelled from this view.</span>
+          </div>
+        )}
+
+        <div className="table-wrap consignment-table-wrap declaration-table-wrap">
+          <table className="consignments-table v2-like-consignments-table declarations-table">
+            <thead>
+              <tr>
+                <th className="select-column"><input type="checkbox" checked={allPageSelected} onChange={togglePageSelection} aria-label="Select all visible declarations" /></th>
+                <th>ID</th>
+                <th>ENS Ref</th>
+                <th>Local Status</th>
+                <th>TSS Status</th>
+                <th>Movement</th>
+                <th>Port</th>
+                <th>Carrier</th>
+                <th>Cons / Goods</th>
+                <th>Source</th>
+                <th>Arrival</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRows.map((row) => {
+                const tssStatus = deriveTssStatus(row);
+                const localStatus = localDeclarationStatus(row);
+                const primaryRef = declarationPrimaryRef(row);
+                const isSelected = row.id === selected?.id;
+                const rowChecked = selectedRows.has(row.id);
+                return (
+                  <tr
+                    key={row.id}
+                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked' : ''} ${selectMode ? 'select-mode-row' : ''} ${['BLOCKED', 'FAILED', 'REJECTED'].includes(tssStatus) ? 'row-needs-attention' : ''}`}
+                    onClick={() => handleRowClick(row)}
+                    role={selectMode ? 'checkbox' : 'link'}
+                    aria-checked={selectMode ? rowChecked : undefined}
+                    tabIndex={0}
+                    onKeyDown={(event) => handleRowKeyDown(row, event)}
+                  >
+                    <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} aria-label={`Select declaration ${primaryRef}`} /></td>
+                    <td className="font-mono">{row.ensHeaderRowId || '-'}</td>
+                    <td className="ref-cell"><button type="button" onClick={(event) => { event.stopPropagation(); openDetail(row); }}>{primaryRef}</button><span>{row.movementKey || 'Movement pending'}</span></td>
+                    <td><StatusBadge status={localStatus} /></td>
+                    <td><StatusBadge status={tssStatus} /></td>
+                    <td className="font-mono muted-cell">{row.movementType || '-'}</td>
+                    <td className="font-mono muted-cell">{row.arrivalPort || '-'}</td>
+                    <td className="description-cell"><span>{row.carrierName || row.carrierEori || '-'}</span></td>
+                    <td className="numeric-cell"><strong>{row.consignments || 0}</strong> / {row.goodsItems || 0}</td>
+                    <td className="font-mono muted-cell">{row.sourceChannel || row.source || '-'}</td>
+                    <td className="muted-cell">{formatDateTime(row.arrivalDateTime)}</td>
+                    <td className="muted-cell">{formatDateTime(row.updatedAt || row.createdAt)}</td>
+                  </tr>
+                );
+              })}
+              {!pagedRows.length && (
+                <tr>
+                  <td colSpan="12" className="control-empty-cell">No declarations found{query ? ` matching "${query}"` : ''}.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="consignment-pagination">
+          <span>Page {safePage} of {totalPages}</span>
+          <div>
+            <button type="button" disabled={safePage <= 1 || pageSize === 'all'} onClick={() => setPage((value) => Math.max(1, value - 1))}>Previous</button>
+            <button type="button" disabled={safePage >= totalPages || pageSize === 'all'} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Next</button>
+          </div>
+        </div>
+      </div>
+
+      {detailOpen && selected && (
+        <DeclarationDetailModal row={selected} onClose={closeDetail} onOpenConsignments={onOpenConsignments} />
+      )}
+    </section>
+  );
+}
+function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVocabulary = STATUS_VOCABULARY_FALLBACK, routeConsignmentId = '', onDetailRoute, onClearDetailRoute, onQueueForTss, onUpdateConsignment, onRefresh }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
   const [dateMonth, setDateMonth] = useState('');
@@ -2835,6 +3413,20 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
       setSelectedId(sourceRows[0].id);
     }
   }, [sourceRows, selectedId]);
+
+  useEffect(() => {
+    const routeToken = String(routeConsignmentId || '').trim();
+    if (!routeToken) {
+      setDetailOpen(false);
+      return;
+    }
+    const routeRow = sourceRows.find((row) => [row.id, row.consignmentRowId, consignmentPrimaryRef(row)]
+      .some((value) => String(value || '').trim() === routeToken));
+    if (routeRow) {
+      setSelectedId(routeRow.id);
+      setDetailOpen(true);
+    }
+  }, [routeConsignmentId, sourceRows]);
 
   useEffect(() => {
     setPage(1);
@@ -2943,7 +3535,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
   }
 
   function toggleRowSelection(row, event) {
-    event.stopPropagation();
+    event?.stopPropagation();
     setSelectedRows((current) => {
       const next = new Set(current);
       if (next.has(row.id)) next.delete(row.id);
@@ -2962,9 +3554,32 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
     });
   }
 
-  function openDetail(row = selected) {
+  function handleRowClick(row) {
+    if (selectMode) {
+      toggleRowSelection(row);
+      return;
+    }
+    openDetail(row);
+  }
+
+  function handleRowKeyDown(row, event) {
+    if (selectMode && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault();
+      toggleRowSelection(row, event);
+      return;
+    }
+    if (!selectMode && event.key === 'Enter') openDetail(row);
+  }
+
+  function openDetail(row = selected, { syncRoute = true } = {}) {
     setSelectedId(row.id);
     setDetailOpen(true);
+    if (syncRoute) onDetailRoute?.(row.consignmentRowId || row.id);
+  }
+
+  function closeDetail() {
+    setDetailOpen(false);
+    onClearDetailRoute?.();
   }
 
   return (
@@ -3092,7 +3707,15 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
                 const isSelected = row.id === selected?.id;
                 const rowChecked = selectedRows.has(row.id);
                 return (
-                  <tr key={row.id} className={`${isSelected ? 'selected' : ''} ${['BLOCKED', 'FAILED', 'REJECTED'].includes(tssStatus) ? 'row-needs-attention' : ''}`} onClick={() => openDetail(row)} role="link" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') openDetail(row); }}>
+                  <tr
+                    key={row.id}
+                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked' : ''} ${selectMode ? 'select-mode-row' : ''} ${['BLOCKED', 'FAILED', 'REJECTED'].includes(tssStatus) ? 'row-needs-attention' : ''}`}
+                    onClick={() => handleRowClick(row)}
+                    role={selectMode ? 'checkbox' : 'link'}
+                    aria-checked={selectMode ? rowChecked : undefined}
+                    tabIndex={0}
+                    onKeyDown={(event) => handleRowKeyDown(row, event)}
+                  >
                     <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} aria-label={`Select consignment ${primaryRef}`} /></td>
                     <td className="font-mono">{row.consignmentRowId || '-'}</td>
                     <td className="ref-cell"><button type="button" onClick={(event) => { event.stopPropagation(); openDetail(row); }}>{primaryRef}</button><span>{row.transportDocumentNumber || 'Draft'}</span></td>
@@ -3128,27 +3751,31 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
       </div>
 
       {detailOpen && selected && (
-        <ConsignmentDetailModal row={selected} onClose={() => setDetailOpen(false)} onSave={applyLocalUpdate} onQueueForTss={onQueueForTss} />
+        <ConsignmentDetailModal row={selected} onClose={closeDetail} onSave={applyLocalUpdate} onQueueForTss={onQueueForTss} />
       )}
     </section>
   );
 }
 export default function App() {
+  const initialRoute = useMemo(() => portalRouteFromLocation(), []);
   const storedPortalSession = useMemo(() => readStoredPortalSession(), []);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(() => Boolean(storedPortalSession));
-  const [view, setView] = useState(() => storedPortalSession?.view || 'login');
+  const [view, setView] = useState(() => initialRoute.view || storedPortalSession?.view || 'login');
   const [isDarkTheme, setIsDarkTheme] = useState(false);
   const [session, setSession] = useState(() => storedPortalSession?.session || sessionFallback(DEFAULT_SESSION.tenantCode));
   const [activeClientCode, setActiveClientCode] = useState(() => storedPortalSession?.activeClientCode || DEFAULT_OPERATIONAL_CLIENT_CODE);
   const [connection, setConnection] = useState(null);
   const [consignmentRows, setConsignmentRows] = useState(CONSIGNMENTS);
+  const [declarationRows, setDeclarationRows] = useState(DECLARATIONS);
   const [statusVocabulary, setStatusVocabulary] = useState(() => normalizeStatusVocabulary());
   const [settingsPayload, setSettingsPayload] = useState(null);
   const [validationDiagnostics, setValidationDiagnostics] = useState(null);
   const [validationDiagnosticsStatus, setValidationDiagnosticsStatus] = useState('idle');
   const [validationDiagnosticsError, setValidationDiagnosticsError] = useState('');
-  const [settingsSection, setSettingsSection] = useState(() => storedPortalSession?.settingsSection || SETTINGS_NAV_SECTIONS[0].id);
+  const [settingsSection, setSettingsSection] = useState(() => initialRoute.settingsSection || storedPortalSession?.settingsSection || SETTINGS_NAV_SECTIONS[0].id);
+  const [routeConsignmentId, setRouteConsignmentId] = useState(() => initialRoute.consignmentId || '');
+  const [routeDeclarationId, setRouteDeclarationId] = useState(() => initialRoute.declarationId || '');
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
   const [environmentMode, setEnvironmentMode] = useState(() => normalizeEnvironmentMode(storedPortalSession?.environmentMode || import.meta.env?.VITE_PORTAL_MODE || 'DEMO'));
@@ -3157,7 +3784,26 @@ export default function App() {
     if (settingsMode && !isSynoviaSession(session)) {
       setEnvironmentMode(settingsMode);
     }
-  }, [settingsPayload, session]);  useEffect(() => {
+  }, [settingsPayload, session]);
+
+  useEffect(() => {
+    updateBrowserRoute(view, { settingsSection, consignmentId: routeConsignmentId, declarationId: routeDeclarationId }, { replace: true });
+  }, []);
+
+  useEffect(() => {
+    function handlePopState() {
+      const nextRoute = portalRouteFromLocation();
+      setView(nextRoute.view || (isAuthenticated ? 'dashboard' : 'login'));
+      setSettingsSection(nextRoute.settingsSection || SETTINGS_NAV_SECTIONS[0].id);
+      setRouteConsignmentId(nextRoute.consignmentId || '');
+      setRouteDeclarationId(nextRoute.declarationId || '');
+      setDrawerOpen(false);
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
     if (!isAuthenticated) return;
     writeStoredPortalSession({
       session,
@@ -3179,9 +3825,10 @@ export default function App() {
       setValidationDiagnosticsStatus('loading');
       setValidationDiagnosticsError('');
       try {
-        const [sessionPayload, dashboardPayload, consignmentPayload, connectionPayload, settingsPayload, validationDiagnosticsPayload] = await Promise.all([
+        const [sessionPayload, dashboardPayload, declarationPayload, consignmentPayload, connectionPayload, settingsPayload, validationDiagnosticsPayload] = await Promise.all([
           getSession(clientCode),
           getDashboard(clientCode),
+          getDeclarations({ clientCode }),
           getConsignments({ clientCode }),
           getTssConnections(clientCode),
           getAdminSettings(clientCode),
@@ -3199,9 +3846,12 @@ export default function App() {
             mode: 'CLIENT_SESSION',
           });
         }
+        const nextConsignmentRows = (consignmentPayload.consignments || []).map(normalizeConsignment);
+        const nextDeclarationRows = (declarationPayload.declarations || []).map(normalizeDeclaration);
         setConnection(activeConnection);
-        setConsignmentRows((consignmentPayload.consignments || []).map(normalizeConsignment));
-        setStatusVocabulary(normalizeStatusVocabulary(consignmentPayload.statusVocabulary));
+        setConsignmentRows(nextConsignmentRows);
+        setDeclarationRows(nextDeclarationRows.length ? nextDeclarationRows : buildDeclarationsFromConsignments(nextConsignmentRows));
+        setStatusVocabulary(normalizeStatusVocabulary(declarationPayload.statusVocabulary || consignmentPayload.statusVocabulary));
         setSettingsPayload(settingsPayload);
         setValidationDiagnostics(validationDiagnosticsPayload);
         setValidationDiagnosticsStatus('ready');
@@ -3220,6 +3870,7 @@ export default function App() {
         }
         setConnection(null);
         setConsignmentRows(CONSIGNMENTS);
+        setDeclarationRows(DECLARATIONS);
         setStatusVocabulary(normalizeStatusVocabulary());
         setSettingsPayload(null);
         setValidationDiagnostics(null);
@@ -3236,14 +3887,20 @@ export default function App() {
     };
   }, [isAuthenticated, activeClientCode, session.tenantCode]);
 
-  function navigate(nextView) {
+  function navigate(nextView, options = {}) {
+    const nextSettingsSection = options.settingsSection || settingsSection;
+    const nextConsignmentId = nextView === 'consignments' ? (options.consignmentId || '') : '';
+    const nextDeclarationId = nextView === 'declarations' ? (options.declarationId || '') : '';
+    if (nextView === 'settings') setSettingsSection(nextSettingsSection);
+    setRouteConsignmentId(nextConsignmentId);
+    setRouteDeclarationId(nextDeclarationId);
     setView(nextView);
     setDrawerOpen(false);
+    updateBrowserRoute(nextView, { settingsSection: nextSettingsSection, consignmentId: nextConsignmentId, declarationId: nextDeclarationId }, { replace: Boolean(options.replace) });
   }
 
   function navigateSettings(sectionId = SETTINGS_NAV_SECTIONS[0].id) {
-    setSettingsSection(sectionId);
-    navigate('settings');
+    navigate('settings', { settingsSection: sectionId });
   }
 
   async function handleLogin(credentials) {
@@ -3273,14 +3930,20 @@ export default function App() {
     setIsAuthenticated(true);
     setApiStatus('online');
     setEnvironmentMode(nextEnvironmentMode);
+    const postLoginRoute = portalRouteFromLocation();
+    const nextView = postLoginRoute.view && postLoginRoute.view !== 'login' ? postLoginRoute.view : 'dashboard';
+    const nextSettingsSection = postLoginRoute.settingsSection || settingsSection;
+    const nextConsignmentId = postLoginRoute.consignmentId || '';
+    const nextDeclarationId = postLoginRoute.declarationId || '';
+    setSettingsSection(nextSettingsSection);
     writeStoredPortalSession({
       session: nextSession,
       activeClientCode: nextClientCode,
-      view: 'dashboard',
-      settingsSection,
+      view: nextView,
+      settingsSection: nextSettingsSection,
       environmentMode: nextEnvironmentMode,
     });
-    navigate('dashboard');
+    navigate(nextView, { settingsSection: nextSettingsSection, consignmentId: nextConsignmentId, declarationId: nextDeclarationId, replace: true });
   }
   function handleLogout() {
     clearStoredPortalSession();
@@ -3289,6 +3952,7 @@ export default function App() {
     setActiveClientCode(DEFAULT_OPERATIONAL_CLIENT_CODE);
     setConnection(null);
     setConsignmentRows(CONSIGNMENTS);
+    setDeclarationRows(DECLARATIONS);
     setStatusVocabulary(normalizeStatusVocabulary());
     setSettingsPayload(null);
     setValidationDiagnostics(null);
@@ -3360,10 +4024,20 @@ export default function App() {
     return prepareTssConsignmentSubmit({ clientCode: activeClientCode, consignmentRowId: row.consignmentRowId });
   }
 
+  async function refreshDeclarations(clientCode = activeClientCode) {
+    const payload = await getDeclarations({ clientCode });
+    const rows = (payload.declarations || []).map(normalizeDeclaration);
+    const nextRows = rows.length ? rows : buildDeclarationsFromConsignments(consignmentRows);
+    setDeclarationRows(nextRows);
+    setStatusVocabulary(normalizeStatusVocabulary(payload.statusVocabulary));
+    return nextRows;
+  }
+
   async function refreshConsignments(clientCode = activeClientCode) {
     const payload = await getConsignments({ clientCode });
     const rows = (payload.consignments || []).map(normalizeConsignment);
     setConsignmentRows(rows);
+    if (!declarationRows.length) setDeclarationRows(buildDeclarationsFromConsignments(rows));
     setStatusVocabulary(normalizeStatusVocabulary(payload.statusVocabulary));
     return rows;
   }
@@ -3379,10 +4053,11 @@ export default function App() {
       <main className={mainClass}>
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} activeClientCode={activeClientCode} onClientChange={setActiveClientCode} isDemoAdmin={isSynoviaSession(session)} />}
+        {isAuthenticated && view === 'declarations' && <DeclarationsPage onBack={() => navigate('dashboard')} rows={declarationRows} clientCode={activeClientCode} statusVocabulary={statusVocabulary} routeDeclarationId={routeDeclarationId} onDetailRoute={(declarationId) => navigate('declarations', { declarationId })} onClearDetailRoute={() => navigate('declarations', { replace: true })} onOpenConsignments={() => navigate('consignments')} onRefresh={() => refreshDeclarations(activeClientCode)} />}
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} environmentMode={environmentMode} forceDemoMode={environmentMode === 'DEMO'} />}
-        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} statusVocabulary={statusVocabulary} onQueueForTss={handleQueueForTss} onUpdateConsignment={handleConsignmentUpdate} onRefresh={() => refreshConsignments(activeClientCode)} />}
+        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} statusVocabulary={statusVocabulary} routeConsignmentId={routeConsignmentId} onDetailRoute={(consignmentId) => navigate('consignments', { consignmentId })} onClearDetailRoute={() => navigate('consignments', { replace: true })} onQueueForTss={handleQueueForTss} onUpdateConsignment={handleConsignmentUpdate} onRefresh={() => refreshConsignments(activeClientCode)} />}
         {isAuthenticated && view === 'controlTower' && <ControlTowerPage onBack={() => navigate('dashboard')} clientCode={activeClientCode} connection={connection} />}
-        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} environmentMode={environmentMode} validationDiagnostics={validationDiagnostics} validationDiagnosticsStatus={validationDiagnosticsStatus} validationDiagnosticsError={validationDiagnosticsError} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} onTestTssApi={handleTestTssApi} onRefreshValidationDiagnostics={() => refreshValidationDiagnostics(activeClientCode)} />}
+        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} environmentMode={environmentMode} validationDiagnostics={validationDiagnostics} validationDiagnosticsStatus={validationDiagnosticsStatus} validationDiagnosticsError={validationDiagnosticsError} onSectionChange={navigateSettings} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} onTestTssApi={handleTestTssApi} onRefreshValidationDiagnostics={() => refreshValidationDiagnostics(activeClientCode)} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
       <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || []} settingsSection={settingsSection} session={session} apiStatus={apiStatus} environmentMode={environmentMode} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />

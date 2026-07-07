@@ -44,6 +44,11 @@ export function getControlTower(clientCode) {
   return request(`/api/control-tower?client_code=${encodeURIComponent(clientCode)}`);
 }
 
+export function getDeclarations({ clientCode, limit = 100 }) {
+  const params = new URLSearchParams({ client_code: clientCode, limit: String(limit) });
+  return request(`/api/declarations?${params.toString()}`);
+}
+
 export function getConsignments({ clientCode, status = 'ALL', q = '', limit = 100 }) {
   const params = new URLSearchParams({ client_code: clientCode, status, q, limit: String(limit) });
   return request(`/api/consignments?${params.toString()}`);

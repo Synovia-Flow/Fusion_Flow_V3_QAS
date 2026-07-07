@@ -2090,6 +2090,163 @@ def ingestion_files(
     return {"clientCode": code, "files": rows}
 
 
+@app.get("/api/declarations")
+def declarations(
+    client_code: str = Query("PLE"),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict[str, object]:
+    code = client_code_param(client_code)
+    top = safe_limit(limit)
+    try:
+        rows: list[dict[str, object]] = []
+        if object_exists("PRS.BKD_ENS_Header_Tracking"):
+            rows = safe_rows(
+                "PRS.BKD_ENS_Header_Tracking",
+                f"""
+                SELECT TOP {top}
+                    h.EnsHeaderRowID,
+                    t.MovementKey,
+                    t.ClientCode,
+                    COALESCE(t.Fusion_Status, h.Status, 'DRAFT') AS Status,
+                    COALESCE(t.Tss_Status, 'PENDING_TSS') AS TssStatus,
+                    COALESCE(t.Declaration_Number, h.declaration_number) AS DeclarationNumber,
+                    h.movement_type AS MovementType,
+                    h.arrival_port AS ArrivalPort,
+                    h.arrival_date_time AS ArrivalDateTime,
+                    h.carrier_name AS CarrierName,
+                    h.carrier_eori AS CarrierEori,
+                    cons.Consignments,
+                    goods.GoodsItems,
+                    t.SourceChannel,
+                    t.SourceFile,
+                    t.LastExecutionID,
+                    t.CreatedAt,
+                    t.UpdatedAt,
+                    'PRS.BKD_ENS_Header_Tracking' AS SourceTable
+                FROM PRS.BKD_ENS_Header_Tracking t
+                OUTER APPLY (
+                    SELECT TOP 1 EnsHeaderRowID, declaration_number, movement_type, arrival_port,
+                           arrival_date_time, carrier_name, carrier_eori, Status, UpdatedAt
+                    FROM PRS.ENS_Header h
+                    WHERE h.ClientCode = t.ClientCode AND h.MovementKey = t.MovementKey
+                    ORDER BY h.UpdatedAt DESC, h.EnsHeaderRowID DESC
+                ) h
+                OUTER APPLY (
+                    SELECT COUNT(*) AS Consignments
+                    FROM PRS.Consignment c
+                    WHERE c.ClientCode = t.ClientCode AND c.MovementKey = t.MovementKey
+                ) cons
+                OUTER APPLY (
+                    SELECT COUNT(*) AS GoodsItems
+                    FROM PRS.Goods_Item gi
+                    INNER JOIN PRS.Consignment c ON c.ConsignmentRowID = gi.ConsignmentRowID
+                    WHERE c.ClientCode = t.ClientCode AND c.MovementKey = t.MovementKey
+                ) goods
+                WHERE t.ClientCode = ?
+                ORDER BY COALESCE(t.UpdatedAt, t.CreatedAt) DESC, t.TrackingID DESC
+                """,
+                [code],
+            )
+
+        if not rows and object_exists("STG.BKD_ENS_Header"):
+            rows = safe_rows(
+                "STG.BKD_ENS_Header",
+                f"""
+                SELECT TOP {top}
+                    h.EnsHeaderRowID,
+                    stg.MovementKey,
+                    stg.ClientCode,
+                    COALESCE(stg.Fusion_Status, h.Status, 'DRAFT') AS Status,
+                    COALESCE(stg.Tss_Status, 'PENDING_TSS') AS TssStatus,
+                    COALESCE(stg.declaration_number, h.declaration_number) AS DeclarationNumber,
+                    COALESCE(stg.movement_type, h.movement_type) AS MovementType,
+                    COALESCE(stg.arrival_port, h.arrival_port) AS ArrivalPort,
+                    COALESCE(stg.arrival_date_time, h.arrival_date_time) AS ArrivalDateTime,
+                    COALESCE(stg.carrier_name, h.carrier_name) AS CarrierName,
+                    COALESCE(stg.carrier_eori, h.carrier_eori) AS CarrierEori,
+                    cons.Consignments,
+                    goods.GoodsItems,
+                    CAST(NULL AS nvarchar(100)) AS SourceChannel,
+                    CAST(NULL AS nvarchar(255)) AS SourceFile,
+                    stg.PromoteExecutionID AS LastExecutionID,
+                    stg.CreatedAt,
+                    stg.UpdatedAt,
+                    'STG.BKD_ENS_Header' AS SourceTable
+                FROM STG.BKD_ENS_Header stg
+                OUTER APPLY (
+                    SELECT TOP 1 EnsHeaderRowID, declaration_number, movement_type, arrival_port,
+                           arrival_date_time, carrier_name, carrier_eori, Status, UpdatedAt
+                    FROM PRS.ENS_Header h
+                    WHERE h.ClientCode = stg.ClientCode AND h.MovementKey = stg.MovementKey
+                    ORDER BY h.UpdatedAt DESC, h.EnsHeaderRowID DESC
+                ) h
+                OUTER APPLY (
+                    SELECT COUNT(*) AS Consignments
+                    FROM PRS.Consignment c
+                    WHERE c.ClientCode = stg.ClientCode AND c.MovementKey = stg.MovementKey
+                ) cons
+                OUTER APPLY (
+                    SELECT COUNT(*) AS GoodsItems
+                    FROM PRS.Goods_Item gi
+                    INNER JOIN PRS.Consignment c ON c.ConsignmentRowID = gi.ConsignmentRowID
+                    WHERE c.ClientCode = stg.ClientCode AND c.MovementKey = stg.MovementKey
+                ) goods
+                WHERE stg.ClientCode = ?
+                ORDER BY COALESCE(stg.UpdatedAt, stg.CreatedAt) DESC, stg.StgID DESC
+                """,
+                [code],
+            )
+
+        if not rows:
+            rows = safe_rows(
+                "PRS.ENS_Header",
+                f"""
+                SELECT TOP {top}
+                    h.EnsHeaderRowID,
+                    h.MovementKey,
+                    h.ClientCode,
+                    COALESCE(h.Status, 'DRAFT') AS Status,
+                    CASE
+                        WHEN h.Status IN ('READY', 'VALIDATED') THEN 'READY_FOR_TSS'
+                        WHEN h.Status IN ('NEEDS_REVIEW', 'FAILED', 'ERROR', 'REJECTED') THEN 'BLOCKED'
+                        ELSE 'PENDING_TSS'
+                    END AS TssStatus,
+                    h.declaration_number AS DeclarationNumber,
+                    h.movement_type AS MovementType,
+                    h.arrival_port AS ArrivalPort,
+                    h.arrival_date_time AS ArrivalDateTime,
+                    h.carrier_name AS CarrierName,
+                    h.carrier_eori AS CarrierEori,
+                    cons.Consignments,
+                    goods.GoodsItems,
+                    CAST(NULL AS nvarchar(100)) AS SourceChannel,
+                    CAST(NULL AS nvarchar(255)) AS SourceFile,
+                    h.ExecutionID AS LastExecutionID,
+                    h.CreatedAt,
+                    h.UpdatedAt,
+                    'PRS.ENS_Header' AS SourceTable
+                FROM PRS.ENS_Header h
+                OUTER APPLY (
+                    SELECT COUNT(*) AS Consignments
+                    FROM PRS.Consignment c
+                    WHERE c.ClientCode = h.ClientCode AND c.MovementKey = h.MovementKey
+                ) cons
+                OUTER APPLY (
+                    SELECT COUNT(*) AS GoodsItems
+                    FROM PRS.Goods_Item gi
+                    INNER JOIN PRS.Consignment c ON c.ConsignmentRowID = gi.ConsignmentRowID
+                    WHERE c.ClientCode = h.ClientCode AND c.MovementKey = h.MovementKey
+                ) goods
+                WHERE h.ClientCode = ?
+                ORDER BY COALESCE(h.UpdatedAt, h.CreatedAt) DESC, h.EnsHeaderRowID DESC
+                """,
+                [code],
+            )
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+
+    return {"clientCode": code, "declarations": rows, "statusVocabulary": status_vocabulary_rows()}
+
 @app.get("/api/consignments")
 def consignments(
     client_code: str = Query("PLE"),
