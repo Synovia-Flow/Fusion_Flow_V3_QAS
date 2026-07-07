@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getAdminSettings, getApiDocsUrl, getConsignmentDetail, getConsignments, getControlTower, getDashboard, getSession, getTssConnections, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings, testTssConnection } from './api';
+import { getAdminSettings, getApiDocsUrl, getConsignmentDetail, getConsignments, getControlTower, getDashboard, getSession, getTssConnections, getValidationDiagnostics, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings, validateConsignmentPreview, testTssConnection } from './api';
 
 const DEFAULT_SESSION = {
   tenantCode: 'SYNOVIA',
@@ -78,6 +78,26 @@ const SETTINGS_NAV_SECTIONS = [
   { id: 'VALIDATION', label: 'Validation Controls', icon: 'shield' },
   { id: 'NOTIFY', label: 'Email Automation Notifications', icon: 'notifications' },
 ];
+
+function mergeSettingsSections(rawSections = []) {
+  const incomingSections = Array.isArray(rawSections) ? rawSections : [];
+  const incomingById = new Map(
+    incomingSections
+      .filter((section) => section?.id)
+      .map((section) => [section.id, section]),
+  );
+  const knownIds = new Set(SETTINGS_NAV_SECTIONS.map((section) => section.id));
+  const mergedSections = SETTINGS_NAV_SECTIONS.map((fallback) => {
+    const incoming = incomingById.get(fallback.id);
+    return {
+      ...fallback,
+      ...(incoming || {}),
+      rows: incoming?.rows || [],
+    };
+  });
+  const extraSections = incomingSections.filter((section) => section?.id && !knownIds.has(section.id));
+  return [...mergedSections, ...extraSections];
+}
 
 function clientOptionFor(clientCode) {
   return PORTAL_CLIENTS.find((client) => client.tenantCode === clientCode) || PORTAL_CLIENTS[0];
@@ -375,6 +395,12 @@ function normalizeConsignment(row) {
     sfdMrn: row.SfdMrn ?? row.SFDMrn ?? row.sfdMrn ?? '',
     sdiReferences: row.SdiReferences ?? row.SDIReferences ?? row.sdiReferences ?? '',
     rejectReason: row.RejectReason ?? row.rejectReason ?? '',
+    validationSummary: row.ValidationSummary ?? row.validationSummary ?? null,
+    validationStatus: row.ValidationStatus ?? row.validationStatus ?? '',
+    missingRequiredCount: Number(row.MissingRequiredCount ?? row.missingRequiredCount ?? 0),
+    assumptionCount: Number(row.AssumptionCount ?? row.assumptionCount ?? 0),
+    packageTypeMissingCount: Number(row.PackageTypeMissingCount ?? row.packageTypeMissingCount ?? 0),
+    packageTypeNormalisedCount: Number(row.PackageTypeNormalisedCount ?? row.packageTypeNormalisedCount ?? 0),
     source: row.Source ?? row.source ?? 'PRS.Consignment',
     arrivalDateTime: row.ArrivalDateTime ?? row.arrivalDateTime ?? row.HeaderArrivalDateTime ?? '',
     updatedAt: row.UpdatedAt ?? row.updatedAt ?? '',
@@ -425,6 +451,27 @@ function consignmentEnsRef(row) {
   return '';
 }
 
+function rowValidationMissingCount(row) {
+  if (Number.isFinite(Number(row?.missingRequiredCount))) return Number(row.missingRequiredCount || 0);
+  return (row?.validationSummary?.missingRequired || []).reduce((total, item) => total + Number(item.count || 0), 0);
+}
+
+function ConsignmentValidationSignal({ row }) {
+  const missingCount = rowValidationMissingCount(row);
+  const assumptionCount = Number(row?.assumptionCount || row?.validationSummary?.assumptions?.length || 0);
+  const packageMissing = Number(row?.packageTypeMissingCount || row?.validationSummary?.packageType?.missingCount || 0);
+  const packageNormalised = Number(row?.packageTypeNormalisedCount || row?.validationSummary?.packageType?.normalisedCount || 0);
+  const status = row?.validationStatus || row?.validationSummary?.status || (missingCount ? 'NEEDS_REVIEW' : 'READY');
+  return (
+    <div className={`consignment-validation-signal ${missingCount || assumptionCount ? 'needs-review' : 'ready'}`} title="Modules validation summary">
+      <span>{displayStatusLabel(status)}</span>
+      <small>{missingCount ? `${missingCount} missing` : 'Ready'}</small>
+      {!!assumptionCount && <em>{assumptionCount} assumption</em>}
+      {!!packageMissing && <em>{packageMissing} pkg missing</em>}
+      {!!packageNormalised && <em>{packageNormalised} pkg mapped</em>}
+    </div>
+  );
+}
 function rowMatchesDateFilters(row, month, from, to) {
   const dateValue = toDateInputValue(consignmentDateValue(row));
   if (!dateValue) return !(month || from || to);
@@ -505,7 +552,7 @@ function appInfoSnapshot(environmentMode = 'DEMO') {
 }
 
 function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [], settingsSection, session, apiStatus, environmentMode, onNavigate, onSettingsSection, onLogout, onToggleTheme }) {
-  const visibleSettings = settingsSections.length ? settingsSections : SETTINGS_NAV_SECTIONS;
+  const visibleSettings = mergeSettingsSections(settingsSections);
   const firstSettingsId = visibleSettings[0]?.id || SETTINGS_NAV_SECTIONS[0].id;
   const [openSections, setOpenSections] = useState({
     settings: true,
@@ -806,10 +853,102 @@ function SettingsInput({ row, value, onChange }) {
   );
 }
 
-function SettingsPage({ settings, activeSection, environmentMode, onSectionChange, onBack, onSaveSettings, onTestTssApi }) {
+function SettingsValidationDiagnostics({ diagnostics, status = 'idle', error = '', onRefresh }) {
+  const productMaster = diagnostics?.productMaster || {};
+  const rowCount = productMaster.rowCount || 0;
+  const packageTypeRowCount = productMaster.packageTypeRowCount || 0;
+  const packageTypeMissingCount = productMaster.packageTypeMissingCount || 0;
+  const packageValues = productMaster.packageTypeValues || [];
+  const resolutionOrder = diagnostics?.packageTypeResolutionOrder || [];
+  const notes = diagnostics?.notes || [];
+  const hasPackageWarning = Boolean(productMaster.packageTypeWarning || productMaster.warning);
+  const isRefreshing = status === 'loading';
+  const hasDiagnostics = Boolean(diagnostics);
+  const writeMode = diagnostics?.writeMode || 'read_only_diagnostics';
+  return (
+    <div className={`settings-diagnostics ${hasPackageWarning ? 'has-warning' : ''}`}>
+      <div className="settings-diagnostics-head">
+        <div>
+          <strong>Validation & enrichment diagnostics</strong>
+          <span>Read-only view from Modules.Processing and CFG masterdata. DB writes off / TSS writes off.</span>
+        </div>
+        <div className="settings-diagnostics-actions">
+          {onRefresh && (
+            <button className="settings-diagnostics-refresh" type="button" onClick={onRefresh} disabled={isRefreshing} aria-busy={isRefreshing} title="Refresh validation diagnostics">
+              {!isRefreshing && <MaterialIcon>refresh</MaterialIcon>}
+              <span>{isRefreshing ? 'Refreshing' : 'Refresh'}</span>
+              {isRefreshing && <LoadingSpinner className="button-spinner" />}
+            </button>
+          )}
+          <em>{writeMode}</em>
+        </div>
+      </div>
+      {error && (
+        <div className="settings-diagnostics-error">
+          <MaterialIcon>error</MaterialIcon>
+          <span>{error}</span>
+        </div>
+      )}
+      {!hasDiagnostics && (
+        <div className="settings-diagnostics-empty">
+          {isRefreshing && <LoadingSpinner />}
+          <span>{isRefreshing ? 'Loading validation diagnostics from the portal API...' : 'Validation diagnostics have not been loaded yet.'}</span>
+        </div>
+      )}
+      <div className="settings-diagnostics-grid">
+        <div>
+          <span>CFG.Product_Master</span>
+          <strong>{productMaster.available ? `${rowCount} rows` : 'Not available'}</strong>
+          <small>{productMaster.available ? `${productMaster.lookupKeyCount || 0} lookup keys` : productMaster.reason || 'No masterdata loaded'}</small>
+        </div>
+        <div className={hasPackageWarning ? 'is-warning' : ''}>
+          <span>PackageType coverage</span>
+          <strong>{packageTypeRowCount}/{rowCount}</strong>
+          <small>{packageTypeMissingCount} rows missing PackageType</small>
+        </div>
+        <div>
+          <span>Portal mode</span>
+          <strong>{diagnostics?.databaseWrite || diagnostics?.tssWrite ? 'Writes enabled' : 'Preview only'}</strong>
+          <small>Validation explains output before commit/submit.</small>
+        </div>
+      </div>
+      {(productMaster.packageTypeWarning || productMaster.warning) && (
+        <div className="settings-diagnostics-warning">
+          <MaterialIcon>info</MaterialIcon>
+          <span>{productMaster.packageTypeWarning || productMaster.warning}</span>
+        </div>
+      )}
+      {packageValues.length > 0 && (
+        <div className="settings-diagnostics-list compact">
+          <strong>Normalised package values</strong>
+          <div>
+            {packageValues.map((item) => (
+              <span key={item.value}>{item.value}: {item.rowCount}</span>
+            ))}
+          </div>
+        </div>
+      )}
+      {resolutionOrder.length > 0 && (
+        <div className="settings-diagnostics-list">
+          <strong>Package type resolution order</strong>
+          <ol>
+            {resolutionOrder.map((item) => <li key={item}>{item}</li>)}
+          </ol>
+        </div>
+      )}
+      {notes.length > 0 && (
+        <div className="settings-diagnostics-notes">
+          {notes.map((note) => <span key={note}>{note}</span>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsPage({ settings, activeSection, environmentMode, validationDiagnostics, validationDiagnosticsStatus = 'idle', validationDiagnosticsError = '', onSectionChange, onBack, onSaveSettings, onTestTssApi, onRefreshValidationDiagnostics }) {
   const isSettingsLoading = !settings;
   const sections = useMemo(() => {
-    const rawSections = settings?.sections?.length ? settings.sections : SETTINGS_NAV_SECTIONS.map((section) => ({ ...section, rows: [] }));
+    const rawSections = mergeSettingsSections(settings?.sections || []);
     return rawSections.map((section) => ({
       ...section,
       rows: (section.rows || []).map((row) => {
@@ -830,6 +969,7 @@ function SettingsPage({ settings, activeSection, environmentMode, onSectionChang
   const [testState, setTestState] = useState({ status: 'idle', result: null, error: '' });
   const isTestingApi = testState.status === 'testing';
   const isTssApiSection = selectedSection?.id === 'TSS_API';
+  const isValidationSection = selectedSection?.id === 'VALIDATION';
 
   useEffect(() => {
     const nextDraft = {};
@@ -979,6 +1119,7 @@ function SettingsPage({ settings, activeSection, environmentMode, onSectionChang
               <span>{apiTestDetail}</span>
             </div>
           )}
+          {isValidationSection && <SettingsValidationDiagnostics diagnostics={validationDiagnostics} status={validationDiagnosticsStatus} error={validationDiagnosticsError} onRefresh={onRefreshValidationDiagnostics} />}
           <div className="settings-grid">
             {isSettingsLoading && <div className="settings-empty">Loading configuration from CFG...</div>}
             {!isSettingsLoading && (selectedSection.rows || []).map((row) => (
@@ -1034,9 +1175,6 @@ function previewIssueCount(items = []) {
   return items.reduce((count, item) => count + ((item.issues || []).length), 0);
 }
 
-const PREVIEW_NUMERIC_FIELDS = new Set(['gross_mass_kg', 'net_mass_kg', 'item_invoice_amount', 'number_of_packages']);
-const PREVIEW_TWO_DECIMAL_FIELDS = new Set(['gross_mass_kg', 'net_mass_kg']);
-
 function previewInputValue(value) {
   if (value === null || value === undefined) return '';
   return String(value);
@@ -1046,140 +1184,216 @@ function isPreviewMissing(value) {
   return value === null || value === undefined || String(value).trim() === '';
 }
 
-function numericPreviewIssue(fieldName, value) {
-  if (!PREVIEW_NUMERIC_FIELDS.has(fieldName) || isPreviewMissing(value)) return null;
-  const number = Number(String(value).replace(/,/g, ''));
-  if (!Number.isFinite(number)) return { severity: 'error', message: `${fieldName.replaceAll('_', ' ')} must be numeric.` };
-  if (fieldName === 'gross_mass_kg' && number <= 0) return { severity: 'error', message: 'Gross mass must be greater than zero.' };
-  if (fieldName === 'net_mass_kg' && number < 0) return { severity: 'error', message: 'Net mass cannot be negative.' };
-  if (fieldName === 'number_of_packages' && number <= 0) return { severity: 'error', message: 'Number of packages must be greater than zero.' };
-  return null;
-}
-
-function previewIssuesForField(field, value) {
-  const structuralIssues = (field.issues || []).filter((issue) => {
-    const message = String(issue.message || '').toLowerCase();
-    return !(message.includes('required') || message.includes('blank') || message.includes('numeric') || message.includes('greater than zero') || message.includes('cannot be negative'));
-  });
-  const issues = [...structuralIssues];
-  if (field.required && isPreviewMissing(value)) {
-    issues.push({ severity: 'error', message: `${field.label || field.field} is required before TSS processing.` });
-  }
-  const numericIssue = numericPreviewIssue(field.field, value);
-  if (numericIssue) issues.push(numericIssue);
-  return issues;
-}
-
-function isAssumptionSource(source) {
-  return Boolean(source?.assumption || source?.source === 'assumption');
-}
-
 function editablePreviewField(field, value) {
   const nextValue = isPreviewMissing(value) ? null : value;
-  const issues = previewIssuesForField(field, nextValue);
-  const source = isAssumptionSource(field.source) && nextValue !== field.value
-    ? { source: 'manualEdit', label: 'EDITED', reason: 'Edited in preview.' }
+  const changed = nextValue !== field.value;
+  const source = changed
+    ? { source: 'manualEdit', label: 'EDITED', reason: 'Edited in preview. Run Validate & enrich to apply Modules/Processing validation.' }
     : field.source;
   return {
     ...field,
     value: nextValue,
-    missing: Boolean(field.required) && isPreviewMissing(nextValue),
     blank: isPreviewMissing(nextValue),
     source,
-    issues,
+    validationPending: changed || field.validationPending,
   };
 }
 
-function issuesFromPreviewFields(fields = []) {
-  return fields.flatMap((field) => (field.issues || []).map((issue) => ({ field: field.field, label: field.label, ...issue })));
-}
-
-function missingFromPreviewFields(fields = []) {
-  return fields.filter((field) => field.required && field.missing).map((field) => field.field);
-}
-
-function previewStatusFromFields(fields = []) {
-  const missing = missingFromPreviewFields(fields);
-  const hasErrors = fields.some((field) => (field.issues || []).some((issue) => issue.severity === 'error'));
-  return !missing.length && !hasErrors ? 'READY' : 'NEEDS_REVIEW';
-}
-
-function previewPayloadValue(fieldName, value) {
-  if (isPreviewMissing(value)) return null;
-  if (PREVIEW_TWO_DECIMAL_FIELDS.has(fieldName)) {
-    const number = Number(String(value).replace(/,/g, ''));
-    if (Number.isFinite(number)) return number.toFixed(2);
-  }
-  return value;
-}
-
-function payloadFromPreviewFields(fields = []) {
-  return fields.reduce((payload, field) => {
-    const value = previewPayloadValue(field.field, field.value);
-    if (!isPreviewMissing(value)) payload[field.field] = value;
-    return payload;
-  }, {});
+function previewDraftSummary(consignments = [], baseSummary = {}) {
+  let goodsItemCount = 0;
+  let splitConsignmentCount = 0;
+  let validationPendingCount = 0;
+  (consignments || []).forEach((item) => {
+    if (item.validationPending) validationPendingCount += 1;
+    if (item.split?.isSplit) splitConsignmentCount += 1;
+    (item.goodsItems || []).forEach((goods) => {
+      goodsItemCount += 1;
+      if (goods.validationPending) validationPendingCount += 1;
+    });
+  });
+  return {
+    ...baseSummary,
+    consignmentCount: consignments.length,
+    goodsItemCount,
+    splitConsignmentCount,
+    validationPendingCount,
+  };
 }
 
 function clonePreviewConsignments(consignments = []) {
   return JSON.parse(JSON.stringify(consignments || []));
 }
 
-function refreshPreviewConsignment(item) {
-  const goodsItems = (item.goodsItems || []).map((goods) => {
-    const missingRequired = missingFromPreviewFields(goods.fields || []);
-    const issues = issuesFromPreviewFields(goods.fields || []);
-    return {
-      ...goods,
-      missingRequired,
-      issues,
-      status: previewStatusFromFields(goods.fields || []),
-    };
-  });
-  const missingRequired = missingFromPreviewFields(item.fields || []);
-  const issues = issuesFromPreviewFields(item.fields || []);
-  const goodsHasBlockers = goodsItems.some((goods) => goods.status !== 'READY');
+function markGoodsNeedsValidation(goods) {
+  return {
+    ...goods,
+    status: 'NEEDS_VALIDATION',
+    validationPending: true,
+  };
+}
+
+function markConsignmentNeedsValidation(item) {
   return {
     ...item,
-    missingRequired,
-    issues,
-    goodsItems,
-    status: !missingRequired.length && !issues.some((issue) => issue.severity === 'error') && goodsItems.length && !goodsHasBlockers ? 'READY' : 'NEEDS_REVIEW',
+    status: 'NEEDS_VALIDATION',
+    validationPending: true,
+    tssPayloadPreview: item.tssPayloadPreview
+      ? { ...item.tssPayloadPreview, ready: false, stale: true, requiresBackendValidation: true }
+      : item.tssPayloadPreview,
   };
 }
 
-function buildEditablePayloadPreview(selected) {
+function buildEditablePayloadPreview(selected, needsValidation = false) {
   if (!selected) return null;
-  const updatePayload = { op_type: 'update', ...payloadFromPreviewFields(selected.fields || []) };
-  const declarationNumber = updatePayload.declaration_number || selected.values?.declaration_number;
-  const consignmentNumber = updatePayload.consignment_number || selected.values?.consignment_number;
-  const submitPayload = {
-    op_type: 'submit',
-    ...(declarationNumber ? { declaration_number: declarationNumber } : {}),
-    ...(consignmentNumber ? { consignment_number: consignmentNumber } : {}),
-  };
-  const goodsItems = (selected.goodsItems || []).map((goods) => ({
-    ordinal: goods.ordinal,
-    status: goods.status,
-    ...payloadFromPreviewFields(goods.fields || []),
-  }));
+  const payloadPreview = selected.tssPayloadPreview || null;
+  if (!needsValidation || !payloadPreview) return payloadPreview;
   return {
-    ...(selected.tssPayloadPreview || {}),
-    ready: selected.status === 'READY' && goodsItems.length && goodsItems.every((goods) => goods.status === 'READY'),
-    operations: [
-      { operationCode: 'UPDATE_CONSIGNMENT_WITH_ENS', payload: updatePayload },
-      { operationCode: 'SUBMIT_CONSIGNMENT', payload: submitPayload },
-    ],
-    goodsItems,
-    goodsItemCount: goodsItems.length,
+    ...payloadPreview,
+    ready: false,
+    stale: true,
+    requiresBackendValidation: true,
+    goodsItemCount: selected.goodsItems?.length || payloadPreview.goodsItemCount || 0,
   };
 }
-
 function previewSourceLabel(source) {
   if (!source) return '';
   if (isAssumptionSource(source)) return source.reason || source.label || 'Assumed default';
   if (source.source === 'manualEdit') return source.reason || 'Edited in preview.';
-  return source.source || source.sourceColumn || source.apiField || 'mapped';
+  return source.reason || source.source || source.sourceColumn || source.apiField || 'mapped';
+}
+
+function previewSourceKind(source) {
+  if (!source) return '';
+  const rawSource = String(source.source || source.label || '').toUpperCase();
+  if (isAssumptionSource(source) || rawSource.startsWith('ASSUMPTION')) return 'assumption';
+  if (source.source === 'manualEdit') return 'edited';
+  if (source.normalised || rawSource.includes('NORMALIS')) return 'normalised';
+  if (rawSource.includes('CFG.PRODUCT_MASTER') || rawSource.includes('MASTERDATA')) return 'masterdata';
+  return rawSource ? 'mapped' : '';
+}
+
+function previewFieldSourceClass(source) {
+  const kind = previewSourceKind(source);
+  if (!kind || kind === 'mapped') return '';
+  return `has-${kind}`;
+}
+
+function previewSourceBadge(source) {
+  const kind = previewSourceKind(source);
+  if (kind === 'assumption') return 'ASSUMPTION';
+  if (kind === 'masterdata') return 'MASTERDATA';
+  if (kind === 'normalised') return 'NORMALISED';
+  if (kind === 'edited') return 'EDITED';
+  return 'MAPPED';
+}
+
+function sourceHasMasterdata(source) {
+  const rawSource = String(source?.source || source?.label || '').toUpperCase();
+  return rawSource.includes('CFG.PRODUCT_MASTER') || rawSource.includes('MASTERDATA');
+}
+
+function PreviewSourceNote({ source, compact = false }) {
+  const kind = previewSourceKind(source);
+  if (!kind || kind === 'mapped') return null;
+  const label = previewSourceBadge(source);
+  const detail = previewSourceLabel(source);
+  return (
+    <small className={`preview-source-assumption is-${kind}`} title={detail}>
+      <em>{label}</em>
+      {!compact && detail && <span>{detail}</span>}
+    </small>
+  );
+}
+
+function collectPreviewLineage(item) {
+  const counts = { masterdata: 0, assumption: 0, normalised: 0, edited: 0 };
+  const examples = [];
+  const register = (field) => {
+    const source = field?.source;
+    if (!source) return;
+    const kind = previewSourceKind(source);
+    let counted = false;
+    if (sourceHasMasterdata(source)) {
+      counts.masterdata += 1;
+      counted = true;
+    }
+    if (isAssumptionSource(source)) {
+      counts.assumption += 1;
+      counted = true;
+    }
+    if (source.normalised) {
+      counts.normalised += 1;
+      counted = true;
+    }
+    if (source.source === 'manualEdit') {
+      counts.edited += 1;
+      counted = true;
+    }
+    if (counted && examples.length < 6) {
+      examples.push({
+        field: field.label || field.field,
+        badge: previewSourceBadge(source),
+        detail: previewSourceLabel(source),
+        kind,
+      });
+    }
+  };
+  (item?.fields || []).forEach(register);
+  (item?.goodsItems || []).forEach((goods) => (goods.fields || []).forEach(register));
+  return { counts, examples };
+}
+
+function normalisePreviewLineage(item) {
+  const serverLineage = item?.lineageSummary;
+  if (!serverLineage?.counts) return collectPreviewLineage(item);
+  const counts = {
+    masterdata: Number(serverLineage.counts.masterdata || 0),
+    assumption: Number(serverLineage.counts.assumption || 0),
+    normalised: Number(serverLineage.counts.normalised || 0),
+    edited: Number(serverLineage.counts.edited || 0),
+  };
+  const examples = (serverLineage.examples || []).slice(0, 6).map((entry) => {
+    const kinds = entry.kinds || [];
+    const kind = kinds.includes('assumption') ? 'assumption' : (kinds.includes('masterdata') ? 'masterdata' : (kinds[0] || 'mapped'));
+    return {
+      field: entry.label || entry.field,
+      badge: kind === 'masterdata' ? 'MASTERDATA' : kind.toUpperCase(),
+      detail: entry.reason || entry.source || '',
+      kind,
+    };
+  });
+  return { counts, examples };
+}
+
+function PreviewLineageSummary({ item, title = '' }) {
+  const { counts, examples } = normalisePreviewLineage(item);
+  const total = counts.masterdata + counts.assumption + counts.normalised + counts.edited;
+  if (!total) return null;
+  const chips = [
+    ['masterdata', 'CFG masterdata'],
+    ['assumption', 'Assumptions'],
+    ['normalised', 'Normalised'],
+    ['edited', 'Edited'],
+  ].filter(([key]) => counts[key] > 0);
+  return (
+    <div className="preview-lineage-panel">
+      {title && <strong className="preview-lineage-title">{title}</strong>}
+      <div className="preview-lineage-chips">
+        {chips.map(([key, label]) => (
+          <span className={`is-${key}`} key={key}>{label}: <strong>{counts[key]}</strong></span>
+        ))}
+      </div>
+      {examples.length > 0 && (
+        <div className="preview-lineage-examples">
+          {examples.map((entry, index) => (
+            <span className={`is-${entry.kind}`} key={`${entry.field}-${index}`} title={entry.detail}>
+              <em>{entry.badge}</em>{entry.field}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function PreviewFieldGrid({ fields = [], onChange }) {
@@ -1188,8 +1402,9 @@ function PreviewFieldGrid({ fields = [], onChange }) {
       {fields.map((field) => {
         const hasError = (field.issues || []).some((issue) => issue.severity === 'error');
         const hasWarning = (field.issues || []).some((issue) => issue.severity === 'warning');
-        const isAssumption = isAssumptionSource(field.source);
-        const className = ['preview-field', field.missing ? 'is-missing' : '', hasError ? 'has-error' : '', hasWarning ? 'has-warning' : '', isAssumption ? 'has-assumption' : ''].filter(Boolean).join(' ');
+        const hasInfo = (field.issues || []).some((issue) => issue.severity === 'info');
+        const sourceClass = previewFieldSourceClass(field.source);
+        const className = ['preview-field', field.missing ? 'is-missing' : '', hasError ? 'has-error' : '', hasWarning ? 'has-warning' : '', hasInfo ? 'has-info' : '', sourceClass].filter(Boolean).join(' ');
         return (
           <label className={className} key={field.field}>
             <span>{field.label}{field.required ? '*' : ''}</span>
@@ -1201,12 +1416,7 @@ function PreviewFieldGrid({ fields = [], onChange }) {
               placeholder="Missing"
               onChange={(event) => onChange?.(field.field, event.target.value)}
             />
-            {field.source && (
-              <small className={isAssumption ? 'preview-source-assumption' : ''}>
-                {isAssumption && <em>ASSUMPTION</em>}
-                <span>{previewSourceLabel(field.source)}</span>
-              </small>
-            )}
+            <PreviewSourceNote source={field.source} />
           </label>
         );
       })}
@@ -1214,11 +1424,13 @@ function PreviewFieldGrid({ fields = [], onChange }) {
   );
 }
 
-function PreviewPayloadPanel({ payloadPreview }) {
+function PreviewPayloadPanel({ payloadPreview, needsValidation = false }) {
   if (!payloadPreview) return null;
   const operations = payloadPreview.operations || [];
   const goodsItems = payloadPreview.goodsItems || [];
   const goodsSample = goodsItems.slice(0, 5);
+  const readinessLabel = needsValidation ? 'VALIDATE FIRST' : (payloadPreview.ready ? 'READY' : 'NEEDS REVIEW');
+  const readinessClass = needsValidation ? 'needs-validation' : (payloadPreview.ready ? 'ready' : 'needs-review');
   return (
     <div className="preview-payload-panel">
       <div className="preview-payload-heading">
@@ -1226,7 +1438,7 @@ function PreviewPayloadPanel({ payloadPreview }) {
           <span>Preview payload</span>
           <h3>TSS-ready shape</h3>
         </div>
-        <strong>{payloadPreview.ready ? 'READY' : 'NEEDS REVIEW'} / DB off / TSS off</strong>
+        <strong className={`preview-payload-readiness ${readinessClass}`}>{readinessLabel} / DB off / TSS off</strong>
       </div>
       <div className="preview-payload-grid">
         {operations.map((operation) => (
@@ -1240,6 +1452,52 @@ function PreviewPayloadPanel({ payloadPreview }) {
           <pre>{JSON.stringify(goodsSample, null, 2)}</pre>
         </div>
       </div>
+    </div>
+  );
+}
+
+function PreviewValidationContext({ context }) {
+  if (!context) return null;
+  const productMaster = context.productMaster;
+  const chips = [];
+  if (context.mode || context.source) {
+    chips.push({ key: 'mode', label: 'Validation', value: context.mode || context.source, tone: 'processing' });
+  }
+  if (productMaster) {
+    const rowCount = productMaster.rowCount || 0;
+    const packageTypeRowCount = productMaster.packageTypeRowCount || 0;
+    chips.push({
+      key: 'masterdata',
+      label: 'CFG.Product_Master',
+      value: productMaster.available ? `${rowCount} rows loaded` : productMaster.reason || 'Not used',
+      tone: productMaster.available ? 'masterdata' : 'muted',
+    });
+    if (productMaster.available) {
+      chips.push({
+        key: 'packageType',
+        label: 'PackageType',
+        value: productMaster.packageTypeWarning || `${packageTypeRowCount}/${rowCount} populated`,
+        tone: packageTypeRowCount ? 'masterdata' : 'assumption',
+      });
+    }
+  }
+  const packageTypeResolutionOrder = Array.isArray(context.packageTypeResolutionOrder) ? context.packageTypeResolutionOrder : [];
+  if (packageTypeResolutionOrder.length) {
+    chips.push({
+      key: 'packageResolution',
+      label: 'Package type',
+      value: packageTypeResolutionOrder.map((item) => String(item).replace(/^source\s+/i, '')).join(' -> '),
+      tone: 'processing',
+    });
+  }
+  if (!chips.length) return null;
+  return (
+    <div className="preview-validation-context" aria-label="Validation context">
+      {chips.map((chip) => (
+        <span className={`is-${chip.tone}`} key={chip.key} title={chip.value}>
+          <em>{chip.label}</em>{chip.value}
+        </span>
+      ))}
     </div>
   );
 }
@@ -1264,27 +1522,42 @@ function PreviewIssueList({ title, issues = [], missingRequired = [] }) {
   );
 }
 
-function PreviewDetailsModal({ payload, onClose }) {
+function PreviewDetailsModal({ payload, onClose, onValidated }) {
   const preview = payload?.processingPreview;
   const consignments = preview?.consignments || [];
   const [selectedId, setSelectedId] = useState(consignments[0]?.previewId || '');
   const [draftConsignments, setDraftConsignments] = useState(() => clonePreviewConsignments(consignments));
+  const [validatedPreview, setValidatedPreview] = useState(null);
+  const [serverValidation, setServerValidation] = useState({ status: 'idle', message: '', context: null });
 
   useEffect(() => {
     setSelectedId(consignments[0]?.previewId || '');
     setDraftConsignments(clonePreviewConsignments(consignments));
+    setValidatedPreview(null);
+    setServerValidation({ status: 'idle', message: '', context: null });
   }, [payload?.sha256]);
 
   if (!preview) return null;
+  const effectivePreview = validatedPreview || preview;
   const editableConsignments = draftConsignments.length ? draftConsignments : consignments;
   const selected = editableConsignments.find((item) => item.previewId === selectedId) || editableConsignments[0];
   const selectedGoods = selected?.goodsItems || [];
 
+  function markPreviewDirty() {
+    if (serverValidation.status === 'loading') return;
+    setServerValidation({
+      status: 'dirty',
+      message: 'Preview edited. Run Validate & enrich before using this payload.',
+      context: null,
+    });
+  }
+
   function updateConsignmentField(fieldName, value) {
+    markPreviewDirty();
     setDraftConsignments((current) => (current.length ? current : clonePreviewConsignments(consignments)).map((item) => {
       if (item.previewId !== selected?.previewId) return item;
       const fields = (item.fields || []).map((field) => (field.field === fieldName ? editablePreviewField(field, value) : field));
-      return refreshPreviewConsignment({
+      return markConsignmentNeedsValidation({
         ...item,
         values: { ...(item.values || {}), [fieldName]: isPreviewMissing(value) ? null : value },
         fields,
@@ -1293,30 +1566,75 @@ function PreviewDetailsModal({ payload, onClose }) {
   }
 
   function updateGoodsField(goodsOrdinal, fieldName, value) {
+    markPreviewDirty();
     setDraftConsignments((current) => (current.length ? current : clonePreviewConsignments(consignments)).map((item) => {
       if (item.previewId !== selected?.previewId) return item;
       const goodsItems = (item.goodsItems || []).map((goods) => {
         if (goods.ordinal !== goodsOrdinal) return goods;
         const fields = (goods.fields || []).map((field) => (field.field === fieldName ? editablePreviewField(field, value) : field));
-        return {
+        return markGoodsNeedsValidation({
           ...goods,
           values: { ...(goods.values || {}), [fieldName]: isPreviewMissing(value) ? null : value },
           fields,
-        };
+        });
       });
-      return refreshPreviewConsignment({ ...item, goodsItems });
+      return markConsignmentNeedsValidation({ ...item, goodsItems });
     }));
   }
-  const summary = preview.summary || {};
+
+  async function handleServerValidation() {
+    const processingPreview = { ...effectivePreview, consignments: editableConsignments };
+    setServerValidation({ status: 'loading', message: 'Validating and enriching edited preview...', context: null });
+    try {
+      const response = await validateConsignmentPreview({
+        clientCode: payload.clientCode,
+        demoMode: payload.demoMode,
+        processingPreview,
+      });
+      const nextPreview = response.processingPreview || processingPreview;
+      const nextConsignments = clonePreviewConsignments(nextPreview.consignments || []);
+      setValidatedPreview(nextPreview);
+      setDraftConsignments(nextConsignments);
+      setSelectedId((current) => (nextConsignments.some((item) => item.previewId === current) ? current : nextConsignments[0]?.previewId || ''));
+      const missing = nextPreview.summary?.missingRequiredCount || 0;
+      const issues = nextPreview.summary?.issueCount || 0;
+      const enriched = nextPreview.summary?.enrichmentCount || 0;
+      const nextPayload = {
+        ...payload,
+        ...response,
+        processingPreview: nextPreview,
+        validationContext: response.validationContext || payload.validationContext,
+        databaseWrite: response.databaseWrite ?? payload.databaseWrite,
+        tssWrite: response.tssWrite ?? payload.tssWrite,
+        writeMode: response.writeMode || payload.writeMode,
+        demoMode: response.demoMode ?? payload.demoMode,
+      };
+      onValidated?.(nextPayload);
+      setServerValidation({
+        status: 'success',
+        message: missing || issues
+          ? `${missing} missing / ${issues} issues / ${enriched} enriched or assumed fields after backend validation.`
+          : `Backend validation and enrichment passed for the edited preview. ${enriched} fields enriched or assumed.`,
+        context: response.validationContext || null,
+      });
+    } catch (error) {
+      setServerValidation({ status: 'error', message: error.message || 'Backend validation failed.', context: null });
+    }
+  }
+  const activeValidationContext = serverValidation.status === 'dirty' ? null : (serverValidation.context || payload.validationContext || null);
+  const summary = serverValidation.status === 'dirty'
+    ? previewDraftSummary(editableConsignments, effectivePreview.summary || {})
+    : (effectivePreview.summary || {});
   const splitLabel = summary.splitConsignmentCount ? `${summary.splitConsignmentCount} split parts` : 'No split needed';
   const rowModeText = preview.rowMode === 'api_field_value'
     ? 'Field/value manifest mapped into PRS/TSS shape.'
     : preview.rowMode === 'multi_sheet'
       ? 'Workbook sheets combined into PRS/TSS shape.'
       : 'Workbook rows mapped into PRS/TSS shape.';
-  const sourceSheetText = (preview.sourceSheets || [])
+  const sourceSheetText = (effectivePreview.sourceSheets || [])
     .map((sheet) => `${sheet.sheetName || 'Sheet'}: ${sheet.rowMode === 'api_field_value' ? 'field/value' : 'rows'} (${sheet.mappedFieldCount || 0} mapped)`)
     .join(' | ');
+  const payloadNeedsValidation = serverValidation.status === 'dirty';
 
   return (
     <div className="preview-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -1328,17 +1646,37 @@ function PreviewDetailsModal({ payload, onClose }) {
             <p>{rowModeText}</p>
             {sourceSheetText && <p className="preview-source-sheets">{sourceSheetText}</p>}
           </div>
-          <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close mapped preview">
-            <MaterialIcon>close</MaterialIcon>
-          </button>
+          <div className="preview-modal-actions">
+            <button className="preview-validate-button" type="button" disabled={serverValidation.status === 'loading'} onClick={handleServerValidation}>
+              {serverValidation.status === 'loading' ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>fact_check</MaterialIcon>}
+              <span>{serverValidation.status === 'loading' ? 'Validating' : 'Validate & enrich'}</span>
+            </button>
+            <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close mapped preview">
+              <MaterialIcon>close</MaterialIcon>
+            </button>
+          </div>
         </header>
+
+        {serverValidation.status !== 'idle' && (
+          <div className={`preview-validation-banner ${serverValidation.status}`}>
+            <MaterialIcon>{serverValidation.status === 'success' ? 'task_alt' : serverValidation.status === 'error' ? 'error' : serverValidation.status === 'dirty' ? 'edit_note' : 'hourglass_top'}</MaterialIcon>
+            <span>{serverValidation.message}</span>
+          </div>
+        )}
+
+        <PreviewValidationContext context={activeValidationContext} />
 
         <div className="preview-summary-bar">
           <div><span>Consignments</span><strong>{summary.consignmentCount || 0}</strong></div>
           <div><span>Goods items</span><strong>{summary.goodsItemCount || 0}</strong></div>
           <div><span>Mapped fields</span><strong>{summary.mappedFieldCount || 0}</strong></div>
+          <div className={(summary.enrichmentCount || 0) > 0 ? 'is-enriched' : ''}><span>Enriched / assumed</span><strong>{summary.enrichmentCount || 0}</strong></div>
           <div className={(summary.missingRequiredCount || 0) > 0 ? 'is-alert' : ''}><span>Missing required</span><strong>{summary.missingRequiredCount || 0}</strong></div>
           <div><span>99-row split</span><strong>{splitLabel}</strong></div>
+        </div>
+
+        <div className="preview-global-lineage">
+          <PreviewLineageSummary item={{ lineageSummary: summary.lineageSummary }} title="Batch lineage" />
         </div>
 
         <div className="preview-modal-body">
@@ -1370,6 +1708,7 @@ function PreviewDetailsModal({ payload, onClose }) {
                 </div>
               )}
 
+              <PreviewLineageSummary item={selected} />
               <PreviewIssueList title="Consignment fields needing attention" issues={selected.issues || []} missingRequired={selected.missingRequired || []} />
               <PreviewFieldGrid fields={selected.fields || []} onChange={updateConsignmentField} />
 
@@ -1400,8 +1739,9 @@ function PreviewDetailsModal({ payload, onClose }) {
                             if (column.field === 'ordinal' || column.field === 'status') {
                               return <td className={field?.missing ? 'is-missing' : ''} key={column.field}>{previewDisplay(value)}</td>;
                             }
+                            const cellClass = [field?.missing ? 'is-missing' : '', previewFieldSourceClass(field?.source)].filter(Boolean).join(' ');
                             return (
-                              <td className={field?.missing ? 'is-missing' : ''} key={column.field}>
+                              <td className={cellClass} key={column.field}>
                                 <input
                                   aria-label={`${column.label} row ${goods.ordinal}`}
                                   className="preview-table-input"
@@ -1410,6 +1750,7 @@ function PreviewDetailsModal({ payload, onClose }) {
                                   placeholder="Missing"
                                   onChange={(event) => updateGoodsField(goods.ordinal, column.field, event.target.value)}
                                 />
+                                <PreviewSourceNote source={field?.source} compact />
                               </td>
                             );
                           })}
@@ -1424,7 +1765,7 @@ function PreviewDetailsModal({ payload, onClose }) {
                 </table>
               </div>
 
-              <PreviewPayloadPanel payloadPreview={buildEditablePayloadPreview(selected)} />
+              <PreviewPayloadPanel payloadPreview={buildEditablePayloadPreview(selected, payloadNeedsValidation)} needsValidation={payloadNeedsValidation} />
             </div>
           )}
         </div>
@@ -1499,12 +1840,14 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
 
   const processingPreview = previewState.payload?.processingPreview;
   const processingSummary = processingPreview?.summary || {};
+  const productMasterContext = previewState.payload?.validationContext?.productMaster;
   const isFieldValuePreview = processingPreview?.rowMode === 'api_field_value';
   const hasProcessingPreview = Boolean(processingPreview);
   const previewMissingRequiredCount = processingSummary.missingRequiredCount || 0;
   const sourceSheetsText = (processingPreview?.sourceSheets || [])
     .map((sheet) => `${sheet.sheetName || 'Sheet'} ${sheet.rowMode === 'api_field_value' ? 'field/value' : 'rows'}: ${sheet.mappedFieldCount || 0} mapped`)
     .join(' | ');
+  const payloadNeedsValidation = serverValidation.status === 'dirty';
 
   return (
     <section className="upload-page page-card" aria-label="Upload consignments">
@@ -1609,6 +1952,11 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
                 <>
                   {sourceSheetsText && <span>Workbook sheets: {sourceSheetsText}</span>}
                   <span>{isFieldValuePreview ? 'Field/value rows' : 'Preview rows'}: {processingSummary.sourceRows || 0} source / {processingSummary.mappedFieldCount || 0} matched / {processingSummary.unmatchedFieldCount || 0} unmatched into PRS/TSS preview</span>
+                  <span>Enrichment: {processingSummary.enrichmentCount || 0} fields enriched or assumed before review</span>
+                  {productMasterContext && (
+                    <span>Masterdata: {productMasterContext.available ? `${productMasterContext.rowCount || 0} CFG.Product_Master rows loaded / PackageType ${productMasterContext.packageTypeRowCount || 0}/${productMasterContext.rowCount || 0}` : productMasterContext.reason || 'CFG.Product_Master not used'}</span>
+                  )}
+                  {productMasterContext?.warning && <span>{productMasterContext.warning}</span>}
                   <span>Preview required: {previewMissingRequiredCount ? `${previewMissingRequiredCount} missing across PRS/TSS details` : 'ready - no required fields missing'}</span>
                 </>
               ) : (
@@ -1651,7 +1999,13 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
       </button>
 
       {previewDetailsOpen && previewState.payload?.processingPreview && (
-        <PreviewDetailsModal payload={previewState.payload} onClose={() => setPreviewDetailsOpen(false)} />
+        <PreviewDetailsModal
+          payload={previewState.payload}
+          onClose={() => setPreviewDetailsOpen(false)}
+          onValidated={(nextPayload) => setPreviewState((current) => (
+            current.payload?.sha256 === nextPayload.sha256 ? { ...current, payload: nextPayload } : current
+          ))}
+        />
       )}
     </section>
   );
@@ -2024,6 +2378,78 @@ function MasterLivePage({ onBack }) {
     </section>
   );
 }
+function ConsignmentValidationSummary({ summary }) {
+  if (!summary) return null;
+  const missingRequired = summary.missingRequired || [];
+  const assumptions = summary.assumptions || [];
+  const enhancements = summary.enhancements || [];
+  const packageType = summary.packageType || {};
+  const packageValues = packageType.values || [];
+  const decimalNormalisation = summary.decimalNormalisation || [];
+  const notes = summary.notes || [];
+  const missingCount = missingRequired.reduce((total, item) => total + Number(item.count || 0), 0);
+  const status = summary.status || (missingCount ? 'NEEDS_REVIEW' : 'READY');
+
+  return (
+    <section className={`consignment-validation-panel ${missingCount ? 'needs-review' : 'ready'}`} aria-label="Validation and enrichment summary">
+      <div className="consignment-validation-head">
+        <div>
+          <span>Modules validation</span>
+          <h3>Validation & enrichment</h3>
+          <p>{summary.source || 'PRS'} / {summary.engine || 'Modules.Processing'}</p>
+        </div>
+        <StatusBadge status={status} />
+      </div>
+      <div className="consignment-validation-mode">
+        <span className="is-readonly">Read-only diagnostic</span>
+        <span className={summary.databaseWrite ? 'is-warning' : 'is-safe'}>{summary.databaseWrite ? 'DB write enabled' : 'DB write off'}</span>
+        <span className={summary.tssWrite ? 'is-warning' : 'is-safe'}>{summary.tssWrite ? 'TSS write enabled' : 'TSS write off'}</span>
+      </div>
+      <div className="consignment-validation-grid">
+        <div><span>Goods rows</span><strong>{summary.goodsItemCount || 0}</strong><small>PRS.Goods_Item</small></div>
+        <div className={missingCount ? 'is-warning' : ''}><span>Missing required</span><strong>{missingCount}</strong><small>{missingRequired.length ? `${missingRequired.length} field groups` : 'Ready'}</small></div>
+        <div className={packageType.missingCount ? 'is-warning' : ''}><span>Package type</span><strong>{packageType.missingCount || 0}</strong><small>{packageType.normalisedCount || 0} normalised</small></div>
+        <div className={assumptions.length ? 'is-assumption' : ''}><span>Assumptions</span><strong>{assumptions.length}</strong><small>Visible before TSS</small></div>
+      </div>
+      {!!packageValues.length && (
+        <div className="consignment-validation-chips">
+          <strong>Package values</strong>
+          <div>{packageValues.slice(0, 8).map((item) => <span key={item.value}>{item.value} <em>{item.rowCount}</em></span>)}</div>
+        </div>
+      )}
+      {!!missingRequired.length && (
+        <div className="consignment-validation-list">
+          <strong>Needs attention</strong>
+          <ul>{missingRequired.slice(0, 8).map((item) => <li key={`${item.scope}-${item.field}`}>{item.label}: {item.count}</li>)}</ul>
+        </div>
+      )}
+      {!!assumptions.length && (
+        <div className="consignment-validation-list assumption-list">
+          <strong>Assumptions</strong>
+          <ul>{assumptions.map((item) => <li key={item.rule}>{item.rule}: {item.value} ({item.count})</li>)}</ul>
+        </div>
+      )}
+      {!!enhancements.length && (
+        <div className="consignment-validation-list">
+          <strong>Module enrichment</strong>
+          <ul>{enhancements.map((item) => <li key={`${item.field}-${item.source}`}>{item.field}: {item.count}</li>)}</ul>
+        </div>
+      )}
+      {!!decimalNormalisation.length && (
+        <div className="consignment-validation-list">
+          <strong>TSS numeric format</strong>
+          <ul>{decimalNormalisation.map((item) => <li key={item.field}>{item.field}: {item.count} values need 2-decimal formatting</li>)}</ul>
+        </div>
+      )}
+      {!!notes.length && (
+        <div className="consignment-validation-list muted-list">
+          <strong>Notes</strong>
+          <ul>{notes.map((note) => <li key={note}>{note}</li>)}</ul>
+        </div>
+      )}
+    </section>
+  );
+}
 function ConsignmentDetailModal({ row, onClose, onSave }) {
   const [detailState, setDetailState] = useState({ status: 'loading', payload: null, error: '' });
   const [draft, setDraft] = useState(() => buildConsignmentDraft(row));
@@ -2099,6 +2525,8 @@ function ConsignmentDetailModal({ row, onClose, onSave }) {
             </div>
           )}
 
+          <ConsignmentValidationSummary summary={detailState.payload?.validationSummary} />
+
           <div className="consignment-edit-grid">
             <label><span>Consignment</span><input value={draft.consignmentNumber} onChange={(event) => updateDraft('consignmentNumber', event.target.value)} /></label>
             <label><span>Declaration</span><input value={draft.declarationNumber} onChange={(event) => updateDraft('declarationNumber', event.target.value)} /></label>
@@ -2124,6 +2552,7 @@ function ConsignmentDetailModal({ row, onClose, onSave }) {
                     <th>#</th>
                     <th>Status</th>
                     <th>Commodity</th>
+                    <th>Package</th>
                     <th>Description</th>
                     <th>Gross kg</th>
                     <th>Net kg</th>
@@ -2135,12 +2564,13 @@ function ConsignmentDetailModal({ row, onClose, onSave }) {
                       <td>{goods.GoodsItemOrdinal || index + 1}</td>
                       <td><StatusBadge status={goods.Status || 'PENDING'} /></td>
                       <td>{controlDisplay(goods.commodity_code)}</td>
+                      <td>{controlDisplay(goods.type_of_packages)}</td>
                       <td>{controlDisplay(goods.goods_description)}</td>
                       <td>{controlDisplay(goods.gross_mass_kg)}</td>
                       <td>{controlDisplay(goods.net_mass_kg)}</td>
                     </tr>
                   )) : (
-                    <tr><td colSpan="6" className="control-empty-cell">No goods detail loaded</td></tr>
+                    <tr><td colSpan="7" className="control-empty-cell">No goods detail loaded</td></tr>
                   )}
                 </tbody>
               </table>
@@ -2403,6 +2833,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
                 <th>ID</th>
                 <th>DEC Ref</th>
                 <th>Local Status</th>
+                <th>Validation</th>
                 <th>TSS Status</th>
                 <th>SFD</th>
                 <th>SDI</th>
@@ -2427,6 +2858,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
                     <td className="font-mono">{row.consignmentRowId || '-'}</td>
                     <td className="ref-cell"><button type="button" onClick={(event) => { event.stopPropagation(); openDetail(row); }}>{primaryRef}</button><span>{row.transportDocumentNumber || 'Draft'}</span></td>
                     <td><StatusBadge status={row.status || 'DRAFT'} /></td>
+                    <td><ConsignmentValidationSignal row={row} /></td>
                     <td><StatusBadge status={tssStatus} /></td>
                     <td className="font-mono muted-cell">{row.sfdReference || '-'}</td>
                     <td className="font-mono muted-cell">{row.sdiReferences || '-'}</td>
@@ -2446,7 +2878,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
               })}
               {!pagedRows.length && (
                 <tr>
-                  <td colSpan="13" className="control-empty-cell">No consignments found{query ? ` matching "${query}"` : ''}.</td>
+                  <td colSpan="14" className="control-empty-cell">No consignments found{query ? ` matching "${query}"` : ''}.</td>
                 </tr>
               )}
             </tbody>
@@ -2495,6 +2927,9 @@ export default function App() {
   const [connection, setConnection] = useState(null);
   const [consignmentRows, setConsignmentRows] = useState(CONSIGNMENTS);
   const [settingsPayload, setSettingsPayload] = useState(null);
+  const [validationDiagnostics, setValidationDiagnostics] = useState(null);
+  const [validationDiagnosticsStatus, setValidationDiagnosticsStatus] = useState('idle');
+  const [validationDiagnosticsError, setValidationDiagnosticsError] = useState('');
   const [settingsSection, setSettingsSection] = useState(() => storedPortalSession?.settingsSection || SETTINGS_NAV_SECTIONS[0].id);
   const [apiStatus, setApiStatus] = useState('idle');
   const [apiError, setApiError] = useState('');
@@ -2523,13 +2958,16 @@ export default function App() {
     async function loadPortalData() {
       setApiStatus('loading');
       setApiError('');
+      setValidationDiagnosticsStatus('loading');
+      setValidationDiagnosticsError('');
       try {
-        const [sessionPayload, dashboardPayload, consignmentPayload, connectionPayload, settingsPayload] = await Promise.all([
+        const [sessionPayload, dashboardPayload, consignmentPayload, connectionPayload, settingsPayload, validationDiagnosticsPayload] = await Promise.all([
           getSession(clientCode),
           getDashboard(clientCode),
           getConsignments({ clientCode }),
           getTssConnections(clientCode),
           getAdminSettings(clientCode),
+          getValidationDiagnostics(clientCode),
         ]);
         if (cancelled) return;
         const activeConnection = (connectionPayload.connections || [])[0] || null;
@@ -2546,9 +2984,13 @@ export default function App() {
         setConnection(activeConnection);
         setConsignmentRows((consignmentPayload.consignments || []).map(normalizeConsignment));
         setSettingsPayload(settingsPayload);
+        setValidationDiagnostics(validationDiagnosticsPayload);
+        setValidationDiagnosticsStatus('ready');
+        setValidationDiagnosticsError('');
         setSettingsSection((currentSection) => {
-          const defaultSection = settingsPayload.sections?.[0]?.id || SETTINGS_NAV_SECTIONS[0].id;
-          return settingsPayload.sections?.some((section) => section.id === currentSection) ? currentSection : defaultSection;
+          const mergedSections = mergeSettingsSections(settingsPayload.sections || []);
+          const defaultSection = mergedSections[0]?.id || SETTINGS_NAV_SECTIONS[0].id;
+          return mergedSections.some((section) => section.id === currentSection) ? currentSection : defaultSection;
         });
         setApiStatus('online');
         setApiError(dashboardPayload?.counts ? '' : 'Dashboard counts unavailable');
@@ -2560,6 +3002,9 @@ export default function App() {
         setConnection(null);
         setConsignmentRows(CONSIGNMENTS);
         setSettingsPayload(null);
+        setValidationDiagnostics(null);
+        setValidationDiagnosticsStatus('error');
+        setValidationDiagnosticsError(error.message);
         setApiStatus('offline');
         setApiError(error.message);
       }
@@ -2625,6 +3070,9 @@ export default function App() {
     setConnection(null);
     setConsignmentRows(CONSIGNMENTS);
     setSettingsPayload(null);
+    setValidationDiagnostics(null);
+    setValidationDiagnosticsStatus('idle');
+    setValidationDiagnosticsError('');
     setSettingsSection(SETTINGS_NAV_SECTIONS[0].id);
     setApiStatus('idle');
     setApiError('');
@@ -2634,6 +3082,22 @@ export default function App() {
 
   function handlePreviewUpload(files, options = {}) {
     return previewConsignmentUpload({ clientCode: activeClientCode, files, ...options });
+  }
+
+  async function refreshValidationDiagnostics(clientCode = activeClientCode) {
+    const code = clientCode || activeClientCode || DEFAULT_OPERATIONAL_CLIENT_CODE;
+    setValidationDiagnosticsStatus('loading');
+    setValidationDiagnosticsError('');
+    try {
+      const diagnostics = await getValidationDiagnostics(code);
+      setValidationDiagnostics(diagnostics);
+      setValidationDiagnosticsStatus('ready');
+      return diagnostics;
+    } catch (error) {
+      setValidationDiagnosticsStatus('error');
+      setValidationDiagnosticsError(error.message || 'Validation diagnostics unavailable.');
+      return null;
+    }
   }
 
   async function handleSaveSettings(payload) {
@@ -2647,6 +3111,7 @@ export default function App() {
       setEnvironmentMode('DEMO');
       setConnection((current) => current ? { ...current, preferredEnvCode: 'DEMO', credential: null } : current);
       if (nextSettings) setSettingsPayload(nextSettings);
+      try { await refreshValidationDiagnostics(payload?.clientCode || activeClientCode); } catch { /* Keep saved settings even if diagnostics refresh is unavailable. */ }
       return nextSettings;
     }
 
@@ -2654,6 +3119,7 @@ export default function App() {
     const nextMode = selectedEnvironmentMode || environmentModeFromSettings(nextSettings);
     if (nextMode) setEnvironmentMode(nextMode);
     setSettingsPayload(nextSettings);
+    try { await refreshValidationDiagnostics(payload?.clientCode || activeClientCode); } catch { /* Keep saved settings even if diagnostics refresh is unavailable. */ }
     return nextSettings;
   }
   async function handleTestTssApi({ clientCode, envCode }) {
@@ -2665,6 +3131,7 @@ export default function App() {
     ]);
     setConnection((connectionPayload.connections || [])[0] || null);
     setSettingsPayload(nextSettings);
+    try { await refreshValidationDiagnostics(testClientCode); } catch { /* TSS test result remains valid even if diagnostics refresh fails. */ }
     return result;
   }
 
@@ -2686,10 +3153,10 @@ export default function App() {
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} environmentMode={environmentMode} forceDemoMode={environmentMode === 'DEMO'} />}
         {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} onQueueForTss={handleQueueForTss} onUpdateConsignment={handleConsignmentUpdate} />}
         {isAuthenticated && view === 'controlTower' && <ControlTowerPage onBack={() => navigate('dashboard')} clientCode={activeClientCode} connection={connection} />}
-        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} environmentMode={environmentMode} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} onTestTssApi={handleTestTssApi} />}
+        {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} environmentMode={environmentMode} validationDiagnostics={validationDiagnostics} validationDiagnosticsStatus={validationDiagnosticsStatus} validationDiagnosticsError={validationDiagnosticsError} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} onTestTssApi={handleTestTssApi} onRefreshValidationDiagnostics={() => refreshValidationDiagnostics(activeClientCode)} />}
       </main>
       {drawerOpen && <button className="scrim" type="button" aria-label="Close navigation" onClick={() => setDrawerOpen(false)} />}
-      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || SETTINGS_NAV_SECTIONS} settingsSection={settingsSection} session={session} apiStatus={apiStatus} environmentMode={environmentMode} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />
+      <Drawer open={drawerOpen} view={view} isAuthenticated={isAuthenticated} isDarkTheme={isDarkTheme} settingsSections={settingsPayload?.sections || []} settingsSection={settingsSection} session={session} apiStatus={apiStatus} environmentMode={environmentMode} onNavigate={navigate} onSettingsSection={navigateSettings} onLogout={handleLogout} onToggleTheme={() => setIsDarkTheme((value) => !value)} />
     </div>
   );
 }

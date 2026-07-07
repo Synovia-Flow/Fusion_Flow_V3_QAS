@@ -73,6 +73,10 @@ export function getAdminSettings(clientCode) {
   return request(`/api/admin/settings?client_code=${encodeURIComponent(clientCode)}`);
 }
 
+export function getValidationDiagnostics(clientCode) {
+  return request(`/api/admin/validation-diagnostics?client_code=${encodeURIComponent(clientCode)}`);
+}
+
 export function saveAdminSettings({ clientCode, updates }) {
   return request('/api/admin/settings', {
     method: 'POST',
@@ -87,6 +91,13 @@ export function previewConsignmentUpload({ clientCode, files, demoMode = false, 
   if (demoEnsReference) body.append('demo_ens_reference', demoEnsReference);
   Array.from(files || []).forEach((file) => body.append('files', file));
   return request('/api/uploads/consignments/preview', { method: 'POST', body });
+}
+export function validateConsignmentPreview({ clientCode, processingPreview, demoMode = false }) {
+  return request('/api/uploads/consignments/preview/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientCode, processingPreview, demoMode }),
+  });
 }
 export function prepareTssConsignmentSubmit({ clientCode, consignmentRowId }) {
   const params = new URLSearchParams({ client_code: clientCode, dry_run: 'true' });
