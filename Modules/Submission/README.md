@@ -7,10 +7,10 @@ tied to the `EXC` execution spine; the movement advances through the shared
 
 ```
 PRS.BKD_ENS_Header_Submission (VALIDATED)
-  -> promote_ens.py  -> STG.BKD_ENS_Header            (STG_MATERIALISED -> READY)
-  -> submit_ens.py   -> POST /headers (create)        (SUBMITTING -> SUBMITTED; captures ENS number + TSS status; syncs TSS mirror)
-  -> mirror_ens.py   -> GET /headers/<ENS number>     (RECONCILING -> RECONCILED; writes full TSS.BKD_ENS_Header)
-  -> update_ens / cancel_ens (stubs) operate against the TSS.* live mirror
+  -> SUB_01_promote.py  -> STG.BKD_ENS_Header        (STG_MATERIALISED -> READY)
+  -> SUB_02_submit.py   -> POST /headers (create)    (SUBMITTING -> SUBMITTED; captures ENS number + TSS status; syncs TSS mirror)
+  -> SUB_03_mirror.py   -> GET /headers/<ENS number> (RECONCILING -> RECONCILED; writes full TSS.BKD_ENS_Header)
+  -> SUB_04_update.py / SUB_05_cancel.py operate against the TSS.* live mirror
 ```
 
 ## Safety
@@ -37,16 +37,24 @@ PRS.BKD_ENS_Header_Submission (VALIDATED)
 ## Run (scheduler just runs the scripts)
 
 ```powershell
-python Modules\Submission\promote_ens.py     # VALIDATED -> STG (READY)
-python Modules\Submission\submit_ens.py       # create; dry-run unless SUBMISSION_DRY_RUN=0
-python Modules\Submission\mirror_ens.py       # get-back -> TSS.* live mirror; mark complete
+python Modules\Submission\SUB_01_promote.py    # VALIDATED -> STG (READY)
+python Modules\Submission\SUB_02_submit.py     # create; dry-run unless SUBMISSION_DRY_RUN=0
+python Modules\Submission\SUB_03_mirror.py     # get-back -> TSS.* live mirror; mark complete
+python Modules\Submission\SUB_06_fetch_json.py # dump each submitted header's request+response JSON for analysis
 ```
 
-`submit_ens.py` syncs every successful TSS create response immediately into
+`SUB_02_submit.py` syncs every successful TSS create response immediately into
 `STG.BKD_ENS_Header`, `PRS.BKD_ENS_Header_Submission`,
-`PRS.BKD_ENS_Header_Tracking`, and `TSS.BKD_ENS_Header`. `mirror_ens.py` remains
+`PRS.BKD_ENS_Header_Tracking`, and `TSS.BKD_ENS_Header`. `SUB_03_mirror.py` remains
 the later GET/reconciliation step for the full authoritative TSS record.
 `CFG.Job.SUB_MIRROR_BKD_ENS` is configured with `Schedule = Every 30 minutes`.
+
+`SUB_06_fetch_json.py` GETs every submitted header (has a `declaration_number`)
+back from TSS and writes one JSON file per movement - full **request + response** -
+to `SUBMISSION_JSON_DIR` (default `<repo>\Development\json`). It's a read, so it
+calls TSS regardless of `SUBMISSION_DRY_RUN`, and logs each call to `API.Call`. Use
+the dumps to design the `TSS.BKD_ENS_Header` mirror and the next process step. The
+`Development\json\` folder is gitignored (dumps may contain live TSS data).
 
 ## Where things land
 
@@ -56,5 +64,29 @@ the later GET/reconciliation step for the full authoritative TSS record.
 - `TSS.BKD_ENS_Header` - the authoritative live mirror of what's in TSS (raw JSON + parsed).
 - `EXC.Execution` / `EXC.Transaction` / `LOG.*` - the run spine and per-movement transitions.
 
-`update_ens.py` / `cancel_ens.py` are registered as jobs (`SUB_UPDATE_BKD_ENS`,
-`SUB_CANCEL_BKD_ENS`, inactive) and will operate against `TSS.BKD_ENS_Header`.
+## TSS layer - update / cancel
+
+- **`SUB_04_update.py`** (`SUB_UPDATE_BKD_ENS`) - full-replacement **update** (Rule 16):
+  POST `/headers` with the full payload + `op_type=update` + `declaration_number` for
+  live STG rows. Re-run `SUB_03_mirror.py` after to refresh the mirror.
+- **`SUB_05_cancel.py`** (`SUB_CANCEL_BKD_ENS`) - **cancel**: POST `/headers` with
+  `{op_type:"cancel", declaration_number}`. On success sets STG + tracking
+  `Fusion_Status=CANCELLED` and marks the `TSS` mirror not-live (`IsLive=0`,
+  `CancelledAt`). Destructive -> requires `SUBMISSION_MOVEMENT_KEY` or `_MAX_ROWS`.
+
+Both are dry-run safe and log every call to `API.Call` / EXC, exactly like create.
+Activated by migration `032`.
+
+## Driving it from the portal
+
+`liveWeb/app.py` exposes guarded action endpoints so the portal's pipeline buttons
+run these jobs for one movement:
+
+- `POST /api/action/<verb>?mk=<MovementKey>` - `verb` in promote, submit, mirror,
+  update, cancel, reprocess. Sets the movement-key param, runs the runner (dry-run
+  governed by `SUBMISSION_DRY_RUN`), returns the fresh status. Everything is tracked
+  server-side.
+- `POST /api/edit` - patch whitelisted STG payload fields for a movement (the Edit form).
+
+Both run for real (no demo gate). Scope and safety come from `SUBMISSION_ENV`
+(e.g. `TST`) and `SUBMISSION_DRY_RUN` in `CFG.Application_Parameters`.

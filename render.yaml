@@ -1,6 +1,135 @@
-# Active deployment target while Azure subscription is not available.
-# Azure can be re-enabled later with a GitHub Actions workflow.
+# Render blueprint - Fusion Flow V3 QAS (Frankfurt).
+# This repo carries TWO portal/API stacks (kept side by side); each has its own
+# services below. Deploy the ones you want from the Render Blueprint - having both
+# defined here does not force both to run, but a Blueprint sync WILL create every
+# service listed. Comment out a block you don't want provisioned.
+#
+# Stack A - liveWeb single-file portal + Modules jobs (one repo-root Docker image):
+#   synovia-flow-3-live   web     the portal + API (gunicorn app:app)         -> Dockerfile CMD
+#   ff-worker             worker  drains EXC.Job_Queue (portal /api/enqueue)   always-on
+#   ff-cron-ingestion     cron    pull + load raw ENS / sales orders          every 30m, UK business hrs
+#   ff-cron-processing    cron    transform + validate staged rows (PRS)      after ingestion
+#   ff-cron-mirror        cron    refresh the TSS live mirror (read-back)      hourly
+#   ff-cron-ref-choice    cron    refresh TSS choice values                    weekly
+#
+# Stack B - fusion_api backend + Vite fusion_portal SPA (from dev):
+#   fusion-flow-api       web     Integration_Layer/Portal/fusion_api (Docker)
+#   fusion-flow-portal    web     Integration_Layer/Portal/fusion_portal (static Vite build)
+#
+# Stack A submission WRITE jobs (promote/submit/update/cancel) are intentionally NOT
+# scheduled - they run per-movement from the portal so a human stays in the loop.
+# Stack A DB_* come from the shared env group; DB_PASSWORD is a secret (sync:false).
+
+envVarGroups:
+  - name: fusion-db
+    envVars:
+      - key: DB_SERVER
+        sync: false
+      - key: DB_NAME
+        value: Fusion_Flow_V3_QAS
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_DRIVER
+        value: "{ODBC Driver 18 for SQL Server}"
+      - key: DB_ENCRYPT
+        value: "yes"
+      - key: DB_TRUST
+        value: "no"
+
 services:
+  # ======================================================================
+  # STACK A - liveWeb portal + Modules jobs
+  # ======================================================================
+
+  # --- Web: the live portal + API ------------------------------------------
+  - type: web
+    name: synovia-flow-3-live
+    runtime: docker
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - fromGroup: fusion-db
+      # Portal actions always run (no demo gate). Jobs still honour SUBMISSION_ENV (TST)
+      # and SUBMISSION_DRY_RUN, so behaviour against the environment stays controlled.
+
+  # ======================================================================
+  # HYBRID: the worker and all recurring jobs run ON-PREM, not on Render.
+  # The portal (above) only enqueues to EXC.Job_Queue; the local worker + Task
+  # Scheduler execute the jobs near the mailbox/files and the allow-listed TSS/DB
+  # IP. See ARCHITECTURE.md and Development/Deploy/scheduler/. The service defs
+  # below are kept (commented) so you can move scheduling to Render later — if you
+  # do, allow Render's egress IPs on Azure SQL + TSS and run only ONE scheduler.
+  # ======================================================================
+  # - type: worker
+  #   name: ff-worker
+  #   runtime: docker
+  #   region: frankfurt
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Global/job_worker.py
+  #   envVars:
+  #     - fromGroup: fusion-db
+  #     - key: WORKER_POLL_SECONDS
+  #       value: "10"
+  #
+  # - type: cron   # ingestion cycle
+  #   name: ff-cron-ingestion
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "*/30 5-19 * * 1-5"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Ingestion/ING_00_run_cycle.py
+  #   envVars: [{ fromGroup: fusion-db }]
+  #
+  # - type: cron   # processing engine
+  #   name: ff-cron-processing
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "10,40 5-19 * * 1-5"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Processing/PRS_01_engine.py
+  #   envVars: [{ fromGroup: fusion-db }]
+  #
+  # - type: cron   # TSS status check (mirror)
+  #   name: ff-cron-mirror
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "*/30 * * * *"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Submission/SUB_03_mirror.py
+  #   envVars: [{ fromGroup: fusion-db }]
+  #
+  # - type: cron   # pull TSS response JSON
+  #   name: ff-cron-fetch-json
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "15,45 * * * *"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Submission/SUB_06_fetch_json.py
+  #   envVars: [{ fromGroup: fusion-db }]
+  #
+  # - type: cron   # refresh TSS choice values
+  #   name: ff-cron-ref-choice
+  #   runtime: docker
+  #   region: frankfurt
+  #   schedule: "0 3 * * 1"
+  #   dockerfilePath: ./Dockerfile
+  #   dockerContext: .
+  #   dockerCommand: python Modules/Global/REF_01_choice_values.py
+  #   envVars: [{ fromGroup: fusion-db }]
+
+  # ======================================================================
+  # STACK B - fusion_api backend + Vite fusion_portal SPA (from dev)
+  # Azure can be re-enabled later with a GitHub Actions workflow.
+  # ======================================================================
   - type: web
     name: fusion-flow-api
     runtime: docker

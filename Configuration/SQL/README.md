@@ -48,6 +48,9 @@ later module phases.
 | 27 | `027_tss_mirror_schema.sql` | New **`TSS`** schema + `TSS.BKD_ENS_Header` — the authoritative **live mirror** of what's in TSS (parsed header fields + verbatim `RawJson`), keyed by `Declaration_Number`. Written by `mirror_ens.py`; the update/cancel jobs link here. |
 | 28 | `028_api_call_log.sql` | **`API`** schema + `API.Call` — authoritative log of EVERY TSS call (EXC linkage, process, route/step, full request+response, status, duration, dry-run flag, TSS ref) + `API.vw_Call_Log` / `_Errors`. |
 | 29 | `029_cfg_submission_jobs.sql` | Submission controls (`SUBMISSION_CLIENT`/`ENTITY`/`ENV`=TST/`DRY_RUN`=1/`MOVEMENT_KEY`/`MAX_ROWS`/`API_BASE_PATH`) + jobs `PRS_PROMOTE_BKD_ENS`, `SUB_CREATE_BKD_ENS`, `SUB_MIRROR_BKD_ENS` and the `SUB_UPDATE_BKD_ENS` / `SUB_CANCEL_BKD_ENS` stubs. Module 3 (`Modules/Submission/`). `MAX_ROWS` caps rows per run (0 = all; set e.g. 3 to send a few). |
+| 30 | `030_cfg_fetch_json_job.sql` | Registers `SUB_FETCH_JSON_BKD_ENS` + `SUBMISSION_JSON_DIR`. Fed by `fetch_submitted_json.py` — GETs each submitted header back and writes request+response JSON per movement for analysis. |
+| 31 | `031_tss_mirror_widen.sql` | Widens `TSS.BKD_ENS_Header` with the place-of-acceptance/-delivery + carrier address fields so the live mirror holds the full read-back set. |
+| 32 | `032_cfg_activate_update_cancel.sql` | Activates the TSS-layer `SUB_UPDATE_BKD_ENS` (full-replacement update, Rule 16) and `SUB_CANCEL_BKD_ENS` (op_type=cancel) jobs — `Modules/Submission/update_ens.py` / `cancel_ens.py`. Operate on the live declaration by `Declaration_Number`, log to `API.Call`, advance EXC, dry-run safe. |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 

@@ -1,0 +1,50 @@
+# ⚠️ SUPERSEDED — Render Blueprint reads the REPO-ROOT `render.yaml`, not this one.
+# The authoritative blueprint is `../render.yaml` (one Docker image → web + worker +
+# crons for Stack A, plus the fusion_api/Vite Stack B). This file is kept only as a
+# minimal single-service reference for a standalone liveWeb deploy; do NOT point a
+# Blueprint at liveWeb/. See ../render.yaml.
+#
+# Render blueprint — Synovia Flow 3 live portal (Docker web service, Frankfurt).
+# (Reference only.) Serves the portal + /api/blueprint from the DB; the image bundles
+# the Microsoft ODBC driver for pyodbc. DB_PASSWORD is a secret (sync:false).
+services:
+  - type: web
+    name: synovia-flow-3-live
+    runtime: docker
+    region: frankfurt
+    rootDir: liveWeb
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: DB_SERVER
+        sync: false
+      - key: DB_NAME
+        value: Fusion_Flow_V3_QAS
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_DRIVER
+        value: "{ODBC Driver 18 for SQL Server}"
+      - key: DB_ENCRYPT
+        value: "yes"
+      - key: DB_TRUST
+        value: "no"
+
+# -----------------------------------------------------------------------------
+# ALTERNATIVE: static-only site (no DB, no API — the portal reads the committed
+# blueprint.json; refresh via export_blueprint.py + commit). Cheaper and needs no
+# DB firewall opening. To use it, comment out the Docker service above and
+# uncomment this block.
+# -----------------------------------------------------------------------------
+#  - type: web
+#    name: synovia-flow-3-static
+#    runtime: static
+#    region: frankfurt
+#    rootDir: liveWeb
+#    staticPublishPath: .
+#    pullRequestPreviewsEnabled: true
+#    routes:
+#      - type: rewrite
+#        source: /*
+#        destination: /index.html

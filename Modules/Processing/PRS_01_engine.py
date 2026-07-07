@@ -315,6 +315,13 @@ def process_row(db: ProcessingDb, raw: dict, profile: dict, fmap: list[dict],
             rec[fm["TargetField"]] = new
 
     arr_utc = mapping.parse_arrival_to_utc(rec.get("arrival_date_time"), now_utc=run_date)
+    # Rule 4: arrival must never be in the past. Auto-bump a past arrival to TOMORROW
+    # (same time of day) instead of rejecting, then re-render the strict string TSS gets.
+    arr_utc, _bumped = mapping.enforce_future_arrival(arr_utc, now_utc=run_date)
+    if _bumped:
+        rec["arrival_date_time"] = mapping.normalise_datetime(arr_utc)
+        db.log("ARRIVAL_BUMP", f"{eref}: arrival was in the past; moved to tomorrow "
+               f"-> {rec['arrival_date_time']}", "OK")
     rec["arrival_date_time_utc"] = arr_utc.replace(tzinfo=None) if arr_utc is not None else None
     db.log_transition(profile["EntityKind"], eref, "ENRICHING", "ENRICHED")
 
@@ -381,8 +388,9 @@ def validate(rec: dict, fmap: list[dict], resolver: ChoiceResolver,
     return reasons
 
 
-def run(ini_path: Path = DEFAULT_INI, mode: str | None = None) -> int:
-    db = ProcessingDb.connect(load_db_config(ini_path), dry_run=False)
+def run(ini_path: Path = DEFAULT_INI, mode: str | None = None,
+        overrides: dict[str, str] | None = None) -> int:
+    db = ProcessingDb.connect(load_db_config(ini_path), dry_run=False, overrides=overrides)
     client = (db.fetch_parameter("PROCESSING_CLIENT", "BKD") or "BKD").strip().upper()
     entity = (db.fetch_parameter("PROCESSING_ENTITY", "ENS_HEADER") or "ENS_HEADER").strip().upper()
     db.dry_run = (db.fetch_parameter("PROCESSING_DRY_RUN", "0") or "0").strip().lower() in ("1", "true", "yes", "on")
@@ -441,7 +449,11 @@ def run(ini_path: Path = DEFAULT_INI, mode: str | None = None) -> int:
             tsql = (f"SELECT MovementKey, SourceEnsLoadID FROM {profile['TargetSchema']}.{profile['TargetTable']} "
                     f"WHERE ClientCode = ?")
             tparams: list[Any] = [client]
-            if scope != "ALL":
+            # A targeted single-movement reprocess (e.g. the portal's Fix arrival &
+            # resubmit) re-runs THAT movement regardless of status — a valid arrival can
+            # go stale (fall into the past) after it was validated, so we must recompute
+            # it even though it isn't REJECTED. The REJECTED scope only applies to batch runs.
+            if scope != "ALL" and not target_mk:
                 tsql += " AND Fusion_Status = 'REJECTED'"
             if target_mk:
                 tsql += " AND MovementKey = ?"; tparams.append(target_mk)

@@ -1,0 +1,22 @@
+# Fusion Flow V3 QAS - full platform image (portal API + every Module job + worker).
+# Used by the repo-root Dockerfile that the Render blueprint (render.yaml) builds for
+# the web service, the cron jobs and the background worker.
+
+# Portal / API
+Flask==3.*
+gunicorn==22.*
+
+# Database - all layers (needs the Microsoft ODBC Driver installed by the Dockerfile)
+pyodbc==5.*
+
+# TSS + Microsoft Graph HTTP; Excel snapshot/report exports
+requests==2.32.*
+openpyxl==3.1.*
+
+# Microsoft Graph email ingestion
+msal==1.*
+
+# Optional - only used when the Graph secret is resolved from Key Vault
+# (otherwise set GRAPH_CLIENT_SECRET in the environment).
+azure-identity==1.*
+azure-keyvault-secrets==4.*

@@ -58,7 +58,9 @@ as the single source of truth. Stage pending scripts with `stage_queue.py`, then
 | `PRS_PROMOTE_BKD_ENS` | Submission | Promote VALIDATED PRS rows → `STG.BKD_ENS_Header` (READY) | `promote_ens` |
 | `SUB_CREATE_BKD_ENS` | Submission | `POST /headers` create; log to `API.Call`; capture ENS number (dry-run safe) | `submit_ens` |
 | `SUB_MIRROR_BKD_ENS` | Submission | GET header back → `TSS.BKD_ENS_Header` live mirror; mark complete | `mirror_ens` |
-| `SUB_UPDATE_BKD_ENS` / `SUB_CANCEL_BKD_ENS` | Submission | Stubs (inactive) — operate against the `TSS.*` live mirror | — |
+| `SUB_UPDATE_BKD_ENS` | Submission | Full-replacement update (Rule 16) of a live declaration | `update_ens` |
+| `SUB_CANCEL_BKD_ENS` | Submission | Cancel a live declaration (`op_type=cancel`); marks CANCELLED + mirror not-live | `cancel_ens` |
+| `SUB_FETCH_JSON_BKD_ENS` | Submission | Dump each submitted header's request+response JSON for analysis | `fetch_submitted_json` |
 | `REP_DB_SNAPSHOT_XLSX` | Reporting | Full DB → Excel (tab per table, Zero Records, Summary, Column Analysis) | `export_db_snapshot` |
 | `REP_REFERENCE_LISTS_XLSX` | Reporting | Curated CFG option lists → Excel (Vocabulary etc. + Index) | `export_reference_lists` |
 | ~~`PRS_PROCESS_BKD`~~ / ~~`PRS_STAGE_BKD_ENS`~~ | Processing | **Deactivated (025)** — superseded by the engine | — |

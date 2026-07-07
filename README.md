@@ -4,260 +4,184 @@
 
 # Fusion Flow V3 QAS
 
-Fusion Flow V3 QAS is the Release 1 pipeline for controlled inbound-data capture,
-canonical processing and future TSS API submission. The current source of truth is:
+Fusion Flow V3 QAS is the end-to-end pipeline that ingests controlled inbound data,
+processes it into the canonical TSS shape, submits declarations to the Trader Support
+Service (TSS), and mirrors their live status back — all driven and monitored from a
+single operations portal.
 
-- `Configuration/SQL/` for schemas, tables, constraints and seed data.
-- `Modules/Ingestion/` for Module 1 raw ingestion.
-- `Modules/Processing/` for Module 2 PRS construction and validation.
-- `Development/Deploy/` and `Development/Review/` for database deployment and review tooling.
+The flow is: **acquire → load raw → transform + validate → promote → submit → mirror**,
+with every step tracked in the `EXC` execution spine and every TSS call logged to
+`API.Call`.
 
-`Deprecated/` is legacy reference only. Do not treat `Deprecated/Integration_Layer/FLOW_V3`
-or the old `ING.Graph` / `EXC.Graph` model as the current architecture.
+> **Deployment is hybrid** — one core database (Azure SQL), jobs run **locally**
+> (on-prem, near the mailbox/files/TSS), and the **hosted portal** connects to the same
+> database and enqueues work for a local worker. See **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
-## Live DB Snapshot
+---
 
-Metadata below was read from the live `Fusion_Flow_V3_QAS` database on
-`2026-06-30 16:09 UTC`. Row counts are operational counts at that moment and will
-change as ingestion/processing runs.
+## The portal — `liveWeb/`
 
-| Schema | Tables | State |
-| --- | ---: | --- |
-| `CFG` | 13 | Deployed configuration/control layer. |
-| `CHG` | 2 | Deployed change/deployment audit layer. |
-| `EXC` | 4 | Deployed execution spine and transaction state. |
-| `ING` | 5 | Deployed raw ingestion layer with BKD source rows loaded. |
-| `LOG` | 3 | Deployed technical/process/API logging layer. |
-| `PRS` | 13 | Deployed canonical processing layer; top-level PRS tables are currently empty. |
-| `API` | 0 | Reserved for future request/response persistence. |
-| `STG` | 0 | Reserved for future submission-ready staging mirrors. |
-| `BKD` | 0 | Reserved client schema; live BKD operational tables currently live in `ING`/`PRS`. |
-| `CTL` | 0 | Reserved control/orchestration schema. |
-| `ARC` | 0 | Reserved archive/history schema. |
-| `SRV` | 0 | Reserved service/presentation schema. |
+**`liveWeb/` is the Synovia Flow 3 portal — the operator UI for the whole platform.**
+It serves the single-page portal plus a small API (`liveWeb/app.py`) that reads a live
+"blueprint" straight from the database and runs jobs per movement.
 
-Known drift: `Configuration/SQL/012_cfg_jobs.sql` defines `CFG.Job`, and
-`Modules/Ingestion/run_ingestion.py` expects it. The live DB snapshot did not
-contain `CFG.Job`, so the runner falls back to its built-in BKD step list until
-that script is deployed.
+From a movement's pipeline drill-down you can, for one movement:
+
+- **Edit fields** (`arrival_date_time`, `movement_type`, carrier, seal, …) → `POST /api/edit`
+- **Promote / Submit / Mirror / Update / Cancel / Reprocess** → `POST /api/action/<verb>`
+- **Fix arrival & resubmit** — one click chains reprocess → promote → submit
+- Queue any of the above for the background worker → `POST /api/enqueue/<verb>`
+
+The buttons run the **real** jobs (no demo mode). Safety is controlled by
+`SUBMISSION_ENV` (e.g. `TST`) and `SUBMISSION_DRY_RUN` in `CFG.Application_Parameters`,
+not by a UI toggle. See [`liveWeb/README.md`](liveWeb/README.md) for the portal detail.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /` + `/<file>` | the portal + assets |
+| `GET /api/blueprint` | live blueprint from the DB (30s cache; falls back to committed `blueprint.json`) |
+| `GET /api/health` | liveness probe |
+| `POST /api/action/<verb>` | run a job for one movement (in-process) |
+| `POST /api/enqueue/<verb>` | queue a job for the worker (returns 202) |
+| `POST /api/edit` | patch whitelisted STG payload fields |
+| `GET /api/executions` | recent `EXC.Execution` + `EXC.Job_Queue` rows (the **Log** page) |
+
+The portal's **Log** view shows recent job executions and the portal queue, so you can
+watch what the scheduled crons and the on-prem worker are doing.
+
+---
+
+## Jobs — `Modules/`
+
+Runnable jobs are named in pipeline order (`ING_ → PRS_ → SUB_`, plus `REF_`/`REP_`);
+shared libraries keep descriptive names. Every job reads scope from
+`CFG.Application_Parameters` (or a per-run override the portal passes) and connects via
+`DB_*` env vars, falling back to `Configuration/Fusion_Flow_QAS.ini` locally.
+
+| Job | Script | Does |
+| --- | --- | --- |
+| Ingestion cycle | `Modules/Ingestion/ING_00_run_cycle.py` | orchestrates the steps below from `CFG.Job` |
+| — acquire | `ING_01_acquire_email.py` | pull email attachments (Microsoft Graph) |
+| — parse | `ING_02_parse_ens.py` | parse ENS headers to CSV |
+| — load | `ING_03_load_raw.py` | load raw ENS + sales orders into `ING.*` |
+| Process | `Modules/Processing/PRS_01_engine.py` | config-driven transform + validate → `PRS.*` |
+| Reprocess | `PRS_02_reprocess.py` | re-run rejected rows through the engine |
+| Promote | `Modules/Submission/SUB_01_promote.py` | promote validated rows → `STG` |
+| Submit | `SUB_02_submit.py` | POST create to TSS `/headers` |
+| Mirror (status check) | `SUB_03_mirror.py` | GET live declarations → refresh `Tss_Status` |
+| Update | `SUB_04_update.py` | full-replacement update (Rule 16) |
+| Cancel | `SUB_05_cancel.py` | cancel a live declaration |
+| Fetch JSON | `SUB_06_fetch_json.py` | pull TSS response JSON (status evidence) |
+| Reference | `Modules/Global/REF_01_choice_values.py`, `REF_02_commodity_codes.py` | refresh TSS reference data |
+| Reporting | `Modules/Global/REP_01_db_snapshot.py`, `REP_02_reference_lists.py` | Excel exports |
+
+Run the whole local cycle by hand with **`python Modules/run_all.py`** (ingest →
+process → promote → submit → mirror → fetch; `--only` / `--skip` / `--list` / `--stop-on-error`).
+
+**Libraries / infra (imported by name, not run directly):** `ingest`, `graph_email`,
+`xlsx_reader`, `submission_db`, `tss_client`, `process_data`, `mapping`,
+`check_choice`, `seed_credentials`, `job_worker`. Retired scripts live in
+`Modules/_retired/`.
+
+### Background worker + queue (Pattern B)
+
+`POST /api/enqueue/<verb>` writes a `PENDING` row to `EXC.Job_Queue`;
+`Modules/Global/job_worker.py` claims it atomically and runs the same runner with
+per-run scope, recording the outcome. Use it for batches or long runs so the request
+returns immediately.
+
+### Rule 4 — arrival is never in the past
+
+TSS rejects a past `arrival_date_time`. The engine auto-corrects: a past arrival is
+moved to **tomorrow** (same time of day) instead of being rejected. From the portal,
+**Fix arrival & resubmit** applies this and re-sends in one click.
+
+---
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    CFG[CFG<br/>Configuration and runtime control]
-    CHG[CHG<br/>Deploy audit]
-    SRC[Email / file / future channels]
-    INGEST[Module 1<br/>Ingestion]
-    ING[ING<br/>Raw verbatim landing]
-    PROC[Module 2<br/>Processing]
-    PRS[PRS<br/>Canonical TSS-shaped objects]
-    STG[STG<br/>Future submission staging]
-    API[API<br/>Future request/response store]
-    EXC[EXC<br/>Execution spine]
-    LOG[LOG<br/>Technical logs]
+    PORTAL[liveWeb portal<br/>edit + run jobs]
+    SRC[Email / file channels]
+    ING[ING<br/>raw landing]
+    PRS[PRS<br/>canonical TSS shape]
+    STG[STG<br/>submission-ready]
+    TSS[(TSS API)]
+    APILOG[API.Call<br/>per-call log]
+    EXC[EXC<br/>execution spine + job queue]
 
-    CFG --> INGEST
-    CFG --> PROC
-    CHG --> CFG
-    SRC --> INGEST --> ING --> PROC --> PRS --> STG --> API
-    INGEST --> EXC
-    INGEST --> LOG
-    PROC --> EXC
-    PROC --> LOG
+    SRC --> ING --> PRS --> STG --> TSS
+    TSS -->|mirror status| STG
+    PORTAL --> PRS
+    PORTAL --> STG
+    PORTAL --> TSS
+    STG --> APILOG
+    ING --> EXC
+    PRS --> EXC
+    STG --> EXC
 ```
 
-## Layer Model
+---
 
-| Code | Layer | Purpose | Key live tables |
-| --- | --- | --- | --- |
-| `CFG` | Configuration | Runtime settings, clients, credentials, folder paths, email/source routing, API rules, choice caches and status vocabulary. | `Application_Parameters`, `Clients`, `Credentials`, `Folder_Paths`, `Email_Rules`, `API_Version`, `API_Process_Map`, `Choice_Field_Registry`, `Choice_Value_Cache`, `Status_Vocabulary`, `Ingestion_Source`, `TSS_Environment`, `TSS_Credential`. |
-| `ING` | Ingestion raw | Inbound artefacts landed verbatim from every source channel; no business transformation. | `Inbound_File`, `Raw_Record`, `Source_Email`, `BKD_Raw_ENS`, `BKD_Raw_Sales_Orders`. |
-| `EXC` | Execution | Master execution spine, per-entity transaction transitions, errors and field-level processing enhancements. | `Execution`, `[Transaction]`, `Error`, `Data_Processing_Enhancement`. |
-| `LOG` | Log | Detailed process, error and API traces. More technical/deep than `EXC`. | `Process_Log`, `Error_Log`, `API_Trace`. |
-| `PRS` | Processing | Enhanced, enriched and constructed canonical objects shaped for TSS before submission. | `ENS_Header`, `Consignment`, `Goods_Item` and 10 nested child tables. |
-| `STG` | Staging | Future submission-ready mirrors/client-prefixed tables. | Empty in live DB. |
-| `API` | API | Future full request/response JSON plus deserialised columns. | Empty in live DB. |
-| `CHG` | Change audit | SQL deployment run and script-level audit trail. | `Deployment`, `Change_Log`. |
+## Deployment (Render)
 
-## Runtime Flow
+The repo-root [`render.yaml`](render.yaml) is the authoritative blueprint; one repo-root
+`Dockerfile` builds a single image (portal **+** `Modules/` + the Microsoft ODBC driver)
+used by every service. It defines two stacks:
 
-```mermaid
-sequenceDiagram
-    participant CFG as CFG control tables
-    participant M1 as Module 1 Ingestion
-    participant ING as ING raw tables
-    participant M2 as Module 2 Processing
-    participant PRS as PRS canonical tables
-    participant EXC as EXC/LOG
+- **Stack A — the portal (deploy this):** `synovia-flow-3-live` (web), `ff-worker`
+  (queue drain), and cron jobs `ff-cron-ingestion` / `-processing` / `-mirror` (TSS
+  status, every 30 min) / `-fetch-json` / `-ref-choice`.
+- **Stack B — optional:** `fusion-flow-api` + `fusion-flow-portal` (a separate Vite/API
+  app carried over from `dev`). Not the primary portal; deploy only if you want it.
 
-    CFG->>M1: INGESTION_CLIENT, routes, folders, rules
-    M1->>EXC: open Execution and write logs
-    M1->>ING: land files, email provenance and BKD raw rows
-    CFG->>M2: PROCESSING_CLIENT, mode, dry-run
-    M2->>ING: read unprocessed BKD raw ENS and Sales Orders
-    M2->>PRS: NORMALISE -> ENRICH -> CONSTRUCT -> VALIDATE
-    M2->>EXC: stage transitions and field-level enhancements
-```
+Deploy: **Render → New → Blueprint → this repo/`Master`**, select the Stack A services,
+provide the `DB_*` secrets, and allow the services' outbound IPs through the Azure SQL
+firewall. Health check: `/api/health`.
 
-## Table Catalog
+---
 
-### `CFG` - Configuration And Runtime Control
+## Database & deployment tooling
 
-| Table | Rows | Purpose | Key / refs |
-| --- | ---: | --- | --- |
-| `CFG.Application_Parameters` | 28 | Global runtime settings such as environment, module controls and roots. The DB connection stays outside this table. | PK `ParameterID`; unique `ParameterKey`. |
-| `CFG.Clients` | 3 | Principal registry for 3-letter clients, schema/prefix, default route and agent flag. Live rows include `BKD` active, `CWD` inactive and `PLE` inactive. | PK `ClientID`; unique `ClientCode`. |
-| `CFG.Credentials` | 4 | TSS credential metadata: username plus secret reference, not plaintext secrets. | PK `CredentialID`; FK to `CFG.Clients`. |
-| `CFG.Folder_Paths` | 13 | Per-client operational folder registry for `INBOUND`, `ENS_SOURCE`, `PROCESS`, `FAIL` and `ARCHIVE`. | PK `PathID`; FK to `CFG.Clients`; unique client/path type. |
-| `CFG.Email_Rules` | 3 | Mailbox, sender-domain/address and allowed-file routing per client. | PK `RuleID`; FK to `CFG.Clients`. |
-| `CFG.API_Version` | 3 | Per-client TSS resource version switch and TEST/PROD base URLs. | PK `VersionID`; FK to `CFG.Clients`. |
-| `CFG.API_Process_Map` | 13 | Ordered API route plan per client and route: endpoint, HTTP method, operation type and waits. | PK `MapID`; FK to `CFG.Clients`; unique client/route/step. |
-| `CFG.Choice_Field_Registry` | 35 | List of TSS choice fields to bootstrap from `GET /choice_values/<field>`. | PK `FieldID`; unique `ChoiceField`. |
-| `CFG.Choice_Value_Cache` | 0 | Cached TSS choice values and metadata once bootstrapped. | PK `ChoiceID`; unique `ChoiceField`, `ChoiceValue`. |
-| `CFG.Status_Vocabulary` | 19 | Shared process/status vocabulary for ingestion, processing, submission and monitoring. | PK `VocabID`; unique `ResultStatus`. |
-| `CFG.Ingestion_Source` | 4 | DB-driven acquisition-channel registry per client: `EMAIL`, `SFTP`, `AS2`, `API`, `FILE_DROP`. | PK `SourceID`; FK to `CFG.Clients`; unique client/channel. |
-| `CFG.TSS_Environment` | 2 | TSS environment endpoints and active flags, normally `TEST` and `PROD`. | PK `EnvCode`. |
-| `CFG.TSS_Credential` | 6 | Per-client/per-environment TSS username and verification status. | PK `ClientCode`, `EnvCode`; FK to `CFG.TSS_Environment`. |
-
-Expected but not live: `CFG.Job` is the canonical job registry for scheduler
-orchestration and is seeded by `012_cfg_jobs.sql`.
-
-### `CHG` - Change Management
-
-| Table | Rows | Purpose | Key / refs |
-| --- | ---: | --- | --- |
-| `CHG.Deployment` | 6 | One row per deployment run: run stamp, description, server/database, counts and status. | PK `DeploymentID`. |
-| `CHG.Change_Log` | 20 | One row per SQL script applied, including script hash, batch count, status and archive path. | PK `ChangeID`; FK to `CHG.Deployment`. |
-
-### `EXC` - Execution Spine
-
-| Table | Rows | Purpose | Key / refs |
-| --- | ---: | --- | --- |
-| `EXC.Execution` | 16 | Master run record. Every module opens an execution with a `TransactionID` that threads through `ING`, `PRS`, future `STG/API` and logs. | PK `ExecutionID`; indexed by `TransactionID`, client and status. |
-| `EXC.[Transaction]` | 0 | Per-entity stage transitions inside an execution, for example `NORMALISING -> NORMALISED`. | PK `TransactionRowID`; FK to `EXC.Execution`. |
-| `EXC.Error` | 0 | Execution-level business/process errors. | PK `ErrorID`. |
-| `EXC.Data_Processing_Enhancement` | 0 | Field-level audit for Module 2 changes: old value, new value and rule applied. | PK `EnhancementID`. |
-
-### `ING` - Raw Ingestion
-
-| Table | Rows | Purpose | Key / refs |
-| --- | ---: | --- | --- |
-| `ING.Inbound_File` | 6 | One row per landed file from any channel with source provenance, hash, size and status. | PK `FileID`; FK to `CFG.Clients` and `EXC.Execution`; unique client/file hash. |
-| `ING.Raw_Record` | 0 | Verbatim parsed source rows as JSON, one row per source row. | PK `RawID`; FK to `ING.Inbound_File`. |
-| `ING.Source_Email` | 0 | Email-channel provenance: mailbox, sender, subject, body preview and Graph identifiers. | PK `EmailID`. |
-| `ING.BKD_Raw_ENS` | 8 | Typed rows from generated `ENS_Headers_*.csv`; dedup key is `DetailsDate|ICR`. | PK `LoadID`; FK to `EXC.Execution`; unique `DedupKey`. |
-| `ING.BKD_Raw_Sales_Orders` | 293 | Verbatim Sales Order workbook lines as JSON with file/date/row provenance. | PK `LoadID`; FK to `EXC.Execution`; unique source file/row number. |
-
-Rule: `ING` preserves what arrived. Normalisation and enrichment belong in `PRS`,
-not in raw tables.
-
-### `LOG` - Technical Logging
-
-| Table | Rows | Purpose | Key / refs |
-| --- | ---: | --- | --- |
-| `LOG.Process_Log` | 84 | Step-level process logs with module, client, level, message and optional JSON detail. | PK `LogID`. |
-| `LOG.Error_Log` | 9 | Dedicated technical error log with error type and stack trace. | PK `ErrorLogID`. |
-| `LOG.API_Trace` | 0 | Future full API request/response trace for Module 3 submission/monitoring. | PK `TraceID`. |
-
-### `PRS` - Canonical Processing
-
-`PRS` holds the canonical object model after Module 2 processing. It is shaped as
-one ENS header, many consignments, many goods items and nested arrays. It is not
-the final API submission store; future `STG` materialises validated PRS movements
-into submission-ready structures.
-
-```mermaid
-flowchart TB
-    EXEC[EXC.Execution]
-    H[PRS.ENS_Header]
-    C[PRS.Consignment]
-    G[PRS.Goods_Item]
-    CPD[Consignment_PreviousDocument]
-    CHA[Consignment_HolderOfAuthorisation]
-    GAI[Goods_AdditionalInformation]
-    GAP[Goods_AdditionalParties]
-    GAPR[Goods_AdditionalProcedure]
-    GDR[Goods_DocumentReference]
-    GIAD[Goods_ItemAddDed]
-    GNAC[Goods_NationalAdditionalCode]
-    GPD[Goods_PreviousDocument]
-    GTB[Goods_TaxBase]
-
-    EXEC --> H
-    EXEC --> C
-    EXEC --> G
-    H --> C --> G
-    C --> CPD
-    C --> CHA
-    G --> GAI
-    G --> GAP
-    G --> GAPR
-    G --> GDR
-    G --> GIAD
-    G --> GNAC
-    G --> GPD
-    G --> GTB
-```
-
-| Table | Rows | Purpose | Key / refs |
-| --- | ---: | --- | --- |
-| `PRS.ENS_Header` | 0 | One row per logical movement; carries movement key, source ENS load, lifecycle status and header-level TSS fields. | PK `EnsHeaderRowID`; FK to `EXC.Execution`; unique client/movement key. |
-| `PRS.Consignment` | 0 | Child consignments for an ENS header, including party blocks and consignment-level TSS fields. | PK `ConsignmentRowID`; FK to `PRS.ENS_Header` and `EXC.Execution`. |
-| `PRS.Goods_Item` | 0 | Goods items under a consignment; runner validates the 1..99 goods cardinality rule. | PK `GoodsItemRowID`; FK to `PRS.Consignment` and `EXC.Execution`. |
-| `PRS.Consignment_PreviousDocument` | 0 | Consignment-level previous-document array. | PK `ConsignmentPreviousDocumentRowID`; FK to `PRS.Consignment`. |
-| `PRS.Consignment_HolderOfAuthorisation` | 0 | Consignment-level holder-of-authorisation array. | PK `ConsignmentHolderOfAuthorisationRowID`; FK to `PRS.Consignment`. |
-| `PRS.Goods_AdditionalProcedure` | 0 | Goods-level additional-procedure array. | PK `GoodsAdditionalProcedureRowID`; FK to `PRS.Goods_Item`. |
-| `PRS.Goods_DocumentReference` | 0 | Goods-level document-reference array. | PK `GoodsDocumentReferenceRowID`; FK to `PRS.Goods_Item`. |
-| `PRS.Goods_AdditionalInformation` | 0 | Goods-level additional-information array. | PK `GoodsAdditionalInformationRowID`; FK to `PRS.Goods_Item`. |
-| `PRS.Goods_PreviousDocument` | 0 | Goods-level previous-document array. | PK `GoodsPreviousDocumentRowID`; FK to `PRS.Goods_Item`. |
-| `PRS.Goods_ItemAddDed` | 0 | Goods-level additions/deductions array. | PK `GoodsItemAddDedRowID`; FK to `PRS.Goods_Item`. |
-| `PRS.Goods_NationalAdditionalCode` | 0 | Goods-level national-additional-code array. | PK `GoodsNationalAdditionalCodeRowID`; FK to `PRS.Goods_Item`. |
-| `PRS.Goods_TaxBase` | 0 | Goods-level tax-base array. | PK `GoodsTaxBaseRowID`; FK to `PRS.Goods_Item`. |
-| `PRS.Goods_AdditionalParties` | 0 | Goods-level additional-parties array, provisioned for supplementary declaration coverage. | PK `GoodsAdditionalPartiesRowID`; FK to `PRS.Goods_Item`. |
-
-## Modules
-
-| Module | Entry point | Reads | Writes | Notes |
-| --- | --- | --- | --- | --- |
-| Deploy | `python Development/Deploy/deploy.py --source Configuration/SQL` | `Configuration/SQL/` | DB + `CHG` audit | SQL scripts are idempotent and deployment-audited. |
-| Review | `python Development/Review/export_datamodel.py --all` | Live DB metadata/data | Excel workbook | Use for full DB review exports. |
-| Ingestion | `python Modules/Ingestion/run_ingestion.py` | `CFG`, Graph/email/files | `ING`, `EXC`, `LOG` | Reads `CFG.Job` when present; otherwise BKD fallback steps. |
-| Processing | `python Modules/Processing/process_data.py` | `CFG`, `ING.BKD_Raw_*` | `PRS`, `EXC`, `LOG` | Runs `NORMALISE -> ENRICH -> CONSTRUCT -> VALIDATE`. |
-| Credentials | `python Modules/Global/seed_credentials.py` | gitignored JSON | `CFG.TSS_Environment`, `CFG.TSS_Credential` | Never commit real credentials. |
-
-## Operating Rules
-
-- Keep DB connection details in `Configuration/Fusion_Flow_QAS.ini` or local
-  environment settings only. Do not commit secrets.
-- Add or change tables in `Configuration/SQL/` first, then deploy with the
-  deployment runner so `CHG` stays authoritative.
-- Keep raw source data verbatim in `ING`; transformations belong in `PRS`.
-- Thread `EXC.Execution.TransactionID` through every module run and table family.
-- Use `CFG` rows for clients, folder paths, source routing and runtime controls
-  before hard-coding behavior.
-- Treat `API` and `STG` as planned future layers until their SQL scripts are
-  deployed.
-
-## Quick Commands
+- Canonical DDL/seed lives in `Configuration/SQL/` (`028 … 034`).
+  `033_job_queue.sql` creates `EXC.Job_Queue`; `034_cfg_job_entrypoints.sql` re-points
+  `CFG.Job.EntryPoint` to the sequence-named scripts.
+- Apply with `Development/Deploy/deploy.py` (stages from `Configuration/SQL`, logs to
+  the `CHG` schema, archives on success). It connects via `DB_*` env vars or the
+  gitignored `.ini`:
 
 ```powershell
-cd "\\pl-az-sdf-plint\Fusion_Production\Scratch\Fusion_Flow_V3_QAS"
-
-# Dry-run SQL deployment review
-python Development\Deploy\deploy.py --source Configuration\SQL --dry-run
-
-# Run Module 1 ingestion
-python Modules\Ingestion\run_ingestion.py
-
-# Run Module 2 processing
-python Modules\Processing\process_data.py
-
-# Export a database model workbook
-python Development\Review\export_datamodel.py --all
+# either set DB_* in the environment, or copy the template and set the password:
+copy Configuration\Fusion_Flow_QAS.example.ini Configuration\Fusion_Flow_QAS.ini
+python Development\Deploy\deploy.py --source Configuration\SQL --dry-run   # preview
+python Development\Deploy\deploy.py --source Configuration\SQL             # apply
 ```
 
-Before running the modules on a new machine, copy
-`Configuration/Fusion_Flow_QAS.example.ini` to the gitignored
-`Configuration/Fusion_Flow_QAS.ini` and fill the local database connection
-settings.
+**Schemas:** `CFG` (config/control), `CHG` (deploy audit), `EXC` (execution spine +
+job queue), `ING` (raw ingestion), `PRS` (canonical), `STG` (submission-ready),
+`API` (per-call log), `LOG` (technical/process logs).
+
+---
+
+## Configuration & safety
+
+All run behaviour is data in `CFG.Application_Parameters` — e.g. `SUBMISSION_ENV`
+(`TST`), `SUBMISSION_DRY_RUN`, `SUBMISSION_MAX_ROWS`, `PROCESSING_MODE`. The portal and
+the worker scope a single-movement run with in-memory overrides, so concurrent runs
+never clobber each other's scope.
+
+---
+
+## Repository layout
+
+| Path | What |
+| --- | --- |
+| `liveWeb/` | **the portal** (UI + `app.py` API + `tools/`) |
+| `Modules/` | ingestion / processing / submission / global jobs + `job_worker` |
+| `Configuration/` | connection template + `SQL/` migrations |
+| `Development/` | `Deploy/` (deploy.py, stage_queue.py) + `Review/` tooling |
+| `render.yaml`, `Dockerfile`, `requirements.txt` | deployment |
+| `Integration_Layer/`, `Database_Layer/` | Stack B (fusion_api + Vite portal) from `dev` |
+| `Documentation/`, `Inbound/`, `Branding/`, `assets/` | specs, source samples, brand |
+| `Deprecated/`, `Modules/_retired/` | legacy reference only — not the current architecture |

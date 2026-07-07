@@ -55,9 +55,27 @@ TIMEOUT = 60
 # --------------------------------------------------------------------------- #
 # Connection
 # --------------------------------------------------------------------------- #
+def _config_from_env() -> dict[str, str] | None:
+    """DB config from DB_* env vars (Render / container); None if DB_SERVER unset."""
+    if not os.environ.get("DB_SERVER"):
+        return None
+    return {
+        "server": os.environ.get("DB_SERVER", ""),
+        "database": os.environ.get("DB_NAME", ""),
+        "user": os.environ.get("DB_USER", ""),
+        "password": os.environ.get("DB_PASSWORD", ""),
+        "driver": os.environ.get("DB_DRIVER", "{ODBC Driver 18 for SQL Server}"),
+        "encrypt": os.environ.get("DB_ENCRYPT", "yes"),
+        "trust_server_certificate": os.environ.get("DB_TRUST", "no"),
+    }
+
+
 def load_db_config(ini_path: Path) -> dict[str, str]:
+    env = _config_from_env()          # env (Render) wins; else the gitignored .ini (local)
+    if env:
+        return env
     if not ini_path.exists():
-        raise SystemExit(f"Missing connection file: {ini_path}")
+        raise SystemExit(f"Missing connection file: {ini_path} (and DB_SERVER not set)")
     cp = configparser.ConfigParser(); cp.read(ini_path, encoding="utf-8")
     if "database" not in cp:
         raise SystemExit(f"No [database] section in {ini_path}")

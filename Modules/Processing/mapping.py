@@ -654,6 +654,22 @@ def normalise_datetime(raw, now_utc=None) -> str | None:
     return dt.astimezone(timezone.utc).strftime(_OUTPUT_FORMAT)
 
 
+def enforce_future_arrival(dt, now_utc=None):
+    """Rule 4 auto-correct: arrival must NEVER be in the past. If dt is before 'now',
+    move it to TOMORROW keeping the original time-of-day; otherwise return it unchanged.
+    Returns (corrected_dt | None, was_bumped). None passes straight through.
+    now_utc may be injected for testability."""
+    if dt is None:
+        return None, False
+    now = _coerce_now(now_utc)
+    dtc = _coerce_now(dt)
+    if dtc >= now:
+        return dtc, False
+    bumped = (now + timedelta(days=1)).replace(
+        hour=dtc.hour, minute=dtc.minute, second=dtc.second, microsecond=0)
+    return bumped, True
+
+
 # =============================================================================
 # Smoke test
 # =============================================================================
