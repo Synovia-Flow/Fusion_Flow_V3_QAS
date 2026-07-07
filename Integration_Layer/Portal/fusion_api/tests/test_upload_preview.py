@@ -114,8 +114,8 @@ class PortalAuthTests(unittest.TestCase):
         self.assertEqual(payload["session"]["tenantCode"], "SYNOVIA")
         self.assertEqual(payload["session"]["tenantName"], "Synovia")
         self.assertEqual(payload["session"]["mode"], "DEMO_ADMIN")
-        self.assertEqual(payload["defaultClientCode"], "CWD")
-        self.assertEqual(payload["connection"]["portalClientCode"], "CWD")
+        self.assertEqual(payload["defaultClientCode"], "BKD")
+        self.assertEqual(payload["connection"]["portalClientCode"], "BKD")
         self.assertTrue(payload["demoMode"])
         self.assertFalse(payload["databaseWrite"])
         self.assertFalse(payload["tssWrite"])
@@ -128,6 +128,93 @@ class UploadPreviewSelectionTests(unittest.TestCase):
 
     def tearDown(self):
         portal_main.load_portal_profile = self._original_load_portal_profile
+
+    def test_settings_validation_diagnostics_explains_package_type_resolution_without_writes(self):
+        diagnostics = portal_main.admin_validation_diagnostics(client_code="BKD")
+
+        self.assertEqual(diagnostics["writeMode"], "read_only_diagnostics")
+        self.assertFalse(diagnostics["databaseWrite"])
+        self.assertFalse(diagnostics["tssWrite"])
+        self.assertEqual(diagnostics["productMaster"]["source"], "CFG.Product_Master")
+        self.assertFalse(diagnostics["productMaster"]["available"])
+        self.assertIn(
+            "source UOM/package wording normalised through Modules.Processing",
+            diagnostics["packageTypeResolutionOrder"],
+        )
+        self.assertIn("PackageType is not a TSS choice-values download", diagnostics["notes"][1])
+
+    def test_consignment_list_includes_read_only_validation_summary(self):
+        original_query_all = portal_main.query_all
+        original_object_exists = portal_main.object_exists
+
+        def fake_object_exists(_name):
+            return False
+
+        def fake_query_all(sql, params=None):
+            if "FROM PRS.Consignment c" in sql:
+                return [
+                    {
+                        "ConsignmentRowID": 101,
+                        "EnsHeaderRowID": 12,
+                        "ClientCode": "BKD",
+                        "Status": "READY",
+                        "TssStatus": "READY_FOR_TSS",
+                        "MovementKey": "BKD-20260707",
+                        "ConsignmentNumber": "CON-101",
+                        "TraderReference": "TR-101",
+                        "TransportDocumentNumber": "TD-101",
+                        "GoodsDescription": "Sweets",
+                        "ConsigneeName": "Birkdale Test",
+                        "DestinationCountry": "GB",
+                        "GoodsItems": 2,
+                        "GrossMassKg": "1.43",
+                    }
+                ]
+            if "FROM PRS.Goods_Item" in sql:
+                return [
+                    {
+                        "ConsignmentRowID": 101,
+                        "GoodsItemRowID": 1,
+                        "goods_description": "Tub sweets",
+                        "commodity_code": "1704906500",
+                        "type_of_packages": "TUB 1000",
+                        "number_of_packages": 1,
+                        "package_marks": "TD-101",
+                        "gross_mass_kg": "0.42599999999999999",
+                        "net_mass_kg": "0.42599999999999999",
+                    },
+                    {
+                        "ConsignmentRowID": 101,
+                        "GoodsItemRowID": 2,
+                        "goods_description": "Loose sweets",
+                        "commodity_code": "1704906500",
+                        "number_of_packages": 1,
+                        "package_marks": "TD-101",
+                        "gross_mass_kg": "1.00",
+                    },
+                ]
+            self.fail(f"Unexpected query: {sql}")
+
+        portal_main.query_all = fake_query_all
+        portal_main.object_exists = fake_object_exists
+        try:
+            payload = portal_main.consignments(client_code="BKD", status="ALL", q="", limit=100)
+        finally:
+            portal_main.query_all = original_query_all
+            portal_main.object_exists = original_object_exists
+
+        row = payload["consignments"][0]
+        summary = row["ValidationSummary"]
+        self.assertEqual(summary["source"], "PRS.Consignment + PRS.Goods_Item")
+        self.assertEqual(summary["engine"], "Modules.Processing.validation_summary")
+        self.assertFalse(summary["databaseWrite"])
+        self.assertFalse(summary["tssWrite"])
+        self.assertEqual(row["AssumptionCount"], 1)
+        self.assertEqual(row["PackageTypeMissingCount"], 1)
+        self.assertEqual(row["PackageTypeNormalisedCount"], 1)
+        self.assertEqual(summary["packageType"]["values"][0]["value"], "TB")
+        self.assertEqual(summary["assumptions"][0]["rule"], "ASSUMPTION:DEFAULT_PACKAGE_TYPE")
+        self.assertIn({"field": "gross_mass_kg", "count": 1}, summary["decimalNormalisation"])
 
     def test_primeline_preview_maps_first_uploaded_attachment(self):
         payload = portal_main.upload_consignment_preview(
@@ -208,6 +295,10 @@ class UploadPreviewSelectionTests(unittest.TestCase):
             payload["validationContext"]["demoSatisfiedTargets"],
             [{"targetTable": "PRS.Consignment", "targetColumn": "declaration_number", "source": "demoEns"}],
         )
+        self.assertIn(
+            "source UOM/package wording normalised through Modules.Processing",
+            payload["validationContext"]["packageTypeResolutionOrder"],
+        )
         self.assertIn("processingPreview", payload)
         self.assertFalse(payload["processingPreview"]["summary"]["databaseWrite"])
         self.assertFalse(payload["processingPreview"]["summary"]["tssWrite"])
@@ -281,7 +372,7 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         consignment = preview["consignments"][0]
         self.assertEqual(consignment["values"]["declaration_number"], "ENS900000000000001")
         self.assertEqual(consignment["values"]["consignment_number"], "CON-FV-1")
-        self.assertEqual(consignment["goodsItems"][0]["values"]["gross_mass_kg"], "12.5")
+        self.assertEqual(consignment["goodsItems"][0]["values"]["gross_mass_kg"], "12.50")
         self.assertEqual(consignment["goodsItems"][0]["values"]["goods_description"], "Lisburn manifest goods")
 
     def test_demo_mode_maps_lisburn_xlsx_field_value_manifest_to_consignment_and_goods(self):
@@ -458,6 +549,28 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         self.assertEqual(consignment["goodsItems"][0]["status"], "READY")
         self.assertTrue(consignment["tssPayloadPreview"]["ready"])
 
+    def test_preview_derives_package_type_from_unit_of_measure_code_with_assumption(self):
+        manifest = "\n".join([
+            "consignment_number,goods_description,transport_document_number,controlled_goods,consignor_eori,consignee_eori,importer_eori,exporter_eori,Unit of Measure Code,number_of_packages,package_marks,gross_mass_kg",
+            "CON-UOM-1,Sales order sweets,TDN-UOM-1,no,XI111111111000,GB222222222000,XI333333333000,XI444444444000,BOX 10,1,ADDR,12.345",
+        ]).encode("utf-8")
+
+        payload = portal_main.upload_consignment_preview(
+            client_code="BKD",
+            files=[upload_file("Sales Orders Synovia.csv", manifest)],
+            demo_mode=True,
+        )
+
+        goods = payload["processingPreview"]["consignments"][0]["goodsItems"][0]
+        package_field = next(field for field in goods["fields"] if field["field"] == "type_of_packages")
+
+        self.assertEqual(goods["values"]["type_of_packages"], "PK")
+        self.assertNotIn("type_of_packages", goods["missingRequired"])
+        self.assertEqual(package_field["source"]["source"], "ASSUMPTION:PACKAGE_TYPE_FROM_UOM")
+        self.assertTrue(package_field["source"]["assumption"])
+        self.assertTrue(package_field["source"]["normalised"])
+        self.assertEqual(package_field["source"]["originalValue"], "BOX 10")
+        self.assertIn("Unit of Measure Code", package_field["source"]["originalSource"]["sourceColumn"])
     def test_demo_mode_maps_text_pdf_invoice_to_consignment_and_goods(self):
         pdf_text = """
 Email: sales@frisco.co.uk
@@ -533,10 +646,10 @@ No. of Packages: 1
 Shipment Weight: 165 Gross kg
 Currency Code GBP
 Product Code Description Qty Price Origin Comm. Code Weight Line Total
-RING001 Stainless Steel Ring 1 £4.00 India 7113190000 0.10 £4.00
+RING001 Stainless Steel Ring 1 Â£4.00 India 7113190000 0.10 Â£4.00
 """
         continuation_page = """
-CHAIN001 Initial Alphabet Charm 2 £5.00 India 7113190000 0.50 £10.00
+CHAIN001 Initial Alphabet Charm 2 Â£5.00 India 7113190000 0.50 Â£10.00
 """
         original_extract = file_introspection.extract_pdf_text_pages
         original_metadata = file_introspection.extract_pdf_metadata
@@ -558,7 +671,7 @@ CHAIN001 Initial Alphabet Charm 2 £5.00 India 7113190000 0.50 £10.00
         consignment = preview["consignments"][0]
         self.assertEqual(consignment["values"]["consignment_number"], "CI-0002463501223 828718")
         self.assertEqual(consignment["goodsItems"][1]["values"]["goods_description"], "Initial Alphabet Charm")
-        self.assertEqual(consignment["goodsItems"][1]["values"]["gross_mass_kg"], "1")
+        self.assertEqual(consignment["goodsItems"][1]["values"]["gross_mass_kg"], "1.00")
         continuation_fields = {field["field"]: field for field in consignment["goodsItems"][1]["fields"]}
         self.assertTrue(continuation_fields["goods_description"]["source"]["assumption"])
     def test_demo_mode_maps_goodman_reversed_pdf_metrics_and_address(self):
@@ -608,9 +721,9 @@ contents7113190000Inverness Stainless Steel 3mm
         goods = consignment["goodsItems"][0]
         self.assertEqual(goods["values"]["number_of_packages"], "12")
         self.assertEqual(goods["values"]["package_marks"], "CZIN-1163C")
-        self.assertEqual(goods["values"]["gross_mass_kg"], "0.3")
+        self.assertEqual(goods["values"]["gross_mass_kg"], "0.30")
         self.assertEqual(goods["values"]["country_of_origin"], "US")
-        self.assertEqual(goods["values"]["item_invoice_amount"], "75.6")
+        self.assertEqual(goods["values"]["item_invoice_amount"], "75.60")
         tss_goods = consignment["tssPayloadPreview"]["goodsItems"][0]
         self.assertEqual(tss_goods["gross_mass_kg"], "0.30")
         self.assertEqual(tss_goods["item_invoice_amount"], "75.60")
@@ -736,7 +849,7 @@ PJ-14201006-21CM
         self.assertEqual(first["values"]["package_marks"], "PJ-14201001-21CM")
         self.assertEqual(first["values"]["country_of_origin"], "US")
         self.assertEqual(first["values"]["number_of_packages"], "7")
-        self.assertEqual(first["values"]["gross_mass_kg"], "0.007")
+        self.assertEqual(first["values"]["gross_mass_kg"], "0.01")
         self.assertEqual(first["values"]["item_invoice_amount"], "82.88")
         self.assertEqual(first["tssPayload"]["gross_mass_kg"] if "tssPayload" in first else consignment["tssPayloadPreview"]["goodsItems"][0]["gross_mass_kg"], "0.01")
         self.assertEqual(second["values"]["package_marks"], "PJ-14201006-21CM")
@@ -898,7 +1011,7 @@ Code Description Qty Price Origin HS Code SKU Weight (Kg) Line Total
         self.assertEqual(consignment["status"], "READY")
         self.assertEqual(consignment["values"]["consignment_number"], "CON-TSS-PATH-001")
         self.assertEqual(goods["values"]["goods_description"], "TSS path goods item")
-        self.assertEqual(goods["values"]["gross_mass_kg"], "99.5")
+        self.assertEqual(goods["values"]["gross_mass_kg"], "99.50")
         self.assertEqual(goods["values"]["controlled_goods"], "yes")
         self.assertNotEqual(consignment["values"].get("controlled_goods"), "yes")
 
@@ -1150,7 +1263,220 @@ Code Description Qty Price Origin HS Code SKU Weight (Kg) Line Total
         self.assertFalse(field_lookup["consignee_eori"]["required"])
         self.assertTrue(field_lookup["consignee_eori"]["blank"])
         self.assertFalse(field_lookup["consignee_eori"]["missing"])
+        self.assertTrue(any(
+            issue["severity"] == "info" and "full consignee address" in issue["message"]
+            for issue in field_lookup["consignee_eori"]["issues"]
+        ))
         self.assertEqual(consignment["tssPayloadPreview"]["operations"][0]["payload"]["consignee_postcode"], "BT35 8SA")
+
+    def test_processing_preview_enriches_package_type_from_product_master(self):
+        structure = {
+            "columns": [{"name": "api_field"}, {"name": "source_value"}],
+            "dataRows": [
+                {"api_field": "PRS.Goods_Item[1].goods_id", "source_value": "B806921B"},
+                {"api_field": "PRS.Goods_Item[1].goods_description", "source_value": "Source description"},
+                {"api_field": "PRS.Goods_Item[1].number_of_packages", "source_value": "1"},
+                {"api_field": "PRS.Goods_Item[1].package_marks", "source_value": "B806921B"},
+                {"api_field": "PRS.Goods_Item[1].gross_mass_kg", "source_value": "2.5"},
+            ],
+        }
+
+        preview = portal_main.build_processing_preview(
+            profile=fallback_profile("BKD"),
+            structure=structure,
+            demo_ens=None,
+            product_master={
+                "B806921B": {
+                    "SKU": "B806921B",
+                    "ProductCode": "B806921B",
+                    "CommodityCode": "1806905090",
+                    "CountryOfOrigin": "GB",
+                    "PackageType": "Boxes",
+                }
+            },
+        )
+
+        goods = preview["consignments"][0]["goodsItems"][0]
+        fields = {field["field"]: field for field in goods["fields"]}
+        self.assertEqual(goods["values"]["type_of_packages"], "PK")
+        self.assertEqual(goods["values"]["commodity_code"], "1806905090")
+        self.assertEqual(fields["type_of_packages"]["source"]["source"], "CFG.Product_Master")
+        self.assertFalse(fields["type_of_packages"]["source"]["assumption"])
+        self.assertTrue(fields["type_of_packages"]["source"]["normalised"])
+        self.assertEqual(fields["type_of_packages"]["source"]["originalValue"], "Boxes")
+        self.assertIn("Package type normalised from Boxes to PK", fields["type_of_packages"]["source"]["reason"])
+        self.assertIn({"field": "type_of_packages", "source": "processingNormalisation"}, goods["enhancements"])
+        self.assertNotIn("type_of_packages", goods["missingRequired"])
+        self.assertGreaterEqual(preview["summary"]["enrichmentCount"], 2)
+        lineage = preview["summary"]["lineageSummary"]
+        self.assertGreaterEqual(lineage["counts"]["masterdata"], 1)
+        self.assertGreaterEqual(lineage["counts"]["normalised"], 1)
+        self.assertTrue(any(example["field"] == "type_of_packages" for example in lineage["examples"]))
+
+    def test_processing_preview_defaults_package_type_as_visible_assumption(self):
+        structure = {
+            "columns": [{"name": "api_field"}, {"name": "source_value"}],
+            "dataRows": [
+                {"api_field": "PRS.Goods_Item[1].goods_id", "source_value": "UNKNOWN-SKU"},
+                {"api_field": "PRS.Goods_Item[1].goods_description", "source_value": "Source description"},
+                {"api_field": "PRS.Goods_Item[1].number_of_packages", "source_value": "1"},
+                {"api_field": "PRS.Goods_Item[1].package_marks", "source_value": "UNKNOWN-SKU"},
+                {"api_field": "PRS.Goods_Item[1].gross_mass_kg", "source_value": "2.5"},
+            ],
+        }
+
+        preview = portal_main.build_processing_preview(
+            profile=fallback_profile("BKD"),
+            structure=structure,
+            demo_ens=None,
+            product_master={},
+        )
+
+        goods = preview["consignments"][0]["goodsItems"][0]
+        fields = {field["field"]: field for field in goods["fields"]}
+        self.assertEqual(goods["values"]["type_of_packages"], "PK")
+        self.assertEqual(fields["type_of_packages"]["source"]["source"], "ASSUMPTION:DEFAULT_PACKAGE_TYPE")
+        self.assertTrue(fields["type_of_packages"]["source"]["assumption"])
+        self.assertIn("defaulted to PK", fields["type_of_packages"]["source"]["reason"])
+        self.assertIn("assumed for preview", fields["type_of_packages"]["issues"][0]["message"])
+        self.assertNotIn("type_of_packages", goods["missingRequired"])
+        self.assertGreaterEqual(preview["summary"]["enrichmentCount"], 1)
+        lineage = preview["summary"]["lineageSummary"]
+        self.assertGreaterEqual(lineage["counts"]["assumption"], 1)
+        self.assertTrue(any("assumption" in example["kinds"] for example in lineage["examples"]))
+
+    def test_processing_preview_revalidate_keeps_visible_assumption_count(self):
+        structure = {
+            "columns": [{"name": "api_field"}, {"name": "source_value"}],
+            "dataRows": [
+                {"api_field": "PRS.Goods_Item[1].goods_id", "source_value": "UNKNOWN-SKU"},
+                {"api_field": "PRS.Goods_Item[1].goods_description", "source_value": "Source description"},
+                {"api_field": "PRS.Goods_Item[1].number_of_packages", "source_value": "1"},
+                {"api_field": "PRS.Goods_Item[1].package_marks", "source_value": "UNKNOWN-SKU"},
+                {"api_field": "PRS.Goods_Item[1].gross_mass_kg", "source_value": "2.5"},
+                {"api_field": "PRS.Goods_Item[1].item_invoice_amount", "source_value": "1.236"},
+            ],
+        }
+        preview = portal_main.build_processing_preview(
+            profile=fallback_profile("BKD"),
+            structure=structure,
+            demo_ens=None,
+            product_master={},
+        )
+
+        refreshed = portal_main.revalidate_processing_preview(
+            preview,
+            profile=fallback_profile("BKD"),
+            product_master={},
+            apply_enrichment=True,
+        )
+
+        self.assertGreaterEqual(refreshed["summary"]["enrichmentCount"], 4)
+        refreshed_goods = refreshed["consignments"][0]["goodsItems"][0]
+        fields = {field["field"]: field for field in refreshed_goods["fields"]}
+        self.assertEqual(fields["type_of_packages"]["source"]["source"], "ASSUMPTION:DEFAULT_PACKAGE_TYPE")
+        self.assertTrue(fields["type_of_packages"]["source"]["assumption"])
+        self.assertGreaterEqual(refreshed["summary"]["lineageSummary"]["counts"]["assumption"], 1)
+    def test_processing_preview_validate_replaces_assumed_package_type_from_masterdata(self):
+        structure = {
+            "columns": [{"name": "api_field"}, {"name": "source_value"}],
+            "dataRows": [
+                {"api_field": "PRS.Goods_Item[1].goods_id", "source_value": "UNKNOWN-SKU"},
+                {"api_field": "PRS.Goods_Item[1].goods_description", "source_value": "Source description"},
+                {"api_field": "PRS.Goods_Item[1].number_of_packages", "source_value": "1"},
+                {"api_field": "PRS.Goods_Item[1].package_marks", "source_value": "UNKNOWN-SKU"},
+                {"api_field": "PRS.Goods_Item[1].gross_mass_kg", "source_value": "2.5"},
+                {"api_field": "PRS.Goods_Item[1].item_invoice_amount", "source_value": "1.236"},
+            ],
+        }
+        preview = portal_main.build_processing_preview(
+            profile=fallback_profile("BKD"),
+            structure=structure,
+            demo_ens=None,
+            product_master={},
+        )
+        goods = preview["consignments"][0]["goodsItems"][0]
+        for field in goods["fields"]:
+            if field["field"] == "goods_id":
+                field["value"] = "B806921B"
+                field["source"] = {"source": "manualEdit", "label": "EDITED", "reason": "Edited in preview."}
+        goods["values"]["goods_id"] = "B806921B"
+
+        refreshed = portal_main.revalidate_processing_preview(
+            preview,
+            profile=fallback_profile("BKD"),
+            product_master={
+                "B806921B": {
+                    "SKU": "B806921B",
+                    "ProductCode": "B806921B",
+                    "CommodityCode": "1806905090",
+                    "CountryOfOrigin": "GB",
+                    "PackageType": "Boxes",
+                }
+            },
+            apply_enrichment=True,
+        )
+
+        refreshed_goods = refreshed["consignments"][0]["goodsItems"][0]
+        fields = {field["field"]: field for field in refreshed_goods["fields"]}
+        self.assertEqual(refreshed_goods["values"]["type_of_packages"], "PK")
+        self.assertEqual(refreshed_goods["values"]["commodity_code"], "1806905090")
+        self.assertEqual(refreshed_goods["values"]["item_invoice_amount"], "1.24")
+        self.assertTrue(fields["item_invoice_amount"]["source"]["normalised"])
+        self.assertEqual(fields["type_of_packages"]["source"]["source"], "CFG.Product_Master")
+        self.assertFalse(fields["type_of_packages"]["source"]["assumption"])
+        self.assertTrue(fields["type_of_packages"]["source"]["normalised"])
+        self.assertEqual(refreshed["summary"]["lastEnrichmentMode"], "portal_edit_preview")
+        self.assertGreaterEqual(refreshed["summary"]["enrichmentCount"], 2)
+
+    def test_preview_validate_endpoint_rechecks_edited_goods_without_writes(self):
+        structure = {
+            "columns": [{"name": "api_field"}, {"name": "source_value"}],
+            "dataRows": [
+                {"api_field": "PRS.Goods_Item[1].goods_id", "source_value": "UNKNOWN-SKU"},
+                {"api_field": "PRS.Goods_Item[1].goods_description", "source_value": "Source description"},
+                {"api_field": "PRS.Goods_Item[1].type_of_packages", "source_value": "PK"},
+                {"api_field": "PRS.Goods_Item[1].number_of_packages", "source_value": "1"},
+                {"api_field": "PRS.Goods_Item[1].package_marks", "source_value": "UNKNOWN-SKU"},
+                {"api_field": "PRS.Goods_Item[1].gross_mass_kg", "source_value": "2.5"},
+                {"api_field": "PRS.Goods_Item[1].item_invoice_amount", "source_value": "1.236"},
+            ],
+        }
+        preview = portal_main.build_processing_preview(
+            profile=fallback_profile("BKD"),
+            structure=structure,
+            demo_ens=None,
+            product_master={},
+        )
+        goods = preview["consignments"][0]["goodsItems"][0]
+        for field in goods["fields"]:
+            if field["field"] == "gross_mass_kg":
+                field["value"] = ""
+                field["source"] = {"source": "manualEdit", "label": "EDITED", "reason": "Edited in preview."}
+        goods["values"]["gross_mass_kg"] = ""
+
+        response = portal_main.validate_upload_processing_preview({
+            "clientCode": "BKD",
+            "demoMode": True,
+            "processingPreview": preview,
+        })
+
+        refreshed = response["processingPreview"]
+        refreshed_goods = refreshed["consignments"][0]["goodsItems"][0]
+        self.assertFalse(response["databaseWrite"])
+        self.assertFalse(response["tssWrite"])
+        self.assertEqual(response["writeMode"], "preview_validation_only")
+        self.assertEqual(response["validationContext"]["mode"], "portal_edit_preview")
+        self.assertEqual(response["validationContext"]["productMaster"]["source"], "CFG.Product_Master")
+        self.assertFalse(response["validationContext"]["productMaster"]["available"])
+        self.assertIn("Demo mode", response["validationContext"]["productMaster"]["reason"])
+        self.assertIn(
+            "source UOM/package wording normalised through Modules.Processing",
+            response["validationContext"]["packageTypeResolutionOrder"],
+        )
+        self.assertEqual(refreshed["summary"]["lastValidationMode"], "portal_edit_preview")
+        self.assertIn("gross_mass_kg", refreshed_goods["missingRequired"])
+        self.assertEqual(refreshed_goods["status"], "NEEDS_REVIEW")
 
     def test_demo_mode_keeps_client_file_selection_validation(self):
         with self.assertRaises(HTTPException) as ctx:

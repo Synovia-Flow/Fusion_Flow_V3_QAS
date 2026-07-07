@@ -20,7 +20,9 @@ from .config import allowed_origins, config_value
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
 from .file_introspection import inspect_upload, summarise_mapping
 from .mapping_suggestions import suggest_column_mappings
-from .upload_processing_preview import build_processing_preview
+from .upload_processing_preview import build_processing_preview, revalidate_processing_preview
+from Modules.Processing.preview_enrichment import PACKAGE_TYPE_RESOLUTION_ORDER, product_master_lookup, product_master_summary
+from Modules.Processing.validation_summary import build_consignment_validation_summary
 from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, portal_code_for_tss_client, required_file_ordinal, select_required_file
 from .tss_submission import build_consignment_submission_plan, post_tss_json
 
@@ -121,6 +123,8 @@ def fallback_route(profile: dict[str, object]) -> list[dict[str, object]]:
 def load_portal_profile(value: str) -> dict[str, object]:
     portal_code = normalize_portal_code(value)
     profile = fallback_profile(portal_code)
+    if profile:
+        profile["dbBacked"] = False
     if not profile:
         raise HTTPException(status_code=404, detail=f"No portal profile configured for {value}.")
 
@@ -134,6 +138,7 @@ def load_portal_profile(value: str) -> dict[str, object]:
             [profile["clientCode"]],
         )
         if client:
+            profile["dbBacked"] = True
             profile["clientCode"] = client["ClientCode"]
             profile["clientName"] = client.get("ClientName") or profile["clientName"]
             profile["schemaName"] = client.get("SchemaName")
@@ -153,6 +158,7 @@ def load_portal_profile(value: str) -> dict[str, object]:
             [profile["tssCredentialClientCode"]],
         )
         if credential:
+            profile["dbBacked"] = True
             profile["tssCredentialClientCode"] = credential["ClientCode"]
             profile["preferredEnvCode"] = credential["EnvCode"]
     except DbUnavailable:
@@ -161,6 +167,47 @@ def load_portal_profile(value: str) -> dict[str, object]:
         pass
 
     return profile
+
+
+
+def load_preview_product_master(profile: dict[str, object]) -> tuple[dict[str, dict[str, object]], dict[str, object]]:
+    context: dict[str, object] = {"source": "CFG.Product_Master", "available": False, "rowCount": 0}
+    if not profile.get("dbBacked"):
+        context["reason"] = "Profile is not DB-backed; preview ran without CFG product master enrichment."
+        return {}, context
+
+    client_code = str(profile.get("clientCode") or "").upper()
+    if not client_code:
+        context["reason"] = "Client code is missing; preview ran without CFG product master enrichment."
+        return {}, context
+
+    try:
+        rows = query_all(
+            """
+            SELECT ClientCode, CustomerCode, SKU, ProductCode, ProductName, GoodsDescription,
+                   CommodityCode, CountryOfOrigin, PackageType, PackageMarks,
+                   ProcedureCode, AdditionalProcedureCode, ValuationMethod,
+                   PreferenceCode, NiAdditionalInfoCode, NatureOfTransaction,
+                   GrossWeightKg, NetWeightKg, UnitValue, Currency, ControlledGoods
+            FROM CFG.Product_Master
+            WHERE IsActive = 1 AND ClientCode IN (?, 'ALL')
+            ORDER BY CASE WHEN ClientCode = ? THEN 0 ELSE 1 END,
+                     CASE WHEN NULLIF(LTRIM(RTRIM(COALESCE(CustomerCode, ''))), '') IS NULL THEN 1 WHEN CustomerCode = 'ALL' THEN 2 ELSE 0 END,
+                     ProductCode, SKU
+            """,
+            [client_code, client_code],
+        )
+    except DbUnavailable:
+        raise
+    except Exception:
+        context["reason"] = "CFG.Product_Master lookup failed; preview ran without product master enrichment."
+        return {}, context
+
+    context["available"] = True
+    context.update(product_master_summary(rows))
+    if context.get("packageTypeWarning"):
+        context["warning"] = context["packageTypeWarning"]
+    return product_master_lookup(rows), context
 
 
 def load_submission_route(profile: dict[str, object]) -> list[dict[str, object]]:
@@ -1170,6 +1217,30 @@ def admin_settings(client_code: str = Query("PLE")) -> dict[str, object]:
         raise db_error(exc) from exc
 
 
+@app.get("/api/admin/validation-diagnostics")
+def admin_validation_diagnostics(client_code: str = Query("PLE")) -> dict[str, object]:
+    try:
+        profile = load_portal_profile(client_code)
+        _product_master, product_master_context = load_preview_product_master(profile)
+    except DbUnavailable as exc:
+        raise db_error(exc) from exc
+    return {
+        "portalClientCode": profile["portalClientCode"],
+        "clientCode": profile["clientCode"],
+        "clientName": profile["clientName"],
+        "writeMode": "read_only_diagnostics",
+        "databaseWrite": False,
+        "tssWrite": False,
+        "productMaster": product_master_context,
+        "packageTypeResolutionOrder": PACKAGE_TYPE_RESOLUTION_ORDER,
+
+        "notes": [
+            "Diagnostics are used by the Portal to explain validation/enrichment behaviour before any DB or TSS write.",
+            "PackageType is not a TSS choice-values download in V3; it must come from source data or CFG masterdata and then be normalised.",
+        ],
+    }
+
+
 @app.post("/api/admin/settings")
 def admin_settings_save(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, object]:
     client_code = str(payload.get("clientCode") or payload.get("client_code") or "PLE")
@@ -2110,6 +2181,36 @@ def consignments(
             """,
             params,
         )
+        consignment_ids = [row.get("ConsignmentRowID") for row in rows if row.get("ConsignmentRowID")]
+        goods_by_consignment: dict[int, list[dict[str, object]]] = {int(row_id): [] for row_id in consignment_ids}
+        if consignment_ids:
+            placeholders = ", ".join("?" for _ in consignment_ids)
+            list_goods = query_all(
+                f"""
+                SELECT
+                    ConsignmentRowID, GoodsItemRowID, GoodsItemOrdinal, Status, RejectReason,
+                    goods_id, commodity_code, goods_description, type_of_packages, number_of_packages,
+                    package_marks, gross_mass_kg, net_mass_kg, item_invoice_amount,
+                    item_invoice_currency, SourceSalesOrderLoadID, UpdatedAt
+                FROM PRS.Goods_Item
+                WHERE ConsignmentRowID IN ({placeholders})
+                ORDER BY ConsignmentRowID, GoodsItemOrdinal, GoodsItemRowID
+                """,
+                consignment_ids,
+            )
+            for goods_row in list_goods:
+                parent_id = goods_row.get("ConsignmentRowID")
+                if parent_id is not None:
+                    goods_by_consignment.setdefault(int(parent_id), []).append(goods_row)
+        for row in rows:
+            row_id = row.get("ConsignmentRowID")
+            summary = build_consignment_validation_summary(row, goods_by_consignment.get(int(row_id), []) if row_id else [])
+            row["ValidationSummary"] = summary
+            row["ValidationStatus"] = summary.get("status")
+            row["MissingRequiredCount"] = sum(int(item.get("count") or 0) for item in summary.get("missingRequired", []))
+            row["AssumptionCount"] = len(summary.get("assumptions", []))
+            row["PackageTypeMissingCount"] = (summary.get("packageType") or {}).get("missingCount", 0)
+            row["PackageTypeNormalisedCount"] = (summary.get("packageType") or {}).get("normalisedCount", 0)
     except DbUnavailable as exc:
         raise db_error(exc) from exc
 
@@ -2169,8 +2270,9 @@ def consignment_detail(consignment_row_id: int) -> dict[str, object]:
             """
             SELECT TOP 100
                 GoodsItemRowID, ConsignmentRowID, GoodsItemOrdinal, Status, RejectReason,
-                goods_id, commodity_code, goods_description, gross_mass_kg, net_mass_kg,
-                item_invoice_amount, item_invoice_currency, SourceSalesOrderLoadID, UpdatedAt
+                goods_id, commodity_code, goods_description, type_of_packages, number_of_packages,
+                package_marks, gross_mass_kg, net_mass_kg, item_invoice_amount,
+                item_invoice_currency, SourceSalesOrderLoadID, UpdatedAt
             FROM PRS.Goods_Item
             WHERE ConsignmentRowID = ?
             ORDER BY GoodsItemOrdinal, GoodsItemRowID
@@ -2182,7 +2284,7 @@ def consignment_detail(consignment_row_id: int) -> dict[str, object]:
 
     if not row:
         raise HTTPException(status_code=404, detail=f"ConsignmentRowID {consignment_row_id} was not found.")
-    return {"consignment": row, "goodsItems": goods}
+    return {"consignment": row, "goodsItems": goods, "validationSummary": build_consignment_validation_summary(row, goods)}
 
 def selected_file_ordinal(profile: dict[str, object]) -> int:
     return required_file_ordinal(profile)
@@ -2297,6 +2399,51 @@ def load_file_profile_column_map(profile: dict[str, object]) -> list[dict[str, o
     return []
 
 
+@app.post("/api/uploads/consignments/preview/validate")
+def validate_upload_processing_preview(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+    client_code = str(payload.get("clientCode") or payload.get("client_code") or "BKD")
+    demo_mode = bool(payload.get("demoMode") or payload.get("demo_mode") or False)
+    profile = demo_upload_profile(client_code) if demo_mode else load_portal_profile(client_code)
+    processing_preview = payload.get("processingPreview")
+    if not isinstance(processing_preview, dict):
+        raise HTTPException(status_code=422, detail="processingPreview is required for preview validation.")
+    if demo_mode:
+        product_master = {}
+        product_master_context = {
+            "source": "CFG.Product_Master",
+            "available": False,
+            "rowCount": 0,
+            "reason": "Demo mode skips DB masterdata lookup.",
+        }
+    else:
+        try:
+            product_master, product_master_context = load_preview_product_master(profile)
+        except DbUnavailable as exc:
+            raise db_error(exc) from exc
+    refreshed_preview = revalidate_processing_preview(
+        processing_preview,
+        profile=profile,
+        product_master=product_master,
+        apply_enrichment=True,
+    )
+    return {
+        "portalClientCode": profile["portalClientCode"],
+        "clientCode": profile["clientCode"],
+        "processingPreview": refreshed_preview,
+        "demoMode": demo_mode,
+        "databaseWrite": False,
+        "tssWrite": False,
+        "writeMode": "preview_validation_only",
+        "validationContext": {
+            "mode": "portal_edit_preview",
+            "source": "Modules.Processing preview validation/enrichment",
+            "note": "Edited preview values were revalidated and re-enriched without DB, PRS, STG, API, or TSS writes.",
+            "productMaster": product_master_context,
+            "packageTypeResolutionOrder": PACKAGE_TYPE_RESOLUTION_ORDER,
+        },
+    }
+
+
 @app.post("/api/uploads/consignments/preview")
 def upload_consignment_preview(
     client_code: Annotated[str, Form()] = "PLE",
@@ -2326,7 +2473,25 @@ def upload_consignment_preview(
     mapping_summary = summarise_mapping(structure.get("columns", []), column_mappings)
     demo_ens = demo_ens_payload(profile, demo_ens_reference) if demo_mode else None
     mapping_suggestions = apply_demo_ens_to_mapping(suggest_column_mappings(structure.get("columns", [])), demo_ens)
-    processing_preview = build_processing_preview(profile=profile, structure=structure, demo_ens=demo_ens)
+    if demo_mode:
+        product_master = {}
+        product_master_context = {
+            "source": "CFG.Product_Master",
+            "available": False,
+            "rowCount": 0,
+            "reason": "Demo mode skips DB masterdata lookup.",
+        }
+    else:
+        try:
+            product_master, product_master_context = load_preview_product_master(profile)
+        except DbUnavailable as exc:
+            raise db_error(exc) from exc
+    processing_preview = build_processing_preview(
+        profile=profile,
+        structure=structure,
+        demo_ens=demo_ens,
+        product_master=product_master,
+    )
 
     received_files = [
         {
@@ -2365,6 +2530,8 @@ def upload_consignment_preview(
         "validationContext": {
             "ensSource": "demo_default" if demo_mode else "uploaded_or_existing",
             "demoSatisfiedTargets": mapping_suggestions.get("demoSatisfiedTargets", []),
+            "productMaster": product_master_context,
+            "packageTypeResolutionOrder": PACKAGE_TYPE_RESOLUTION_ORDER,
         },
         "wouldLand": {
             "fileTable": "ING.Inbound_File",

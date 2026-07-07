@@ -1,31 +1,53 @@
 from __future__ import annotations
 
 import re
+import sys
+from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from Modules.Processing.preview_enrichment import (
+    enrich_goods_preview,
+    product_lookup_key,
+    product_master_get,
+    product_master_lookup,
+    product_master_summary,
+)
+from Modules.Processing.preview_validation import (
+    CONSIGNMENT_REQUIRED_FIELDS,
+    FIELD_LABELS,
+    GOODS_ATTENTION_FIELDS,
+    GOODS_REQUIRED_FIELDS,
+    compact,
+    edited_values_from_fields as _edited_values_from_fields,
+    empty_lineage_summary as _empty_lineage_summary,
+    fields_payload as _fields_payload,
+    lineage_summary as _lineage_summary,
+    merge_lineage_summary as _merge_lineage_summary,
+    required_consignment_fields_for_payload,
+    tss_payload_value,
+    visible_enrichment_count as _visible_enrichment_count,
+)
 
 from .file_introspection import ASSUMPTION_META_KEY, clean_cell
 from .mapping_suggestions import TARGET_FIELDS, normalise, target_lookup
-from .tss_submission import (
-    CONSIGNMENT_REQUIRED_FIELDS,
-    compact,
-    required_consignment_fields_for_payload,
-    tss_payload_value,
-)
 
 MAX_GOODS_PER_CONSIGNMENT = 99
-GOODS_REQUIRED_FIELDS = (
-    "type_of_packages",
-    "number_of_packages",
-    "package_marks",
-    "gross_mass_kg",
-    "goods_description",
-)
-GOODS_ATTENTION_FIELDS = GOODS_REQUIRED_FIELDS + ("net_mass_kg", "commodity_code")
 CONTROLLED_GOODS_ASSUMPTION = {
     "source": "assumption",
     "label": "ASSUMPTION",
     "assumption": True,
     "reason": "No controlled_goods value was mapped from the source file; defaulted to no for preview.",
+}
+UOM_PACKAGE_SOURCE_KEYS = {
+    "unitofmeasurecode",
+    "unitofmeasure",
+    "uomcode",
+    "uom",
+    "saleslineunitofmeasurecode",
 }
 
 CONSIGNMENT_DISPLAY_FIELDS = (
@@ -85,58 +107,6 @@ GOODS_DISPLAY_FIELDS = (
     "nature_of_transaction",
 )
 
-FIELD_LABELS = {
-    "declaration_number": "Declaration number",
-    "consignment_number": "Consignment number",
-    "goods_description": "Description",
-    "trader_reference": "Trader reference",
-    "transport_document_number": "Transport document",
-    "controlled_goods": "Controlled goods",
-    "goods_domestic_status": "Goods domestic status",
-    "destination_country": "Destination country",
-    "consignor_eori": "Consignor EORI",
-    "consignor_name": "Consignor name",
-    "consignor_street_number": "Consignor street and number",
-    "consignor_city": "Consignor city",
-    "consignor_postcode": "Consignor postcode",
-    "consignor_country": "Consignor country",
-    "consignee_eori": "Consignee EORI",
-    "consignee_name": "Consignee name",
-    "consignee_street_number": "Consignee street and number",
-    "consignee_city": "Consignee city",
-    "consignee_postcode": "Consignee postcode",
-    "consignee_country": "Consignee country",
-    "importer_eori": "Importer EORI",
-    "importer_name": "Importer name",
-    "importer_street_number": "Importer street and number",
-    "importer_city": "Importer city",
-    "importer_postcode": "Importer postcode",
-    "importer_country": "Importer country",
-    "exporter_eori": "Exporter EORI",
-    "exporter_name": "Exporter name",
-    "exporter_street_number": "Exporter street and number",
-    "exporter_city": "Exporter city",
-    "exporter_postcode": "Exporter postcode",
-    "exporter_country": "Exporter country",
-    "container_indicator": "Container indicator",
-    "goods_id": "Goods ID",
-    "commodity_code": "Commodity code",
-    "type_of_packages": "Package type",
-    "number_of_packages": "Packages",
-    "package_marks": "Package marks",
-    "gross_mass_kg": "Gross mass kg",
-    "net_mass_kg": "Net mass kg",
-    "country_of_origin": "Origin country",
-    "item_invoice_amount": "Invoice amount",
-    "item_invoice_currency": "Currency",
-    "invoice_number": "Invoice number",
-    "controlled_goods_type": "Controlled goods type",
-    "procedure_code": "Procedure code",
-    "additional_procedure_code": "Additional procedure",
-    "preference": "Preference",
-    "nature_of_transaction": "Nature of transaction",
-}
-
 FIELD_VALUE_COLUMNS = ("source_value", "value", "api_value", "target_value", "field_value")
 FIELD_NAME_COLUMNS = ("api_field", "field", "target_field", "api field", "target")
 
@@ -153,6 +123,16 @@ def _assumption_source(source: str, reason: str, **extra: Any) -> dict[str, Any]
         "reason": reason,
         **extra,
     }
+
+
+def _package_type_from_uom_source(source_name: Any, source: dict[str, Any]) -> dict[str, Any]:
+    if normalise(source_name) not in UOM_PACKAGE_SOURCE_KEYS:
+        return source
+    return _assumption_source(
+        "ASSUMPTION:PACKAGE_TYPE_FROM_UOM",
+        "Package type was derived from Unit of Measure Code using the BKD/V2 package mapping; confirm if an explicit package type or CFG.Product_Master.PackageType is available.",
+        originalSource=dict(source),
+    )
 
 
 def _column_lookup(row: dict[str, Any]) -> dict[str, str]:
@@ -314,78 +294,124 @@ def _tss_payload_preview(values: dict[str, Any], goods_payload: list[dict[str, A
     }
 
 
-def _numeric(value: Any) -> tuple[bool, float | None]:
-    text = clean_cell(value).replace(",", "")
-    if not text:
-        return False, None
-    try:
-        return True, float(text)
-    except ValueError:
-        return False, None
-
-
-def _field_issue(scope: str, field: str, value: Any, required: bool) -> list[dict[str, str]]:
-    issues: list[dict[str, str]] = []
-    if compact(value) is None:
-        if required:
-            issues.append({"severity": "error", "message": f"{FIELD_LABELS.get(field, field)} is required before TSS processing."})
-        elif field == "net_mass_kg":
-            issues.append({"severity": "warning", "message": "Net mass is blank; confirm fallback before live processing."})
-        return issues
-    if field in {"gross_mass_kg", "net_mass_kg", "item_invoice_amount"}:
-        ok, number = _numeric(value)
-        if not ok:
-            issues.append({"severity": "error", "message": f"{FIELD_LABELS.get(field, field)} must be numeric."})
-        elif field == "gross_mass_kg" and (number or 0) <= 0:
-            issues.append({"severity": "error", "message": "Gross mass must be greater than zero."})
-        elif field == "net_mass_kg" and (number or 0) < 0:
-            issues.append({"severity": "error", "message": "Net mass cannot be negative."})
-    if scope == "goods" and field == "number_of_packages":
-        ok, number = _numeric(value)
-        if not ok:
-            issues.append({"severity": "error", "message": "Number of packages must be numeric."})
-        elif (number or 0) <= 0:
-            issues.append({"severity": "error", "message": "Number of packages must be greater than zero."})
-    return issues
-
-
-def _fields_payload(
+def revalidate_processing_preview(
+    preview: dict[str, Any],
     *,
-    scope: str,
-    values: dict[str, Any],
-    sources: dict[str, dict[str, Any]],
-    display_fields: tuple[str, ...],
-    required_fields: tuple[str, ...],
-) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
-    fields: list[dict[str, Any]] = []
-    missing_required: list[str] = []
-    issues: list[dict[str, Any]] = []
-    for field in display_fields:
-        value = values.get(field)
-        required = field in required_fields
-        field_issues = _field_issue(scope, field, value, required)
-        if required and compact(value) is None:
-            missing_required.append(field)
-        source = sources.get(field)
-        if (source or {}).get("assumption") or (source or {}).get("source") == "assumption":
-            field_issues.append({
-                "severity": "warning",
-                "message": (source or {}).get("reason") or f"{FIELD_LABELS.get(field, field)} was assumed for preview.",
+    profile: dict[str, Any] | None = None,
+    product_master: dict[str, dict[str, Any]] | None = None,
+    apply_enrichment: bool = True,
+) -> dict[str, Any]:
+    """Re-run preview validation/enrichment after portal edits without DB/TSS side effects."""
+    preview = dict(preview or {})
+    product_master = product_master or {}
+    consignments: list[dict[str, Any]] = []
+    total_goods = 0
+    issue_count = 0
+    missing_count = 0
+    split_count = 0
+    enrichment_count = 0
+    lineage_summary = _empty_lineage_summary()
+
+    for index, raw_consignment in enumerate(preview.get("consignments") or [], 1):
+        if not isinstance(raw_consignment, dict):
+            continue
+        cons_values, cons_sources = _edited_values_from_fields(raw_consignment)
+        cons_fields, cons_missing, cons_issues = _fields_payload(
+            scope="consignment",
+            values=cons_values,
+            sources=cons_sources,
+            display_fields=CONSIGNMENT_DISPLAY_FIELDS,
+            required_fields=required_consignment_fields_for_payload(cons_values),
+        )
+        goods_payload: list[dict[str, Any]] = []
+        goods_has_blockers = False
+        for goods_index, raw_goods in enumerate(raw_consignment.get("goodsItems") or [], 1):
+            if not isinstance(raw_goods, dict):
+                continue
+            goods_values, goods_sources = _edited_values_from_fields(raw_goods)
+            goods_values.setdefault("goods_id", str(goods_index))
+            enhancements = list(raw_goods.get("enhancements") or [])
+            if apply_enrichment:
+                next_enhancements = enrich_goods_preview(
+                    goods_values,
+                    goods_sources,
+                    product_master_get(product_master, goods_values, cons_values),
+                    default_package_type="PK",
+                    replace_assumptions=True,
+                )
+                if next_enhancements:
+                    enhancements.extend(next_enhancements)
+            goods_fields, goods_missing, goods_issues = _fields_payload(
+                scope="goods",
+                values=goods_values,
+                sources=goods_sources,
+                display_fields=GOODS_DISPLAY_FIELDS,
+                required_fields=GOODS_REQUIRED_FIELDS,
+            )
+            goods_status = "READY" if not goods_missing and not any(issue.get("severity") == "error" for issue in goods_issues) else "NEEDS_REVIEW"
+            if goods_status != "READY":
+                goods_has_blockers = True
+            goods_payload.append({
+                **raw_goods,
+                "ordinal": raw_goods.get("ordinal") or goods_index,
+                "values": goods_values,
+                "fields": goods_fields,
+                "missingRequired": goods_missing,
+                "issues": goods_issues,
+                "enhancements": enhancements,
+                "status": goods_status,
             })
-        for issue in field_issues:
-            issues.append({"field": field, "label": FIELD_LABELS.get(field, field), **issue})
-        is_blank = compact(value) is None
-        fields.append({
-            "field": field,
-            "label": FIELD_LABELS.get(field, field),
-            "value": compact(value),
-            "required": required,
-            "missing": required and is_blank,
-            "blank": is_blank,
-            "source": source,
-            "issues": field_issues,
+            issue_count += len(goods_issues)
+            missing_count += len(goods_missing)
+
+        split = raw_consignment.get("split") or {}
+        if isinstance(split, dict) and split.get("isSplit"):
+            split_count += 1
+        total_goods += len(goods_payload)
+        issue_count += len(cons_issues)
+        missing_count += len(cons_missing)
+        consignment_status = "READY" if not cons_missing and not any(issue.get("severity") == "error" for issue in cons_issues) and goods_payload and not goods_has_blockers else "NEEDS_REVIEW"
+        enrichment_count += _visible_enrichment_count(cons_fields, goods_payload)
+        consignment_lineage = _lineage_summary(cons_fields, goods_payload)
+        _merge_lineage_summary(lineage_summary, consignment_lineage)
+        consignments.append({
+            **raw_consignment,
+            "previewId": raw_consignment.get("previewId") or f"PREVIEW-{index:03d}",
+            "ordinal": raw_consignment.get("ordinal") or index,
+            "status": consignment_status,
+            "values": cons_values,
+            "fields": cons_fields,
+            "missingRequired": cons_missing,
+            "issues": cons_issues,
+            "goodsItems": goods_payload,
+            "goodsItemCount": len(goods_payload),
+            "lineageSummary": consignment_lineage,
+            "tssPayloadPreview": _tss_payload_preview(cons_values, goods_payload, consignment_status),
+            "split": split,
         })
-    return fields, missing_required, issues
+
+    previous_summary = dict(preview.get("summary") or {})
+    return {
+        **preview,
+        "clientCode": (profile or {}).get("clientCode") or preview.get("clientCode"),
+        "portalClientCode": (profile or {}).get("portalClientCode") or preview.get("portalClientCode"),
+        "summary": {
+            **previous_summary,
+            "consignmentCount": len(consignments),
+            "goodsItemCount": total_goods,
+            "splitConsignmentCount": split_count,
+            "enrichmentCount": enrichment_count if apply_enrichment else previous_summary.get("enrichmentCount", 0),
+            "issueCount": issue_count,
+            "missingRequiredCount": missing_count,
+            "databaseWrite": False,
+            "tssWrite": False,
+            "lineageSummary": lineage_summary,
+            "lastValidationMode": "portal_edit_preview",
+            "lastEnrichmentMode": "portal_edit_preview" if apply_enrichment else "disabled",
+        },
+        "consignments": consignments,
+        "notes": list(preview.get("notes") or []) + ["Portal edits revalidated and re-enriched in preview mode only; no DB or TSS write was performed."],
+    }
 
 
 def _field_value_preview(rows: list[dict[str, Any]], demo_ens: dict[str, Any] | None, *, source_sheet: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
@@ -405,6 +431,8 @@ def _field_value_preview(rows: list[dict[str, Any]], demo_ens: dict[str, Any] | 
             continue
         table_name, target_column = target
         source = {"rowNumber": row_number, "apiField": api_field, "sourceColumn": "source_value", **({"sourceSheet": source_sheet} if source_sheet else {})}
+        if target_column == "type_of_packages":
+            source = _package_type_from_uom_source(api_field, source)
         matched += 1
         if table_name == "PRS.Consignment":
             _assign_first(consignment, consignment_sources, target_column, source_value, source)
@@ -455,6 +483,8 @@ def _wide_row_preview(rows: list[dict[str, Any]], *, source_sheet: str | None = 
                 original_source = dict(source)
                 source.update(assumption)
                 source["originalSource"] = original_source
+            if target_column == "type_of_packages":
+                source = _package_type_from_uom_source(source_column, source)
             matched += 1
             row_matched += 1
             if table_name == "PRS.Consignment":
@@ -627,8 +657,9 @@ def _groups_from_structure(structure: dict[str, Any], demo_ens: dict[str, Any] |
     return groups, all_unmatched, matched_total, source_rows_total, row_mode, source_sheets
 
 
-def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, Any], demo_ens: dict[str, Any] | None) -> dict[str, Any]:
+def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, Any], demo_ens: dict[str, Any] | None, product_master: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     groups, unmatched, matched_count, source_row_count, row_mode, source_sheets = _groups_from_structure(structure, demo_ens)
+    product_master = product_master or {}
 
     split_groups = _split_groups(groups, demo_ens)
     consignments: list[dict[str, Any]] = []
@@ -636,6 +667,8 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
     issue_count = 0
     missing_count = 0
     split_count = 0
+    enrichment_count = 0
+    lineage_summary = _empty_lineage_summary()
 
     for index, group in enumerate(split_groups, 1):
         values = group["values"]
@@ -653,6 +686,12 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
             goods_values = dict(raw_goods.get("values") or {})
             goods_sources = dict(raw_goods.get("sources") or {})
             goods_values.setdefault("goods_id", str(goods_index))
+            enhancements = enrich_goods_preview(
+                goods_values,
+                goods_sources,
+                product_master_get(product_master, goods_values, values),
+                default_package_type="PK",
+            )
             goods_fields, goods_missing, goods_issues = _fields_payload(
                 scope="goods",
                 values=goods_values,
@@ -670,6 +709,7 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
                 "fields": goods_fields,
                 "missingRequired": goods_missing,
                 "issues": goods_issues,
+                "enhancements": enhancements,
                 "status": goods_status,
             })
             issue_count += len(goods_issues)
@@ -680,6 +720,9 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
         issue_count += len(cons_issues)
         missing_count += len(cons_missing)
         consignment_status = "READY" if not cons_missing and not any(issue.get("severity") == "error" for issue in cons_issues) and goods_payload and not goods_has_blockers else "NEEDS_REVIEW"
+        enrichment_count += _visible_enrichment_count(cons_fields, goods_payload)
+        consignment_lineage = _lineage_summary(cons_fields, goods_payload)
+        _merge_lineage_summary(lineage_summary, consignment_lineage)
         consignments.append({
             "previewId": f"PREVIEW-{index:03d}",
             "ordinal": index,
@@ -690,6 +733,7 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
             "issues": cons_issues,
             "goodsItems": goods_payload,
             "goodsItemCount": len(goods_payload),
+            "lineageSummary": consignment_lineage,
             "tssPayloadPreview": _tss_payload_preview(values, goods_payload, consignment_status),
             "split": group["split"],
         })
@@ -707,10 +751,12 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
             "consignmentCount": len(consignments),
             "goodsItemCount": total_goods,
             "splitConsignmentCount": split_count,
+            "enrichmentCount": enrichment_count,
             "issueCount": issue_count,
             "missingRequiredCount": missing_count,
             "databaseWrite": False,
             "tssWrite": False,
+            "lineageSummary": lineage_summary,
         },
         "consignments": consignments,
         "unmatchedRows": unmatched[:50],
@@ -721,6 +767,7 @@ def build_processing_preview(*, profile: dict[str, Any], structure: dict[str, An
         },
         "notes": [
             "Preview only: no ING, PRS, STG, API, DB, or TSS write is performed.",
+            "Goods preview enrichment uses Modules/Processing rules; assumed values remain editable and are labelled.",
             f"Consignments are split every {MAX_GOODS_PER_CONSIGNMENT} goods rows for TSS readiness.",
         ],
     }
