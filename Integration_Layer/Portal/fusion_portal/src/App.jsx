@@ -895,17 +895,35 @@ function SettingsPage({ settings, activeSection, environmentMode, onSectionChang
     if (!onTestTssApi || !settings || isTestingApi || saveState === 'changed') return;
     const envCode = String(draftValueFor('TSS_API', 'ENVIRONMENT') || '').toUpperCase();
     if (normalizeEnvironmentMode(envCode) === 'DEMO') {
-      setTestState({ status: 'error', result: null, error: 'Demo mode is preview-only: DB off / TSS off. Select Production or Test/QAS and save before testing the real API.' });
+      setTestState({
+        status: 'warning',
+        result: {
+          ok: false,
+          severity: 'warning',
+          envCode: 'DEMO',
+          endpoint: 'not called',
+          httpStatus: null,
+          message: 'Demo mode is preview-only: DB off / TSS off. Select Production or Test/QAS and save before testing the real API.',
+        },
+        error: '',
+      });
       return;
     }
     setTestState({ status: 'testing', result: null, error: '' });
     try {
       const result = await onTestTssApi({ clientCode: settings.portalClientCode || settings.clientCode, envCode });
-      setTestState({ status: 'success', result, error: '' });
+      const nextStatus = result?.ok ? 'success' : result?.severity === 'warning' ? 'warning' : 'error';
+      setTestState({ status: nextStatus, result, error: result?.message || 'TSS API test failed.' });
     } catch (error) {
       setTestState({ status: 'error', result: null, error: error.message });
     }
   }
+
+  const apiTestClass = testState.status === 'success' ? 'is-success' : testState.status === 'warning' ? 'is-warning' : 'is-error';
+  const apiTestTitle = testState.status === 'success' ? 'TSS API OK' : testState.status === 'warning' ? 'TSS API check warning' : 'TSS API test failed';
+  const apiTestDetail = testState.result
+    ? `GET ${testState.result.endpoint || '/choice_values/country'} - ${testState.result.envCode || draftValueFor('TSS_API', 'ENVIRONMENT')} - HTTP ${testState.result.httpStatus ?? 'no response'}${testState.result.message ? ` - ${testState.result.message}` : ''}`
+    : testState.error;
 
   return (
     <section className="settings-page" aria-label="Configuration settings">
@@ -956,9 +974,9 @@ function SettingsPage({ settings, activeSection, environmentMode, onSectionChang
 
           {saveError && <div className="settings-save-error">{saveError}</div>}
           {isTssApiSection && testState.status !== 'idle' && testState.status !== 'testing' && (
-            <div className={`settings-api-test-result ${testState.status === 'success' ? 'is-success' : 'is-error'}`}>
-              <strong>{testState.status === 'success' ? `TSS API ${testState.result?.result || 'checked'}` : 'TSS API test failed'}</strong>
-              <span>{testState.status === 'success' ? `GET ${testState.result?.endpoint || '/choice_values/country'} - ${testState.result?.envCode || draftValueFor('TSS_API', 'ENVIRONMENT')} - HTTP ${testState.result?.httpStatus ?? 'no response'}` : testState.error}</span>
+            <div className={`settings-api-test-result ${apiTestClass}`}>
+              <strong>{apiTestTitle}</strong>
+              <span>{apiTestDetail}</span>
             </div>
           )}
           <div className="settings-grid">

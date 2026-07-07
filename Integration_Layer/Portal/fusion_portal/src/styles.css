@@ -1653,6 +1653,11 @@ button:disabled { cursor: default; }
 }
 .settings-api-test-result strong { font-weight: 900; }
 .settings-api-test-result span { color: inherit; opacity: .9; }
+.settings-api-test-result.is-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
 .settings-api-test-result.is-error {
   border-color: #fecaca;
   background: #fff1f2;
@@ -2069,6 +2074,11 @@ button:disabled { cursor: default; }
   background: rgba(37, 99, 235, .18);
   border-color: rgba(96, 165, 250, .3);
   color: #bfdbfe;
+}
+.app-shell[data-theme="dark"] .settings-api-test-result.is-warning {
+  background: rgba(120, 53, 15, .3);
+  border-color: rgba(251, 191, 36, .35);
+  color: #fde68a;
 }
 .app-shell[data-theme="dark"] .settings-api-test-result.is-error {
   background: rgba(127, 29, 29, .28);

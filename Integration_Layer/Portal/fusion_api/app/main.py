@@ -232,11 +232,27 @@ def credential_status(profile: dict[str, object], env_code: str | None = None, i
 def classify_tss_status(status: int | None) -> str:
     if status is None:
         return "ERROR"
-    if status == 200:
+    if 200 <= status < 300:
         return "PASS"
     if status in (401, 403):
-        return "FAIL"
-    return "REACHABLE"
+        return "AUTH_FAILED"
+    if 400 <= status < 500:
+        return "REQUEST_FAILED"
+    if status >= 500:
+        return "TSS_ERROR"
+    return "ERROR"
+
+
+def describe_tss_test_result(result: str, status: int | None) -> tuple[str, str]:
+    if result == "PASS":
+        return "success", "TSS API check passed."
+    if result == "AUTH_FAILED":
+        return "error", "TSS answered, but the configured credentials were rejected."
+    if result == "REQUEST_FAILED":
+        return "warning", f"TSS answered with HTTP {status}; the test request did not pass."
+    if result == "TSS_ERROR":
+        return "error", f"TSS answered with HTTP {status}; the remote service returned an error."
+    return "error", "No valid response was received from TSS."
 
 
 def load_consignment_submission_data(consignment_row_id: int, profile: dict[str, object]) -> tuple[dict[str, object], list[dict[str, object]]]:
@@ -1295,6 +1311,7 @@ def test_tss_connection(client_code: str = Query("PLE"), env_code: str | None = 
         detail = str(error.reason)[:160]
 
     result = classify_tss_status(http_status)
+    severity, message = describe_tss_test_result(result, http_status)
     checked_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     try:
         execute(
@@ -1315,6 +1332,10 @@ def test_tss_connection(client_code: str = Query("PLE"), env_code: str | None = 
         "envCode": credential["envCode"],
         "httpStatus": http_status,
         "result": result,
+        "ok": result == "PASS",
+        "reachable": http_status is not None,
+        "severity": severity,
+        "message": message,
         "apiBasePath": api_base_path,
         "endpoint": test_endpoint,
         "detail": detail,
