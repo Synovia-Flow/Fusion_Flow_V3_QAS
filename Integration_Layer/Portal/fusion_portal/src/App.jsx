@@ -319,7 +319,6 @@ const TSS_STATUS_OPTIONS = [
   'BLOCKED',
   'NOT_READY',
 ];
-const TSS_READY_STATUSES = new Set(['READY_FOR_TSS', 'QUEUED_FOR_TSS', 'SUBMITTED', 'ACCEPTED']);
 
 function normalizeStatusText(value, fallback = 'PENDING_TSS') {
   const text = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -407,20 +406,109 @@ function normalizeConsignment(row) {
   };
 }
 
-const CONSIGNMENT_STATUS_TABS = [
-  'ALL',
-  'PENDING_TSS',
-  'READY_FOR_TSS',
-  'QUEUED_FOR_TSS',
-  'SUBMITTED',
-  'ACCEPTED',
-  'BLOCKED',
-  'FAILED',
-  'REJECTED',
+const STATUS_VOCABULARY_FALLBACK = [
+  { resultStatus: 'INGESTED', processName: 'INGESTION', meaning: 'Raw evidence has landed.', sortOrder: 10 },
+  { resultStatus: 'NORMALISED', processName: 'PROCESSING', meaning: 'Source data has been normalised.', sortOrder: 20 },
+  { resultStatus: 'ENRICHED', processName: 'PROCESSING', meaning: 'CFG/masterdata enrichment has run.', sortOrder: 30 },
+  { resultStatus: 'CONSTRUCTED', processName: 'PROCESSING', meaning: 'Canonical PRS object has been built.', sortOrder: 40 },
+  { resultStatus: 'VALIDATED', processName: 'VALIDATION', meaning: 'Validation checks have passed.', sortOrder: 50 },
+  { resultStatus: 'REJECTED', processName: 'VALIDATION', meaning: 'Validation or submission rejected the record.', sortOrder: 60, isException: true },
+  { resultStatus: 'STG_MATERIALISED', processName: 'PROMOTION', meaning: 'Record has been promoted to STG.', sortOrder: 70 },
+  { resultStatus: 'READY', processName: 'SUBMISSION', meaning: 'Record is ready for submission.', sortOrder: 80 },
+  { resultStatus: 'SUBMITTING', processName: 'SUBMISSION', meaning: 'Submission is in progress.', sortOrder: 90 },
+  { resultStatus: 'SUBMITTED', processName: 'SUBMISSION', meaning: 'Submission was sent.', sortOrder: 100 },
+  { resultStatus: 'ACKNOWLEDGED', processName: 'SUBMISSION', meaning: 'TSS acknowledged the record.', sortOrder: 110 },
+  { resultStatus: 'IN_PROGRESS', processName: 'SYNC', meaning: 'External processing is still in progress.', sortOrder: 120 },
+  { resultStatus: 'RECONCILED', processName: 'SYNC', meaning: 'Local and external state are reconciled.', sortOrder: 130 },
+  { resultStatus: 'MISMATCH', processName: 'SYNC', meaning: 'Local and external state differ.', sortOrder: 140, isException: true },
+  { resultStatus: 'ERROR', processName: 'ERROR', meaning: 'Processing failed.', sortOrder: 150, isException: true },
+  { resultStatus: 'CANCELLED', processName: 'LIFECYCLE', meaning: 'Record is cancelled.', sortOrder: 160, isTerminal: true },
+  { resultStatus: 'ON_HOLD', processName: 'LIFECYCLE', meaning: 'Record is on hold.', sortOrder: 170 },
 ];
 
-function displayStatusLabel(value) {
-  return String(value || '').replaceAll('_', ' ');
+function normalizeStatusVocabulary(rows = []) {
+  const source = Array.isArray(rows) && rows.length ? rows : STATUS_VOCABULARY_FALLBACK;
+  return source
+    .map((row, index) => ({
+      processName: String(row.ProcessName ?? row.processName ?? '').trim(),
+      resultStatus: normalizeStatusText(row.ResultStatus ?? row.resultStatus ?? row.status, ''),
+      meaning: String(row.Meaning ?? row.meaning ?? '').trim(),
+      sortOrder: Number(row.SortOrder ?? row.sortOrder ?? index + 999),
+      isTerminal: Boolean(row.IsTerminal ?? row.isTerminal),
+      isException: Boolean(row.IsException ?? row.isException),
+    }))
+    .filter((row) => row.resultStatus)
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.resultStatus.localeCompare(right.resultStatus));
+}
+
+function statusVocabularyMap(vocabulary = STATUS_VOCABULARY_FALLBACK) {
+  const map = new Map();
+  normalizeStatusVocabulary(vocabulary).forEach((row) => {
+    if (!map.has(row.resultStatus)) map.set(row.resultStatus, row);
+  });
+  return map;
+}
+
+function localConsignmentStatus(row) {
+  return normalizeStatusText(row?.status ?? row?.Status, 'DRAFT');
+}
+
+const CONSIGNMENT_PIPELINE_STAGES = [
+  { key: 'PRS', label: 'PRS', sub: 'Canonical record', icon: 'schema' },
+  { key: 'VALIDATION', label: 'Validation', sub: 'Rules + enrichment', icon: 'rule' },
+  { key: 'STG', label: 'STG', sub: 'Submission-ready', icon: 'inventory_2' },
+  { key: 'ENS', label: 'ENS', sub: 'Header mirror', icon: 'fact_check' },
+  { key: 'CONSIGNMENT', label: 'Consignment', sub: 'TSS consignment', icon: 'package_2' },
+  { key: 'GOODS', label: 'Goods', sub: '99-row batches', icon: 'list_alt' },
+  { key: 'SFD', label: 'SFD', sub: 'Lookup / link', icon: 'travel_explore' },
+  { key: 'SDI', label: 'SDI', sub: 'Supplementary', icon: 'bolt' },
+];
+
+function consignmentPipelinePosition(row, goodsItems = []) {
+  const tssStatus = deriveTssStatus(row);
+  const localStatus = normalizeStatusText(row?.status || row?.Status, 'DRAFT');
+  if (row?.sdiReferences) return 7;
+  if (row?.sfdReference || row?.sfdMrn) return 6;
+  if (goodsItems.length || Number(row?.goodsItems || 0) > 0) return 5;
+  if (['SUBMITTED', 'ACCEPTED', 'READY_FOR_TSS', 'QUEUED_FOR_TSS'].includes(tssStatus)) return 4;
+  if (row?.declarationNumber || row?.HeaderDeclarationNumber) return 3;
+  if (['READY', 'VALIDATED'].includes(localStatus)) return 2;
+  return rowValidationMissingCount(row) ? 1 : 2;
+}
+
+function ConsignmentPipelineRail({ row, goodsItems = [] }) {
+  const currentIndex = consignmentPipelinePosition(row, goodsItems);
+  return (
+    <section className="consignment-pipeline-card" aria-label="ENS consignment pipeline">
+      <div className="pipeline-card-heading">
+        <div>
+          <span>Modules path</span>
+          <h3>PRS {'->'} STG {'->'} TSS {'->'} SFD/SDI</h3>
+        </div>
+        <strong>Route A</strong>
+      </div>
+      <div className="consignment-pipeline-rail">
+        {CONSIGNMENT_PIPELINE_STAGES.map((stage, index) => {
+          const state = index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'pending';
+          return (
+            <div key={stage.key} className={`pipeline-stage ${state}`}>
+              <div className="pipeline-node"><MaterialIcon>{state === 'done' ? 'check' : stage.icon}</MaterialIcon></div>
+              <div className="pipeline-copy">
+                <strong>{stage.label}</strong>
+                <span>{stage.sub}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function displayStatusLabel(value, vocabularyMap = null) {
+  const normalized = normalizeStatusText(value, '');
+  const known = vocabularyMap?.get?.(normalized);
+  return String(known?.resultStatus || value || '').replaceAll('_', ' ');
 }
 
 function toDateInputValue(value) {
@@ -470,6 +558,17 @@ function ConsignmentValidationSignal({ row }) {
       {!!packageMissing && <em>{packageMissing} pkg missing</em>}
       {!!packageNormalised && <em>{packageNormalised} pkg mapped</em>}
     </div>
+  );
+}
+
+function ConsignmentValidationMini({ row }) {
+  const missingCount = rowValidationMissingCount(row);
+  const assumptionCount = Number(row?.assumptionCount || row?.validationSummary?.assumptions?.length || 0);
+  const status = row?.validationStatus || row?.validationSummary?.status || (missingCount ? 'NEEDS_REVIEW' : 'READY');
+  return (
+    <span className={`consignment-validation-mini ${missingCount || assumptionCount ? 'needs-review' : 'ready'}`} title="Modules validation summary">
+      {displayStatusLabel(status)}{missingCount ? ` · ${missingCount} missing` : ''}{assumptionCount ? ` · ${assumptionCount} assumed` : ''}
+    </span>
   );
 }
 function rowMatchesDateFilters(row, month, from, to) {
@@ -2450,13 +2549,15 @@ function ConsignmentValidationSummary({ summary }) {
     </section>
   );
 }
-function ConsignmentDetailModal({ row, onClose, onSave }) {
+function ConsignmentDetailModal({ row, onClose, onSave, onQueueForTss }) {
   const [detailState, setDetailState] = useState({ status: 'loading', payload: null, error: '' });
   const [draft, setDraft] = useState(() => buildConsignmentDraft(row));
+  const [actionState, setActionState] = useState({ status: 'idle', label: '', error: '' });
 
   useEffect(() => {
     let cancelled = false;
     setDraft(buildConsignmentDraft(row));
+    setActionState({ status: 'idle', label: '', error: '' });
     if (!row?.consignmentRowId) {
       setDetailState({ status: 'ready', payload: null, error: '' });
       return () => { cancelled = true; };
@@ -2486,15 +2587,46 @@ function ConsignmentDetailModal({ row, onClose, onSave }) {
     onClose();
   }
 
+  function showGatedAction(label, message) {
+    setActionState({ status: 'ready', label, error: '', message });
+  }
+
+  async function runRouteCheck(label) {
+    if (!onQueueForTss || !row?.consignmentRowId) return;
+    setActionState({ status: 'loading', label, error: '' });
+    try {
+      await onQueueForTss(row);
+      setActionState({ status: 'ready', label, error: '', message: 'Route check completed. Review blockers before live submission.' });
+    } catch (error) {
+      setActionState({ status: 'error', label, error: error.message });
+    }
+  }
+
+  const detailRow = detailState.payload?.consignment || {};
   const goodsItems = detailState.payload?.goodsItems || [];
-  const currentTssStatus = draft.tssStatus || deriveTssStatus(row);
+  const currentTssStatus = draft.tssStatus || deriveTssStatus(detailRow || row);
+  const pipelineRow = { ...row, ...detailRow, tssStatus: currentTssStatus, declarationNumber: draft.declarationNumber || row.declarationNumber };
+  const ensReference = draft.declarationNumber || row.declarationNumber || detailRow.HeaderDeclarationNumber || detailRow.declaration_number || '-';
+  const sfdValue = row.sfdReference || row.sfdMrn || 'Pending';
+  const sdiValue = row.sdiReferences || 'Pending';
+  const consignorName = readRecordValue(detailRow, ['consignor_name', 'ConsignorName'], '-');
+  const consignorEori = readRecordValue(detailRow, ['consignor_eori', 'ConsignorEori'], '');
+  const consigneeEori = readRecordValue(detailRow, ['consignee_eori', 'ConsigneeEori'], '-');
+  const importerEori = readRecordValue(detailRow, ['importer_eori', 'ImporterEori'], '-');
+  const importerName = readRecordValue(detailRow, ['importer_name', 'ImporterName'], '');
+  const conveyanceRef = readRecordValue(detailRow, ['conveyance_ref', 'ConveyanceRef'], '-');
+  const sourceLabel = readRecordValue(detailRow, ['Source', 'source'], row.source || 'PRS.Consignment');
+  const updatedLabel = formatDateTime(readRecordValue(detailRow, ['UpdatedAt', 'updated_at'], row.updatedAt || ''));
+  const arrivalLabel = formatDateTime(readRecordValue(detailRow, ['HeaderArrivalDateTime', 'arrival_date_time', 'ArrivalDateTime'], row.arrivalDateTime || ''));
+  const actionBusy = actionState.status === 'loading';
+  const hasRouteCheck = Boolean(onQueueForTss && row?.consignmentRowId);
 
   return (
     <div className="preview-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="consignment-detail-modal" role="dialog" aria-modal="true" aria-label="Consignment detail">
+      <section className="consignment-detail-modal" role="dialog" aria-modal="true" aria-label="ENS consignment detail">
         <header className="preview-modal-header consignment-detail-modal-header">
           <div>
-            <span className="preview-eyebrow">PRS.Consignment</span>
+            <span className="preview-eyebrow">ENS / PRS Consignment</span>
             <h2>{draft.consignmentNumber || row.consignmentNumber}</h2>
             <p>{row.movementKey || 'Movement pending'} / {row.transportDocumentNumber || 'Document pending'}</p>
           </div>
@@ -2508,12 +2640,80 @@ function ConsignmentDetailModal({ row, onClose, onSave }) {
         </header>
 
         <div className="consignment-detail-body">
-          <div className="consignment-detail-meta">
-            <div><span>ConsignmentRowID</span><strong>{row.consignmentRowId || '-'}</strong></div>
-            <div><span>EnsHeaderRowID</span><strong>{row.ensHeaderRowId || '-'}</strong></div>
-            <div><span>PRS Status</span><StatusBadge status={row.status || 'DRAFT'} /></div>
-            <div><span>Goods Items</span><strong>{row.goodsItems || goodsItems.length || 0}</strong></div>
+          <div className="v2-consignment-status-strip" aria-label="V2 BKD consignment references">
+            <span className="v2-ref-chip local"><strong>Local</strong><StatusBadge status={row.status || 'DRAFT'} /></span>
+            <span className="v2-ref-chip tss"><strong>TSS</strong><StatusBadge status={currentTssStatus} /></span>
+            <span className="v2-ref-chip"><strong>ENS</strong><em>{ensReference}</em></span>
+            <span className="v2-ref-chip"><strong>SFD</strong><em>{sfdValue}</em></span>
+            <span className="v2-ref-chip"><strong>SDI</strong><em>{sdiValue}</em></span>
           </div>
+
+          <ConsignmentPipelineRail row={pipelineRow} goodsItems={goodsItems} />
+
+          <div className="consignment-action-grid" aria-label="Consignment pipeline actions">
+            <button className="pipeline-action primary" type="button" disabled={!hasRouteCheck || actionBusy} onClick={() => runRouteCheck('Submit consignment')}>
+              {actionBusy ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>send</MaterialIcon>}
+              <strong>Submit Consignment</strong>
+              <span>Build TSS route check</span>
+            </button>
+            <button className="pipeline-action" type="button" onClick={() => showGatedAction('Sync TSS Now', 'TSS sync follows the Modules/Submission mirror flow and must use the existing API.Call audit path.')}>
+              <MaterialIcon>sync</MaterialIcon>
+              <strong>Sync TSS Now</strong>
+              <span>{currentTssStatus}</span>
+            </button>
+            <button className="pipeline-action" type="button" onClick={() => showGatedAction('SFD Lookup', 'SFD lookup follows the V2 BKD downstream flow after the consignment has a valid TSS declaration/consignment reference.')}>
+              <MaterialIcon>travel_explore</MaterialIcon>
+              <strong>SFD Lookup</strong>
+              <span>{sfdValue}</span>
+            </button>
+            <button className="pipeline-action" type="button" onClick={() => showGatedAction('SDI', 'SDI / SupDec remains a downstream phase after SFD/SUP context is resolved; no live write is triggered from this preview action.')}>
+              <MaterialIcon>bolt</MaterialIcon>
+              <strong>SDI</strong>
+              <span>{sdiValue}</span>
+            </button>
+            <button className="pipeline-action" type="button" onClick={() => showGatedAction('TSS Response', 'Official TSS responses are read from API.Call / submission logs and should be mirrored back through the existing sync path.')}>
+              <MaterialIcon>data_object</MaterialIcon>
+              <strong>TSS Response</strong>
+              <span>API.Call audit</span>
+            </button>
+          </div>
+
+          {actionState.status !== 'idle' && (
+            <div className={`action-feedback consignment-detail-action-feedback ${actionState.status === 'error' ? 'is-error' : ''}`}>
+              {actionState.status === 'loading' ? (
+                <strong className="feedback-loading"><LoadingSpinner /><span>{actionState.label}...</span></strong>
+              ) : (
+                <>
+                  <strong>{actionState.status === 'ready' ? `${actionState.label} prepared` : `${actionState.label} failed`}</strong>
+                  <span>{actionState.status === 'ready' ? actionState.message : actionState.error}</span>
+                </>
+              )}
+            </div>
+          )}
+
+          <section className="v2-detail-panel" aria-label="Consignment details">
+            <div className="consignment-section-heading">
+              <span>Consignment details</span>
+              <strong>ENS, SFD and SDI context</strong>
+            </div>
+            <div className="v2-detail-grid">
+              <div><span>Sales Order / Document No</span><strong>{draft.transportDocumentNumber || row.transportDocumentNumber || '-'}</strong></div>
+              <div><span>ENS Ref</span><strong>{ensReference}</strong></div>
+              <div><span>Goods Description</span><strong>{draft.goodsDescription || '-'}</strong></div>
+              <div><span>SFD DEC</span><strong>{row.sfdReference || '-'}</strong></div>
+              <div><span>SFD MRN / EIDR</span><strong>{row.sfdMrn || '-'}</strong></div>
+              <div><span>SFD Status</span><strong>{row.sfdReference ? currentTssStatus : '-'}</strong></div>
+              <div><span>SDI / SupDec</span><strong>{row.sdiReferences || (row.sfdReference ? 'Pending autosync' : '-')}</strong></div>
+              <div><span>Consignor</span><strong>{consignorName}{consignorEori ? ` (${consignorEori})` : ''}</strong></div>
+              <div><span>Consignee</span><strong>{draft.consigneeName || row.consigneeName || '-'}</strong></div>
+              <div><span>Consignee EORI</span><strong>{consigneeEori}</strong></div>
+              <div><span>Importer EORI</span><strong>{importerEori}{importerName ? ` ${importerName}` : ''}</strong></div>
+              <div><span>Conveyance</span><strong>{conveyanceRef}</strong></div>
+              <div><span>Arrival</span><strong>{arrivalLabel || '-'}</strong></div>
+              <div><span>Source</span><strong>{sourceLabel}</strong></div>
+              <div><span>Updated</span><strong>{updatedLabel || '-'}</strong></div>
+            </div>
+          </section>
 
           {detailState.status === 'loading' && (
             <div className="consignment-detail-loading"><LoadingSpinner /><span>Loading detail...</span></div>
@@ -2527,16 +2727,22 @@ function ConsignmentDetailModal({ row, onClose, onSave }) {
 
           <ConsignmentValidationSummary summary={detailState.payload?.validationSummary} />
 
-          <div className="consignment-edit-grid">
-            <label><span>Consignment</span><input value={draft.consignmentNumber} onChange={(event) => updateDraft('consignmentNumber', event.target.value)} /></label>
-            <label><span>Declaration</span><input value={draft.declarationNumber} onChange={(event) => updateDraft('declarationNumber', event.target.value)} /></label>
-            <label><span>Trader Ref</span><input value={draft.traderReference} onChange={(event) => updateDraft('traderReference', event.target.value)} /></label>
-            <label><span>Transport Document</span><input value={draft.transportDocumentNumber} onChange={(event) => updateDraft('transportDocumentNumber', event.target.value)} /></label>
-            <label className="wide"><span>Goods Description</span><input value={draft.goodsDescription} onChange={(event) => updateDraft('goodsDescription', event.target.value)} /></label>
-            <label><span>Consignee</span><input value={draft.consigneeName} onChange={(event) => updateDraft('consigneeName', event.target.value)} /></label>
-            <label><span>Destination</span><input value={draft.destinationCountry} onChange={(event) => updateDraft('destinationCountry', event.target.value)} /></label>
-            <label><span>TSS Status</span><select value={currentTssStatus} onChange={(event) => updateDraft('tssStatus', event.target.value)}>{TSS_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label>
-          </div>
+          <section className="consignment-edit-panel" aria-label="Editable consignment fields">
+            <div className="consignment-section-heading">
+              <span>Editable PRS fields</span>
+              <strong>Changes stay local until a commit/promotion action is wired.</strong>
+            </div>
+            <div className="consignment-edit-grid">
+              <label><span>Consignment</span><input value={draft.consignmentNumber} onChange={(event) => updateDraft('consignmentNumber', event.target.value)} /></label>
+              <label><span>Declaration</span><input value={draft.declarationNumber} onChange={(event) => updateDraft('declarationNumber', event.target.value)} /></label>
+              <label><span>Trader Ref</span><input value={draft.traderReference} onChange={(event) => updateDraft('traderReference', event.target.value)} /></label>
+              <label><span>Transport Document</span><input value={draft.transportDocumentNumber} onChange={(event) => updateDraft('transportDocumentNumber', event.target.value)} /></label>
+              <label className="wide"><span>Goods Description</span><input value={draft.goodsDescription} onChange={(event) => updateDraft('goodsDescription', event.target.value)} /></label>
+              <label><span>Consignee</span><input value={draft.consigneeName} onChange={(event) => updateDraft('consigneeName', event.target.value)} /></label>
+              <label><span>Destination</span><input value={draft.destinationCountry} onChange={(event) => updateDraft('destinationCountry', event.target.value)} /></label>
+              <label><span>TSS Status</span><select value={currentTssStatus} onChange={(event) => updateDraft('tssStatus', event.target.value)}>{TSS_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label>
+            </div>
+          </section>
 
           <section className="consignment-goods-panel" aria-label="Goods items">
             <div className="consignment-goods-heading">
@@ -2544,33 +2750,40 @@ function ConsignmentDetailModal({ row, onClose, onSave }) {
                 <span>PRS.Goods_Item</span>
                 <h3>{goodsItems.length || row.goodsItems || 0} rows</h3>
               </div>
+              <div className="goods-flow-chip"><span>Batch cap</span><strong>99 goods</strong></div>
             </div>
             <div className="control-table-wrap">
-              <table className="control-table consignment-goods-table">
+              <table className="control-table consignment-goods-table v2-goods-table">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>Status</th>
-                    <th>Commodity</th>
-                    <th>Package</th>
+                    <th>Seq</th>
                     <th>Description</th>
+                    <th>Commodity</th>
+                    <th>SKU / TSS ID</th>
                     <th>Gross kg</th>
                     <th>Net kg</th>
+                    <th>Pkgs</th>
+                    <th>Local Status</th>
+                    <th>TSS Status</th>
+                    <th>Error</th>
                   </tr>
                 </thead>
                 <tbody>
                   {goodsItems.length ? goodsItems.map((goods, index) => (
                     <tr key={goods.GoodsItemRowID || index}>
                       <td>{goods.GoodsItemOrdinal || index + 1}</td>
-                      <td><StatusBadge status={goods.Status || 'PENDING'} /></td>
-                      <td>{controlDisplay(goods.commodity_code)}</td>
-                      <td>{controlDisplay(goods.type_of_packages)}</td>
-                      <td>{controlDisplay(goods.goods_description)}</td>
+                      <td className="description-cell"><span>{controlDisplay(goods.goods_description)}</span></td>
+                      <td className="font-mono muted-cell">{controlDisplay(goods.commodity_code)}</td>
+                      <td className="font-mono muted-cell">{controlDisplay(goods.goods_id || goods.label || goods.GoodsItemRowID)}</td>
                       <td>{controlDisplay(goods.gross_mass_kg)}</td>
                       <td>{controlDisplay(goods.net_mass_kg)}</td>
+                      <td>{controlDisplay(goods.number_of_packages)} {controlDisplay(goods.type_of_packages)}</td>
+                      <td><StatusBadge status={goods.Status || 'PENDING'} /></td>
+                      <td><span className="muted-cell">Pending sync</span></td>
+                      <td className="goods-error-cell">{goods.RejectReason || '-'}</td>
                     </tr>
                   )) : (
-                    <tr><td colSpan="7" className="control-empty-cell">No goods detail loaded</td></tr>
+                    <tr><td colSpan="10" className="control-empty-cell">No goods detail loaded</td></tr>
                   )}
                 </tbody>
               </table>
@@ -2587,7 +2800,7 @@ function ConsignmentDetailModal({ row, onClose, onSave }) {
   );
 }
 
-function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueForTss, onUpdateConsignment }) {
+function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVocabulary = STATUS_VOCABULARY_FALLBACK, onQueueForTss, onUpdateConsignment, onRefresh }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
   const [dateMonth, setDateMonth] = useState('');
@@ -2598,10 +2811,11 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
   const [page, setPage] = useState(1);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedRows, setSelectedRows] = useState(() => new Set());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
   const sourceRows = rows.length ? rows : CONSIGNMENTS;
   const [selectedId, setSelectedId] = useState(sourceRows[0]?.id || '');
   const [detailOpen, setDetailOpen] = useState(false);
-  const [tssState, setTssState] = useState({ status: 'idle', rowId: '', payload: null, error: '' });
 
   useEffect(() => {
     if (sourceRows.length && !sourceRows.some((row) => row.id === selectedId)) {
@@ -2621,26 +2835,30 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
     });
   }, [sourceRows]);
 
+  const statusMetadata = useMemo(() => statusVocabularyMap(statusVocabulary), [statusVocabulary]);
+
   const statusCounts = useMemo(() => {
     const counts = { ALL: sourceRows.length };
     sourceRows.forEach((row) => {
-      const key = deriveTssStatus(row);
+      const key = localConsignmentStatus(row);
       counts[key] = (counts[key] || 0) + 1;
     });
     return counts;
   }, [sourceRows]);
 
   const statusTabs = useMemo(() => {
-    const dynamic = sourceRows.map((row) => deriveTssStatus(row)).filter(Boolean);
-    return [...new Set([...CONSIGNMENT_STATUS_TABS, ...dynamic])]
+    const configured = normalizeStatusVocabulary(statusVocabulary).map((row) => row.resultStatus);
+    const dynamic = sourceRows.map((row) => localConsignmentStatus(row)).filter(Boolean);
+    return ['ALL', ...new Set([...configured, ...dynamic])]
       .filter((item) => item === 'ALL' || statusCounts[item] > 0);
-  }, [sourceRows, statusCounts]);
+  }, [sourceRows, statusCounts, statusVocabulary]);
 
   const filtered = useMemo(() => {
     const value = query.trim().toLowerCase();
     return sourceRows.filter((row) => {
       const tssStatus = deriveTssStatus(row);
-      const matchesStatus = status === 'ALL' || tssStatus === status;
+      const localStatus = localConsignmentStatus(row);
+      const matchesStatus = status === 'ALL' || localStatus === status;
       const haystack = [
         row.consignmentRowId,
         consignmentPrimaryRef(row),
@@ -2656,6 +2874,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
         row.sdiReferences,
         row.source,
         row.status,
+        localStatus,
         tssStatus,
       ].join(' ').toLowerCase();
       return matchesStatus && rowMatchesDateFilters(row, dateMonth, dateFrom, dateTo) && (!value || haystack.includes(value));
@@ -2677,31 +2896,30 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
   const pageStart = pageSize === 'all' ? 0 : (safePage - 1) * pageSizeNumber;
   const pagedRows = pageSize === 'all' ? sorted : sorted.slice(pageStart, pageStart + pageSizeNumber);
   const selected = sorted.find((row) => row.id === selectedId) || pagedRows[0] || sourceRows[0] || CONSIGNMENTS[0];
-  const tssReadyCount = sourceRows.filter((row) => TSS_READY_STATUSES.has(deriveTssStatus(row))).length;
-  const totalGoods = sourceRows.reduce((total, row) => total + row.goodsItems, 0);
   const filtersActive = Boolean(query || dateMonth || dateFrom || dateTo || status !== 'ALL');
   const allPageSelected = pagedRows.length > 0 && pagedRows.every((row) => selectedRows.has(row.id));
   const showingStart = sorted.length ? pageStart + 1 : 0;
   const showingEnd = pageSize === 'all' ? sorted.length : Math.min(pageStart + pageSizeNumber, sorted.length);
 
   function applyLocalUpdate(updatedRow) {
-    if (status !== 'ALL' && deriveTssStatus(updatedRow) !== status) setStatus('ALL');
+    if (status !== 'ALL' && localConsignmentStatus(updatedRow) !== status) setStatus('ALL');
     setSelectedId(updatedRow.id);
     onUpdateConsignment?.(updatedRow);
   }
 
-  async function handleQueueForTss(row = selected) {
-    if (!row?.consignmentRowId || !onQueueForTss) return;
-    setTssState({ status: 'loading', rowId: row.id, payload: null, error: '' });
+  async function refreshRows() {
+    if (!onRefresh || isRefreshing) return;
+    setIsRefreshing(true);
+    setRefreshError('');
     try {
-      const payload = await onQueueForTss(row);
-      const nextTssStatus = payload?.plan?.ready ? 'READY_FOR_TSS' : 'BLOCKED';
-      applyLocalUpdate({ ...row, tssStatus: nextTssStatus });
-      setTssState({ status: 'ready', rowId: row.id, payload, error: '' });
+      await onRefresh();
     } catch (error) {
-      setTssState({ status: 'error', rowId: row.id, payload: null, error: error.message });
+      setRefreshError(error.message);
+    } finally {
+      setIsRefreshing(false);
     }
   }
+
 
   function clearFilters() {
     setQuery('');
@@ -2745,13 +2963,13 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
         </button>
         <div>
           <h1>View Consignments</h1>
-          <p>PRS consignments with linked ENS context and TSS status mirror.</p>
+          <p>PRS consignments with linked ENS context, SFD/SDI references, and TSS status mirror.</p>
         </div>
-        <div className="consignment-header-metrics" aria-label="Consignment totals">
-          <div><span>Total</span><strong>{sourceRows.length}</strong></div>
-          <div><span>Filtered</span><strong>{sorted.length}</strong></div>
-          <div><span>Goods</span><strong>{totalGoods}</strong></div>
-          <div><span>TSS Ready</span><strong>{tssReadyCount}</strong></div>
+        <div className="page-actions consignment-page-actions">
+          <button className="outline-action compact-action" type="button" onClick={refreshRows} disabled={isRefreshing} aria-busy={isRefreshing}>
+            {isRefreshing ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>refresh</MaterialIcon>}
+            <span>{isRefreshing ? 'Refreshing' : 'Refresh'}</span>
+          </button>
         </div>
       </div>
 
@@ -2760,7 +2978,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
           const count = item === 'ALL' ? sourceRows.length : statusCounts[item] || 0;
           return (
             <button key={item} className={status === item ? 'active' : ''} type="button" role="tab" aria-selected={status === item} onClick={() => setStatus(item)}>
-              <span>{displayStatusLabel(item)}</span>
+              <span title={statusMetadata.get(item)?.meaning || item}>{displayStatusLabel(item, statusMetadata)}</span>
               <strong>{count}</strong>
             </button>
           );
@@ -2799,8 +3017,8 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
 
         <div className="consignment-card-header">
           <div>
-            <strong>{showingStart}-{showingEnd}</strong>
-            <span>of {sorted.length} consignments shown from {sourceRows.length} PRS rows</span>
+            <strong>Use Select mode for local cleanup or Excel export.</strong>
+            <span>{showingStart}-{showingEnd} of {sorted.length} consignments shown from {sourceRows.length} PRS rows. TSS records are not cancelled.</span>
           </div>
           <div className="consignment-toolbar-actions">
             <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort consignments">
@@ -2810,12 +3028,22 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
             <button className="outline-action compact-action" type="button" disabled title="Excel export endpoint is not enabled in V3 yet.">
               <MaterialIcon>download</MaterialIcon><span>Excel</span>
             </button>
+            <button className="outline-action compact-action danger-action" type="button" disabled title="Local delete endpoint is not enabled in V3 yet. TSS records are not cancelled from this view.">
+              <MaterialIcon>delete</MaterialIcon><span>Delete</span>
+            </button>
             <button className={`select-mode-toggle ${selectMode ? 'active' : ''}`} type="button" aria-pressed={selectMode} onClick={() => setSelectMode((value) => !value)}>
               <span className="toggle-dot" aria-hidden="true" />
               <span>Select mode</span>
             </button>
           </div>
         </div>
+
+        {refreshError && (
+          <div className="action-feedback is-error consignment-refresh-error" role="alert">
+            <strong>Refresh failed</strong>
+            <span>{refreshError}</span>
+          </div>
+        )}
 
         {(selectMode || selectedRows.size > 0) && (
           <div className="selection-strip">
@@ -2833,7 +3061,6 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
                 <th>ID</th>
                 <th>DEC Ref</th>
                 <th>Local Status</th>
-                <th>Validation</th>
                 <th>TSS Status</th>
                 <th>SFD</th>
                 <th>SDI</th>
@@ -2842,7 +3069,6 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
                 <th>Doc / Ref</th>
                 <th>ENS Ref</th>
                 <th>Arrival</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -2853,12 +3079,11 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
                 const isSelected = row.id === selected?.id;
                 const rowChecked = selectedRows.has(row.id);
                 return (
-                  <tr key={row.id} className={`${isSelected ? 'selected' : ''} ${['BLOCKED', 'FAILED', 'REJECTED'].includes(tssStatus) ? 'row-needs-attention' : ''}`} onClick={() => setSelectedId(row.id)} onDoubleClick={() => openDetail(row)}>
+                  <tr key={row.id} className={`${isSelected ? 'selected' : ''} ${['BLOCKED', 'FAILED', 'REJECTED'].includes(tssStatus) ? 'row-needs-attention' : ''}`} onClick={() => openDetail(row)} role="link" tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') openDetail(row); }}>
                     <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} aria-label={`Select consignment ${primaryRef}`} /></td>
                     <td className="font-mono">{row.consignmentRowId || '-'}</td>
                     <td className="ref-cell"><button type="button" onClick={(event) => { event.stopPropagation(); openDetail(row); }}>{primaryRef}</button><span>{row.transportDocumentNumber || 'Draft'}</span></td>
-                    <td><StatusBadge status={row.status || 'DRAFT'} /></td>
-                    <td><ConsignmentValidationSignal row={row} /></td>
+                    <td className="status-stack-cell"><StatusBadge status={row.status || 'DRAFT'} /><ConsignmentValidationMini row={row} /></td>
                     <td><StatusBadge status={tssStatus} /></td>
                     <td className="font-mono muted-cell">{row.sfdReference || '-'}</td>
                     <td className="font-mono muted-cell">{row.sdiReferences || '-'}</td>
@@ -2867,18 +3092,12 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
                     <td className="font-mono muted-cell">{row.traderReference || row.transportDocumentNumber || '-'}</td>
                     <td className="font-mono ens-ref-cell">{ensRef || '-'}</td>
                     <td className="muted-cell">{formatDateTime(consignmentDateValue(row))}</td>
-                    <td className="row-action-cell">
-                      <button type="button" title="Open detail" onClick={(event) => { event.stopPropagation(); openDetail(row); }}><MaterialIcon>visibility</MaterialIcon></button>
-                      <button type="button" title="Check TSS route" disabled={tssState.status === 'loading' && tssState.rowId === row.id} onClick={(event) => { event.stopPropagation(); handleQueueForTss(row); }}>
-                        {tssState.status === 'loading' && tssState.rowId === row.id ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>send</MaterialIcon>}
-                      </button>
-                    </td>
                   </tr>
                 );
               })}
               {!pagedRows.length && (
                 <tr>
-                  <td colSpan="14" className="control-empty-cell">No consignments found{query ? ` matching "${query}"` : ''}.</td>
+                  <td colSpan="12" className="control-empty-cell">No consignments found{query ? ` matching "${query}"` : ''}.</td>
                 </tr>
               )}
             </tbody>
@@ -2893,25 +3112,10 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, onQueueFor
           </div>
         </div>
 
-        {tssState.status !== 'idle' && (
-          <div className={`action-feedback consignment-list-feedback ${tssState.status === 'error' ? 'is-error' : ''}`}>
-            {tssState.status === 'loading' ? (
-              <>
-                <strong className="feedback-loading"><LoadingSpinner /><span>Checking TSS route...</span></strong>
-                <span>Reading configured route and required ENS fields for the selected consignment.</span>
-              </>
-            ) : (
-              <>
-                <strong>{tssState.status === 'ready' ? (tssState.payload?.plan?.ready ? 'Ready for TSS dry-run' : 'TSS blockers found') : 'TSS route check failed'}</strong>
-                <span>{tssState.status === 'ready' ? `ENS step first: ${tssState.payload?.plan?.routeIsEnsFirst ? 'yes' : 'no'} - Missing: ${(tssState.payload?.plan?.missing || []).join(', ') || 'none'}` : tssState.error}</span>
-              </>
-            )}
-          </div>
-        )}
       </div>
 
       {detailOpen && selected && (
-        <ConsignmentDetailModal row={selected} onClose={() => setDetailOpen(false)} onSave={applyLocalUpdate} />
+        <ConsignmentDetailModal row={selected} onClose={() => setDetailOpen(false)} onSave={applyLocalUpdate} onQueueForTss={onQueueForTss} />
       )}
     </section>
   );
@@ -2926,6 +3130,7 @@ export default function App() {
   const [activeClientCode, setActiveClientCode] = useState(() => storedPortalSession?.activeClientCode || DEFAULT_OPERATIONAL_CLIENT_CODE);
   const [connection, setConnection] = useState(null);
   const [consignmentRows, setConsignmentRows] = useState(CONSIGNMENTS);
+  const [statusVocabulary, setStatusVocabulary] = useState(() => normalizeStatusVocabulary());
   const [settingsPayload, setSettingsPayload] = useState(null);
   const [validationDiagnostics, setValidationDiagnostics] = useState(null);
   const [validationDiagnosticsStatus, setValidationDiagnosticsStatus] = useState('idle');
@@ -2983,6 +3188,7 @@ export default function App() {
         }
         setConnection(activeConnection);
         setConsignmentRows((consignmentPayload.consignments || []).map(normalizeConsignment));
+        setStatusVocabulary(normalizeStatusVocabulary(consignmentPayload.statusVocabulary));
         setSettingsPayload(settingsPayload);
         setValidationDiagnostics(validationDiagnosticsPayload);
         setValidationDiagnosticsStatus('ready');
@@ -3001,6 +3207,7 @@ export default function App() {
         }
         setConnection(null);
         setConsignmentRows(CONSIGNMENTS);
+        setStatusVocabulary(normalizeStatusVocabulary());
         setSettingsPayload(null);
         setValidationDiagnostics(null);
         setValidationDiagnosticsStatus('error');
@@ -3069,6 +3276,7 @@ export default function App() {
     setActiveClientCode(DEFAULT_OPERATIONAL_CLIENT_CODE);
     setConnection(null);
     setConsignmentRows(CONSIGNMENTS);
+    setStatusVocabulary(normalizeStatusVocabulary());
     setSettingsPayload(null);
     setValidationDiagnostics(null);
     setValidationDiagnosticsStatus('idle');
@@ -3139,6 +3347,14 @@ export default function App() {
     return prepareTssConsignmentSubmit({ clientCode: activeClientCode, consignmentRowId: row.consignmentRowId });
   }
 
+  async function refreshConsignments(clientCode = activeClientCode) {
+    const payload = await getConsignments({ clientCode });
+    const rows = (payload.consignments || []).map(normalizeConsignment);
+    setConsignmentRows(rows);
+    setStatusVocabulary(normalizeStatusVocabulary(payload.statusVocabulary));
+    return rows;
+  }
+
   function handleConsignmentUpdate(updatedRow) {
     setConsignmentRows((currentRows) => currentRows.map((row) => (row.id === updatedRow.id ? { ...row, ...updatedRow } : row)));
   }
@@ -3151,7 +3367,7 @@ export default function App() {
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} activeClientCode={activeClientCode} onClientChange={setActiveClientCode} isDemoAdmin={isSynoviaSession(session)} />}
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} environmentMode={environmentMode} forceDemoMode={environmentMode === 'DEMO'} />}
-        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} onQueueForTss={handleQueueForTss} onUpdateConsignment={handleConsignmentUpdate} />}
+        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} statusVocabulary={statusVocabulary} onQueueForTss={handleQueueForTss} onUpdateConsignment={handleConsignmentUpdate} onRefresh={() => refreshConsignments(activeClientCode)} />}
         {isAuthenticated && view === 'controlTower' && <ControlTowerPage onBack={() => navigate('dashboard')} clientCode={activeClientCode} connection={connection} />}
         {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} environmentMode={environmentMode} validationDiagnostics={validationDiagnostics} validationDiagnosticsStatus={validationDiagnosticsStatus} validationDiagnosticsError={validationDiagnosticsError} onSectionChange={setSettingsSection} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} onTestTssApi={handleTestTssApi} onRefreshValidationDiagnostics={() => refreshValidationDiagnostics(activeClientCode)} />}
       </main>

@@ -95,6 +95,19 @@ def safe_rows(object_name: str, sql: str, params: list[object] | None = None) ->
         return []
 
 
+def status_vocabulary_rows() -> list[dict[str, object]]:
+    return safe_rows(
+        "CFG.Status_Vocabulary",
+        """
+        SELECT ProcessName, ResultStatus, Meaning, SortOrder,
+               CAST(IsTerminal AS int) AS IsTerminal,
+               CAST(IsException AS int) AS IsException
+        FROM CFG.Status_Vocabulary
+        ORDER BY SortOrder, ResultStatus
+        """,
+    )
+
+
 def fallback_route(profile: dict[str, object]) -> list[dict[str, object]]:
     return [
         {
@@ -2214,7 +2227,7 @@ def consignments(
     except DbUnavailable as exc:
         raise db_error(exc) from exc
 
-    return {"clientCode": code, "consignments": rows}
+    return {"clientCode": code, "consignments": rows, "statusVocabulary": status_vocabulary_rows()}
 
 @app.get("/api/consignments/{consignment_row_id}")
 def consignment_detail(consignment_row_id: int) -> dict[str, object]:
