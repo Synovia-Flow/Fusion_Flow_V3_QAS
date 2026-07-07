@@ -4486,3 +4486,127 @@ button:disabled { cursor: default; }
 @media (max-width: 720px) {
   .v2-detail-grid { grid-template-columns: 1fr; }
 }
+
+/* Consignment list V2 layout refinements */
+.consignments-page {
+  width: min(calc(100vw - 32px), 1920px);
+  max-width: none;
+}
+
+.consignments-list-card,
+.consignment-table-wrap,
+.v2-like-consignments-table {
+  width: 100%;
+}
+
+.consignment-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.consignment-card-header > div.consignment-list-summary:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.consignment-toolbar-actions {
+  min-width: max-content;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.consignment-toolbar-actions select {
+  flex: 0 0 178px;
+  min-width: 178px;
+}
+
+.consignment-toolbar-actions .compact-action {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 96px;
+}
+
+.consignment-toolbar-actions .select-mode-toggle {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.select-mode-toggle {
+  height: 34px;
+  min-height: 34px;
+  border: 2px solid #2563eb;
+  border-radius: 999px;
+  background: #fff;
+  color: #0f172a;
+  gap: 8px;
+  padding: 0 12px 0 4px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .08);
+}
+
+.select-mode-toggle .toggle-dot {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  box-shadow: none;
+  transition: background .16s ease;
+}
+
+.select-mode-toggle .toggle-dot::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .32);
+  transition: transform .16s ease;
+}
+
+.select-mode-toggle.active {
+  border-color: #2563eb;
+  background: #fff;
+  color: #0f172a;
+}
+
+.select-mode-toggle.active .toggle-dot {
+  background: #22c55e;
+}
+
+.select-mode-toggle.active .toggle-dot::after {
+  transform: translateX(16px);
+}
+
+@media (max-width: 900px) {
+  .consignments-page {
+    width: calc(100vw - 24px);
+  }
+
+  .consignment-card-header {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .consignment-toolbar-actions {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .consignment-toolbar-actions select,
+  .consignment-toolbar-actions .compact-action,
+  .consignment-toolbar-actions .select-mode-toggle {
+    flex: 1 1 150px;
+  }
+}

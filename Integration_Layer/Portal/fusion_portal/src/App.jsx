@@ -1354,6 +1354,20 @@ function buildEditablePayloadPreview(selected, needsValidation = false) {
     goodsItemCount: selected.goodsItems?.length || payloadPreview.goodsItemCount || 0,
   };
 }
+function isAssumptionSource(source) {
+  if (!source) return false;
+  const rawSource = [source.source, source.label, source.rule, source.reason, source.kind]
+    .filter(Boolean)
+    .join(' ')
+    .toUpperCase();
+  return Boolean(
+    source.assumption
+    || source.assumed
+    || source.defaulted
+    || rawSource.includes('ASSUMPTION')
+    || rawSource.includes('ASSUMED')
+  );
+}
 function previewSourceLabel(source) {
   if (!source) return '';
   if (isAssumptionSource(source)) return source.reason || source.label || 'Assumed default';
@@ -1724,6 +1738,7 @@ function PreviewDetailsModal({ payload, onClose, onValidated }) {
   const summary = serverValidation.status === 'dirty'
     ? previewDraftSummary(editableConsignments, effectivePreview.summary || {})
     : (effectivePreview.summary || {});
+  const payloadNeedsValidation = serverValidation.status === 'dirty';
   const splitLabel = summary.splitConsignmentCount ? `${summary.splitConsignmentCount} split parts` : 'No split needed';
   const rowModeText = preview.rowMode === 'api_field_value'
     ? 'Field/value manifest mapped into PRS/TSS shape.'
@@ -1733,7 +1748,6 @@ function PreviewDetailsModal({ payload, onClose, onValidated }) {
   const sourceSheetText = (effectivePreview.sourceSheets || [])
     .map((sheet) => `${sheet.sheetName || 'Sheet'}: ${sheet.rowMode === 'api_field_value' ? 'field/value' : 'rows'} (${sheet.mappedFieldCount || 0} mapped)`)
     .join(' | ');
-  const payloadNeedsValidation = serverValidation.status === 'dirty';
 
   return (
     <div className="preview-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -1946,7 +1960,6 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
   const sourceSheetsText = (processingPreview?.sourceSheets || [])
     .map((sheet) => `${sheet.sheetName || 'Sheet'} ${sheet.rowMode === 'api_field_value' ? 'field/value' : 'rows'}: ${sheet.mappedFieldCount || 0} mapped`)
     .join(' | ');
-  const payloadNeedsValidation = serverValidation.status === 'dirty';
 
   return (
     <section className="upload-page page-card" aria-label="Upload consignments">
@@ -3016,7 +3029,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
         </div>
 
         <div className="consignment-card-header">
-          <div>
+          <div className="consignment-list-summary">
             <strong>Use Select mode for local cleanup or Excel export.</strong>
             <span>{showingStart}-{showingEnd} of {sorted.length} consignments shown from {sourceRows.length} PRS rows. TSS records are not cancelled.</span>
           </div>
@@ -3083,7 +3096,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
                     <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} aria-label={`Select consignment ${primaryRef}`} /></td>
                     <td className="font-mono">{row.consignmentRowId || '-'}</td>
                     <td className="ref-cell"><button type="button" onClick={(event) => { event.stopPropagation(); openDetail(row); }}>{primaryRef}</button><span>{row.transportDocumentNumber || 'Draft'}</span></td>
-                    <td className="status-stack-cell"><StatusBadge status={row.status || 'DRAFT'} /><ConsignmentValidationMini row={row} /></td>
+                    <td><StatusBadge status={row.status || 'DRAFT'} /></td>
                     <td><StatusBadge status={tssStatus} /></td>
                     <td className="font-mono muted-cell">{row.sfdReference || '-'}</td>
                     <td className="font-mono muted-cell">{row.sdiReferences || '-'}</td>
