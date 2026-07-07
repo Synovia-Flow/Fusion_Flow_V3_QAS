@@ -83,6 +83,53 @@ process → promote → submit → mirror → fetch; `--only` / `--skip` / `--li
 `check_choice`, `seed_credentials`, `job_worker`. Retired scripts live in
 `Modules/_retired/`.
 
+### Working note - BKD Sheet 3 ING to PRS inspection
+
+On 2026-07-07 we inspected a pasted `ING` extract from a BKD Sales Orders Graph
+attachment, scoped by the operator as Sheet 3. The extract is used only to
+understand how raw attachment rows should become PRS consignments and goods.
+
+No database table was created for this inspection. Proposed names such as
+`PRS.BKD_ENS_Consignments_IN`, `PRS.BKD_ENS_Consignments_OUT`,
+`PRS.BKD_ENS_Consignments_GoodsItems_IN`, and
+`PRS.BKD_ENS_Consignments_GoodsItems_OUT` are logical review shapes only. The
+current rule is to reuse the existing V3 model unless a real schema gap is proven
+and explicitly approved.
+
+The current simplified workbook is:
+
+`Documentation_Layer/BKD_Sheet3_API_Needs_Only_With_ING_Execution_78_20260707_110018.xlsx`
+
+It contains one purpose sheet and four simple IN/OUT sheets. The simplified workbook includes `ING_ExecutionID` and `ING_LoadID` traceability from the pasted `ING` rows. OUT sheets are intentionally API-needs-only, not full PRS/STG internal records:
+
+- `PURPOSE`: arrows and intent for the logical shapes.
+- `Consigments_IN`: what the client supplied for candidate consignments.
+- `Consigments_OUT`: the CFG-enriched consignment shape expected by the TSS API.
+- `GoodsItems_IN`: what the client supplied for goods lines.
+- `GoodsItems_OUT`: the CFG-enriched goods payload shape expected under each consignment.
+
+The logical names are:
+
+- `PRS.BKD_ENS_Consigments_IN`
+- `PRS.BKD_ENS_Consigments_OUT`
+- `PRS.BKD_ENS_Consigments_GoodsItems_IN`
+- `PRS.BKD_ENS_Consigments_GoodsItems_OUT`
+
+The intended future promotion/rename direction is:
+
+```text
+PRS.BKD_ENS_Consigments_OUT
+  -> STG.BKD_ENS_Consigments
+
+PRS.BKD_ENS_Consigments_GoodsItems_OUT
+  -> STG.BKD_ENS_Consigments_GoodsItems
+```
+
+The pasted rows had `SheetName = NULL`, so the workbook labels the scope as
+"Sheet 3" only because that was the supplied operator context. No postcode,
+country, EORI, weight, commodity code, or package enrichment was invented from the
+pasted data. Those remain validation/enrichment gaps for `Modules/Processing`.
+
 ### Background worker + queue (Pattern B)
 
 `POST /api/enqueue/<verb>` writes a `PENDING` row to `EXC.Job_Queue`;
