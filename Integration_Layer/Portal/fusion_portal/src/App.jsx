@@ -149,13 +149,22 @@ function normalizeRouteSettingsSection(sectionId) {
   return match?.id || SETTINGS_NAV_SECTIONS[0].id;
 }
 
-function portalRouteFromLocation(location = typeof window !== 'undefined' ? window.location : null) {
-  if (!location) return { view: '' };
-  const parts = String(location.pathname || '/')
-    .replace(/\/+$/, '')
+function routePartsFromPath(pathname = '/') {
+  return String(pathname || '/')
+    .replace(/^#+/, '')
+    .replace(/^\/+|\/+$/g, '')
     .split('/')
     .filter(Boolean)
     .map((part) => decodeURIComponent(part));
+}
+
+function portalRouteFromLocation(location = typeof window !== 'undefined' ? window.location : null) {
+  if (!location) return { view: '' };
+  const rawHash = String(location.hash || '').replace(/^#/, '');
+  const hashPath = rawHash.split('?')[0] || '';
+  const hashSearch = rawHash.includes('?') ? `?${rawHash.split('?').slice(1).join('?')}` : '';
+  const routePath = hashPath || location.pathname || '/';
+  const parts = routePartsFromPath(routePath);
 
   if (!parts.length) return { view: '' };
 
@@ -168,7 +177,7 @@ function portalRouteFromLocation(location = typeof window !== 'undefined' ? wind
   if (route === 'control-tower' || route === 'controltower') return { view: 'controlTower' };
   if (route === 'master-live' || route === 'masterlive') return { view: 'masterLive' };
   if (route === 'settings') {
-    const params = new URLSearchParams(location.search || '');
+    const params = new URLSearchParams(hashSearch || location.search || '');
     const querySection = params.get('section') || params.get('settings') || (params.has('tss-api') ? 'TSS_API' : '');
     return { view: 'settings', settingsSection: normalizeRouteSettingsSection(parts[1] || querySection) };
   }
@@ -176,26 +185,26 @@ function portalRouteFromLocation(location = typeof window !== 'undefined' ? wind
 }
 
 function portalPathForRoute(view, options = {}) {
-  if (view === 'login') return '/login';
-  if (view === 'upload') return '/upload';
+  if (view === 'login') return '/#/login';
+  if (view === 'upload') return '/#/upload';
   if (view === 'declarations') {
     const token = String(options.declarationId || '').trim();
-    return token ? `/declarations/${encodeURIComponent(token)}` : '/declarations';
+    return token ? `/#/declarations/${encodeURIComponent(token)}` : '/#/declarations';
   }
   if (view === 'consignments') {
     const token = String(options.consignmentId || '').trim();
-    return token ? `/consignments/${encodeURIComponent(token)}` : '/consignments';
+    return token ? `/#/consignments/${encodeURIComponent(token)}` : '/#/consignments';
   }
-  if (view === 'controlTower') return '/control-tower';
-  if (view === 'masterLive') return '/master-live';
-  if (view === 'settings') return `/settings/${encodeURIComponent(options.settingsSection || SETTINGS_NAV_SECTIONS[0].id)}`;
-  return '/dashboard';
+  if (view === 'controlTower') return '/#/control-tower';
+  if (view === 'masterLive') return '/#/master-live';
+  if (view === 'settings') return `/#/settings/${encodeURIComponent(options.settingsSection || SETTINGS_NAV_SECTIONS[0].id)}`;
+  return '/#/dashboard';
 }
 
 function updateBrowserRoute(view, options = {}, { replace = false } = {}) {
   if (typeof window === 'undefined' || !window.history?.pushState) return;
   const nextPath = portalPathForRoute(view, options);
-  const currentPath = `${window.location.pathname}${window.location.search || ''}`;
+  const currentPath = `${window.location.pathname}${window.location.search || ''}${window.location.hash || ''}`;
   if (currentPath === nextPath) return;
   const method = replace ? 'replaceState' : 'pushState';
   window.history[method]({ view, ...options }, '', nextPath);
@@ -3823,7 +3832,11 @@ export default function App() {
       setDrawerOpen(false);
     }
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handlePopState);
+    };
   }, [isAuthenticated]);
 
   useEffect(() => {
