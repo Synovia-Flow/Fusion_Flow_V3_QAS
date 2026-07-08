@@ -3724,6 +3724,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
             <tbody>
               {pagedRows.map((row) => {
                 const tssStatus = deriveTssStatus(row);
+                const localStatus = localConsignmentStatus(row);
                 const primaryRef = consignmentPrimaryRef(row);
                 const ensRef = consignmentEnsRef(row);
                 const isSelected = row.id === selected?.id;
@@ -3741,7 +3742,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
                     <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} aria-label={`Select consignment ${primaryRef}`} /></td>
                     <td className="font-mono">{row.consignmentRowId || '-'}</td>
                     <td className="ref-cell"><button type="button" onClick={(event) => { event.stopPropagation(); openDetail(row); }}>{primaryRef}</button><span>{row.transportDocumentNumber || 'Draft'}</span></td>
-                    <td><StatusBadge status={row.status || 'DRAFT'} /></td>
+                    <td><StatusBadge status={localStatus} /></td>
                     <td><StatusBadge status={tssStatus} /></td>
                     <td className="font-mono muted-cell">{row.sfdReference || '-'}</td>
                     <td className="font-mono muted-cell">{row.sdiReferences || '-'}</td>
