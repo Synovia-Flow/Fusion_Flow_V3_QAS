@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SynoviaFlow</title>
+    <script>
+      (function () {
+        var path = window.location.pathname || '/';
+        path = path.replace(/\/+$/, '') || '/dashboard';
+        var search = window.location.search || '';
+        window.location.replace('/#' + path + search);
+      }());
+    </script>
+  </head>
+  <body>
+    <p>Loading SynoviaFlow...</p>
+    <p><a href="/#/dashboard">Open dashboard</a></p>
+  </body>
+</html>
