@@ -132,6 +132,7 @@ services:
   # ======================================================================
   - type: web
     name: fusion-flow-api
+    branch: dev
     runtime: docker
     dockerfilePath: Integration_Layer/Portal/fusion_api/Dockerfile
     dockerContext: Integration_Layer/Portal/fusion_api
@@ -148,6 +149,7 @@ services:
 
   - type: web
     name: fusion-flow-portal
+    branch: dev
     runtime: static
     rootDir: Integration_Layer/Portal/fusion_portal
     buildCommand: npm ci && npm run build
