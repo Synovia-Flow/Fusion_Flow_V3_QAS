@@ -1404,7 +1404,6 @@ button:disabled { cursor: default; }
   color: #1d4ed8;
   font-weight: 900;
 }
-.consignment-table-wrap { overflow-x: auto; overflow-y: visible; }
 .v2-like-consignments-table { min-width: 1320px; }
 .v2-like-consignments-table th {
   position: sticky;
@@ -4209,6 +4208,8 @@ button:disabled { cursor: default; }
   max-height: none;
   overflow-x: auto;
   overflow-y: visible;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 .v2-like-consignments-table {
   min-width: 1280px;
