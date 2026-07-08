@@ -4730,3 +4730,8 @@ button:disabled { cursor: default; }
 .app-shell[data-theme="dark"] .bulk-mode-toggle:focus-visible {
   color: #bfdbfe;
 }
+
+[data-bulk-selection].is-bulk-dragging,
+[data-bulk-selection].is-bulk-dragging .v2-like-consignments-table tbody tr {
+  cursor: cell;
+}

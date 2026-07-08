@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getAdminSettings, getApiDocsUrl, getConsignmentDetail, getConsignments, getControlTower, getDashboard, getDeclarations, getSession, getTssConnections, getValidationDiagnostics, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings, validateConsignmentPreview, testTssConnection } from './api';
 
 const DEFAULT_SESSION = {
@@ -779,6 +779,92 @@ function BulkModeToggle({ active, group, onToggle, label = 'Select mode' }) {
   );
 }
 
+function bulkRowIdForTarget(target) {
+  if (!(target instanceof Element)) return '';
+  const row = target.closest('tr[data-bulk-row-id]');
+  return row?.dataset?.bulkRowId || '';
+}
+
+function isIgnoredBulkDragTarget(target) {
+  if (!(target instanceof Element)) return true;
+  if (target.closest('a, button, select, textarea, [data-no-row-link]')) return true;
+  const input = target.closest('input');
+  return Boolean(input && !input.matches('[data-bulk-item]'));
+}
+
+function useBulkRowDragSelection({ selectMode, selectedRows, setSelectedRows }) {
+  const dragStateRef = useRef(null);
+  const suppressClickRef = useRef(false);
+  const suppressTimerRef = useRef(0);
+
+  function setRowSelected(rowId, checked) {
+    if (!rowId) return;
+    setSelectedRows((current) => {
+      const next = new Set(current);
+      if (checked) next.add(rowId);
+      else next.delete(rowId);
+      return next;
+    });
+  }
+
+  function applyDragSelection(rowId) {
+    const dragState = dragStateRef.current;
+    if (!dragState || !rowId || dragState.seen.has(rowId)) return;
+    dragState.seen.add(rowId);
+    setRowSelected(rowId, dragState.targetChecked);
+  }
+
+  function startBulkDrag(event) {
+    if (!selectMode || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target || isIgnoredBulkDragTarget(target)) return;
+    const rowId = bulkRowIdForTarget(target);
+    if (!rowId) return;
+
+    event.preventDefault();
+    window.clearTimeout(suppressTimerRef.current);
+    suppressClickRef.current = true;
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      targetChecked: !selectedRows.has(rowId),
+      seen: new Set(),
+    };
+    event.currentTarget?.classList?.add('is-bulk-dragging');
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+    applyDragSelection(rowId);
+  }
+
+  function continueBulkDrag(event) {
+    const dragState = dragStateRef.current;
+    if (!dragState || event.pointerId !== dragState.pointerId) return;
+    event.preventDefault();
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    applyDragSelection(bulkRowIdForTarget(target));
+  }
+
+  function stopBulkDrag(event) {
+    const dragState = dragStateRef.current;
+    if (!dragState || (event && event.pointerId !== dragState.pointerId)) return;
+    event?.preventDefault?.();
+    event?.currentTarget?.classList?.remove('is-bulk-dragging');
+    if (event?.currentTarget?.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragStateRef.current = null;
+    suppressTimerRef.current = window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 250);
+  }
+
+  function shouldSuppressClick() {
+    if (!suppressClickRef.current) return false;
+    suppressClickRef.current = false;
+    window.clearTimeout(suppressTimerRef.current);
+    return true;
+  }
+
+  return { startBulkDrag, continueBulkDrag, stopBulkDrag, shouldSuppressClick };
+}
 function DrawerRow({ icon, label, active = false, danger = false, indent = false, trailing, expanded, onClick }) {
   return (
     <button
@@ -3102,6 +3188,7 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
   const sourceRows = rows.length ? rows : DECLARATIONS;
   const [selectedId, setSelectedId] = useState(sourceRows[0]?.id || '');
   const [detailOpen, setDetailOpen] = useState(false);
+  const bulkSelection = useBulkRowDragSelection({ selectMode, selectedRows, setSelectedRows });
 
   useEffect(() => {
     if (sourceRows.length && !sourceRows.some((row) => row.id === selectedId)) {
@@ -3258,9 +3345,14 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
     onClearDetailRoute?.();
   }
 
-  function handleRowClick(row) {
+  function handleRowClick(row, event) {
     if (selectMode) {
-      toggleRowSelection(row);
+      if (bulkSelection.shouldSuppressClick()) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        return;
+      }
+      toggleRowSelection(row, event);
       return;
     }
     openDetail(row);
@@ -3306,7 +3398,7 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
         })}
       </div>
 
-      <div className={`consignments-list-card declarations-list-card ${selectMode ? 'is-bulk-selecting' : ''}`} data-bulk-selection="ens-headers">
+      <div className={`consignments-list-card declarations-list-card ${selectMode ? 'is-bulk-selecting' : ''}`} data-bulk-selection="ens-headers" onPointerDown={bulkSelection.startBulkDrag} onPointerMove={bulkSelection.continueBulkDrag} onPointerUp={bulkSelection.stopBulkDrag} onPointerCancel={bulkSelection.stopBulkDrag}>
         <div className="consignment-filter-bar">
           <label className="search-box consignment-search-box">
             <MaterialIcon>search</MaterialIcon>
@@ -3400,8 +3492,9 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
                 return (
                   <tr
                     key={row.id}
+                    data-bulk-row-id={row.id}
                     className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked bulk-selected-row' : ''} ${selectMode ? 'select-mode-row' : ''} ${statusNeedsAttention(tssStatus) || statusNeedsAttention(localStatus) ? 'row-needs-attention' : ''}`}
-                    onClick={() => handleRowClick(row)}
+                    onClick={(event) => handleRowClick(row, event)}
                     role={selectMode ? 'checkbox' : 'link'}
                     aria-checked={selectMode ? rowChecked : undefined}
                     tabIndex={0}
@@ -3462,6 +3555,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
   const sourceRows = rows.length ? rows : CONSIGNMENTS;
   const [selectedId, setSelectedId] = useState(sourceRows[0]?.id || '');
   const [detailOpen, setDetailOpen] = useState(false);
+  const bulkSelection = useBulkRowDragSelection({ selectMode, selectedRows, setSelectedRows });
 
   useEffect(() => {
     if (sourceRows.length && !sourceRows.some((row) => row.id === selectedId)) {
@@ -3617,9 +3711,14 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
     });
   }
 
-  function handleRowClick(row) {
+  function handleRowClick(row, event) {
     if (selectMode) {
-      toggleRowSelection(row);
+      if (bulkSelection.shouldSuppressClick()) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        return;
+      }
+      toggleRowSelection(row, event);
       return;
     }
     openDetail(row);
@@ -3676,7 +3775,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
         })}
       </div>
 
-      <div className={`consignments-list-card ${selectMode ? 'is-bulk-selecting' : ''}`} data-bulk-selection="consignments">
+      <div className={`consignments-list-card ${selectMode ? 'is-bulk-selecting' : ''}`} data-bulk-selection="consignments" onPointerDown={bulkSelection.startBulkDrag} onPointerMove={bulkSelection.continueBulkDrag} onPointerUp={bulkSelection.stopBulkDrag} onPointerCancel={bulkSelection.stopBulkDrag}>
         <div className="consignment-filter-bar">
           <label className="search-box consignment-search-box">
             <MaterialIcon>search</MaterialIcon>
@@ -3771,8 +3870,9 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
                 return (
                   <tr
                     key={row.id}
+                    data-bulk-row-id={row.id}
                     className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked bulk-selected-row' : ''} ${selectMode ? 'select-mode-row' : ''} ${statusNeedsAttention(tssStatus) || statusNeedsAttention(localStatus) ? 'row-needs-attention' : ''}`}
-                    onClick={() => handleRowClick(row)}
+                    onClick={(event) => handleRowClick(row, event)}
                     role={selectMode ? 'checkbox' : 'link'}
                     aria-checked={selectMode ? rowChecked : undefined}
                     tabIndex={0}
