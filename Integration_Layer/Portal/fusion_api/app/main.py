@@ -2108,7 +2108,7 @@ def declarations(
                     t.MovementKey,
                     t.ClientCode,
                     COALESCE(t.Fusion_Status, h.Status, 'DRAFT') AS Status,
-                    COALESCE(t.Tss_Status, 'PENDING_TSS') AS TssStatus,
+                    NULLIF(LTRIM(RTRIM(t.Tss_Status)), '') AS TssStatus,
                     COALESCE(t.Declaration_Number, h.declaration_number) AS DeclarationNumber,
                     h.movement_type AS MovementType,
                     h.arrival_port AS ArrivalPort,
@@ -2157,7 +2157,7 @@ def declarations(
                     stg.MovementKey,
                     stg.ClientCode,
                     COALESCE(stg.Fusion_Status, h.Status, 'DRAFT') AS Status,
-                    COALESCE(stg.Tss_Status, 'PENDING_TSS') AS TssStatus,
+                    NULLIF(LTRIM(RTRIM(stg.Tss_Status)), '') AS TssStatus,
                     COALESCE(stg.declaration_number, h.declaration_number) AS DeclarationNumber,
                     COALESCE(stg.movement_type, h.movement_type) AS MovementType,
                     COALESCE(stg.arrival_port, h.arrival_port) AS ArrivalPort,
@@ -2206,11 +2206,7 @@ def declarations(
                     h.MovementKey,
                     h.ClientCode,
                     COALESCE(h.Status, 'DRAFT') AS Status,
-                    CASE
-                        WHEN h.Status IN ('READY', 'VALIDATED') THEN 'READY_FOR_TSS'
-                        WHEN h.Status IN ('NEEDS_REVIEW', 'FAILED', 'ERROR', 'REJECTED') THEN 'BLOCKED'
-                        ELSE 'PENDING_TSS'
-                    END AS TssStatus,
+                    CAST(NULL AS nvarchar(50)) AS TssStatus,
                     h.declaration_number AS DeclarationNumber,
                     h.movement_type AS MovementType,
                     h.arrival_port AS ArrivalPort,
@@ -2313,13 +2309,8 @@ def consignments(
                 c.ClientCode,
                 COALESCE(c.Status, h.Status, 'DRAFT') AS Status,
                 COALESCE(
-                    {tracking_status},
-                    {staging_status},
-                    CASE
-                        WHEN COALESCE(c.Status, h.Status) IN ('READY', 'VALIDATED') THEN 'READY_FOR_TSS'
-                        WHEN COALESCE(c.Status, h.Status) IN ('NEEDS_REVIEW', 'FAILED', 'ERROR', 'REJECTED') THEN 'BLOCKED'
-                        ELSE 'PENDING_TSS'
-                    END
+                    NULLIF(LTRIM(RTRIM({tracking_status})), ''),
+                    NULLIF(LTRIM(RTRIM({staging_status})), '')
                 ) AS TssStatus,
                 c.RejectReason,
                 c.MovementKey,
@@ -2420,13 +2411,8 @@ def consignment_detail(consignment_row_id: int) -> dict[str, object]:
             SELECT
                 c.*, h.declaration_number AS HeaderDeclarationNumber, h.arrival_date_time AS HeaderArrivalDateTime,
                 COALESCE(
-                    {tracking_status},
-                    {staging_status},
-                    CASE
-                        WHEN COALESCE(c.Status, h.Status) IN ('READY', 'VALIDATED') THEN 'READY_FOR_TSS'
-                        WHEN COALESCE(c.Status, h.Status) IN ('NEEDS_REVIEW', 'FAILED', 'ERROR', 'REJECTED') THEN 'BLOCKED'
-                        ELSE 'PENDING_TSS'
-                    END
+                    NULLIF(LTRIM(RTRIM({tracking_status})), ''),
+                    NULLIF(LTRIM(RTRIM({staging_status})), '')
                 ) AS TssStatus
             FROM PRS.Consignment c
             LEFT JOIN PRS.ENS_Header h ON h.EnsHeaderRowID = c.EnsHeaderRowID

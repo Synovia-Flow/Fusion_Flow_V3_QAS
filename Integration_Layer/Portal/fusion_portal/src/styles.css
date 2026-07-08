@@ -1088,6 +1088,13 @@ button:disabled { cursor: default; }
   text-transform: uppercase;
   white-space: nowrap;
 }
+.status-placeholder {
+  display: inline-flex;
+  align-items: center;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
 .status-badge.validated { background: #e9f8ef; border-color: #bdeccd; color: #087f47; }
 .status-badge.ready { background: #eef4ff; border-color: #c8dcff; color: #1d4ed8; }
 .status-badge.needs-review { background: #fff7e8; border-color: #f6dfac; color: #9a5b00; }

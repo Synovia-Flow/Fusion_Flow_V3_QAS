@@ -370,30 +370,51 @@ function routeText(connection) {
 }
 
 const TSS_STATUS_OPTIONS = [
-  'READY_FOR_TSS',
-  'PENDING_TSS',
-  'QUEUED_FOR_TSS',
+  'DRAFT',
+  'CREATED',
   'SUBMITTED',
-  'ACCEPTED',
-  'REJECTED',
-  'FAILED',
-  'BLOCKED',
-  'NOT_READY',
+  'PROCESSING',
+  'TRADER INPUT REQUIRED',
+  'AUTHORISED FOR MOVEMENT',
+  'ARRIVED',
+  'CANCELLED',
+  'UPDATED',
+  'DELETED',
+  'RECLASSIFIED',
+  'ERROR',
 ];
 
-function normalizeStatusText(value, fallback = 'PENDING_TSS') {
+function normalizeStatusText(value, fallback = 'PENDING') {
   const text = String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   return text || fallback;
 }
 
+function normalizeStatusDisplay(value, fallback = '') {
+  const text = String(value ?? '').trim().replaceAll('_', ' ').replace(/\s+/g, ' ');
+  return text ? text.toUpperCase() : fallback;
+}
+
+function statusClassName(status) {
+  return normalizeStatusDisplay(status, 'PENDING').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'pending';
+}
+
+function statusNeedsAttention(status) {
+  return [
+    'ERROR',
+    'FAILED',
+    'REJECTED',
+    'INVALID',
+    'TRADER_INPUT_REQUIRED',
+    'AMENDMENT_REQUIRED',
+    'DO_NOT_LOAD',
+    'SUBMIT_ERROR',
+    'VALIDATION_ERROR',
+  ].includes(normalizeStatusText(status, ''));
+}
+
 function deriveTssStatus(row) {
   const explicit = row?.TssStatus ?? row?.Tss_Status ?? row?.tssStatus ?? row?.tss_status;
-  if (explicit) return normalizeStatusText(explicit);
-  const fusionStatus = normalizeStatusText(row?.Status ?? row?.status, 'DRAFT');
-  if (['READY', 'VALIDATED'].includes(fusionStatus)) return 'READY_FOR_TSS';
-  if (['NEEDS_REVIEW', 'FAILED', 'ERROR', 'REJECTED'].includes(fusionStatus)) return 'BLOCKED';
-  if (['INGESTED', 'DRAFT', 'PENDING'].includes(fusionStatus)) return 'PENDING_TSS';
-  return 'PENDING_TSS';
+  return explicit ? normalizeStatusDisplay(explicit) : '';
 }
 
 function readRecordValue(record, keys, fallback = '') {
@@ -542,7 +563,7 @@ function buildDeclarationsFromConsignments(rows = []) {
     current.UpdatedAt = row.updatedAt || current.UpdatedAt;
     if (['ERROR', 'REJECTED', 'NEEDS_REVIEW'].includes(localConsignmentStatus(row))) current.Status = row.status;
     else if (['VALIDATED', 'READY'].includes(localConsignmentStatus(row))) current.Status = row.status;
-    if (row.tssStatus && current.TssStatus === 'PENDING_TSS') current.TssStatus = row.tssStatus;
+    if (row.tssStatus && !current.TssStatus) current.TssStatus = row.tssStatus;
     grouped.set(key, current);
   });
   return [...grouped.values()].map(normalizeDeclaration);
@@ -608,12 +629,12 @@ const CONSIGNMENT_PIPELINE_STAGES = [
 ];
 
 function consignmentPipelinePosition(row, goodsItems = []) {
-  const tssStatus = deriveTssStatus(row);
+  const tssStatus = normalizeStatusText(deriveTssStatus(row), '');
   const localStatus = normalizeStatusText(row?.status || row?.Status, 'DRAFT');
   if (row?.sdiReferences) return 7;
   if (row?.sfdReference || row?.sfdMrn) return 6;
   if (goodsItems.length || Number(row?.goodsItems || 0) > 0) return 5;
-  if (['SUBMITTED', 'ACCEPTED', 'READY_FOR_TSS', 'QUEUED_FOR_TSS'].includes(tssStatus)) return 4;
+  if (['CREATED', 'SUBMITTED', 'ACCEPTED', 'PROCESSING', 'AUTHORISED_FOR_MOVEMENT', 'AUTHORIZED_FOR_MOVEMENT', 'ARRIVED'].includes(tssStatus)) return 4;
   if (row?.declarationNumber || row?.HeaderDeclarationNumber) return 3;
   if (['READY', 'VALIDATED'].includes(localStatus)) return 2;
   return rowValidationMissingCount(row) ? 1 : 2;
@@ -2274,9 +2295,10 @@ function UploadConsignmentPage({ onBack, onPreviewUpload, connection, activeClie
     </section>
   );
 }
-function StatusBadge({ status }) {
-  const cleanStatus = String(status || 'PENDING');
-  return <span className={`status-badge ${cleanStatus.toLowerCase().replaceAll('_', '-')}`}>{cleanStatus.replaceAll('_', ' ')}</span>;
+function StatusBadge({ status, fallback = '-' }) {
+  const cleanStatus = normalizeStatusDisplay(status, '');
+  if (!cleanStatus) return <span className="status-placeholder">{fallback}</span>;
+  return <span className={`status-badge ${statusClassName(cleanStatus)}`}>{cleanStatus}</span>;
 }
 
 const CONTROL_TOWER_TABS = [
@@ -2824,7 +2846,7 @@ function ConsignmentDetailModal({ row, onClose, onSave, onQueueForTss }) {
             <button className="pipeline-action" type="button" onClick={() => showGatedAction('Sync TSS Now', 'TSS sync follows the Modules/Submission mirror flow and must use the existing API.Call audit path.')}>
               <MaterialIcon>sync</MaterialIcon>
               <strong>Sync TSS Now</strong>
-              <span>{currentTssStatus}</span>
+              <span>{currentTssStatus || 'Not synced'}</span>
             </button>
             <button className="pipeline-action" type="button" onClick={() => showGatedAction('SFD Lookup', 'SFD lookup follows the V2 BKD downstream flow after the consignment has a valid TSS declaration/consignment reference.')}>
               <MaterialIcon>travel_explore</MaterialIcon>
@@ -2905,7 +2927,7 @@ function ConsignmentDetailModal({ row, onClose, onSave, onQueueForTss }) {
               <label className="wide"><span>Goods Description</span><input value={draft.goodsDescription} onChange={(event) => updateDraft('goodsDescription', event.target.value)} /></label>
               <label><span>Consignee</span><input value={draft.consigneeName} onChange={(event) => updateDraft('consigneeName', event.target.value)} /></label>
               <label><span>Destination</span><input value={draft.destinationCountry} onChange={(event) => updateDraft('destinationCountry', event.target.value)} /></label>
-              <label><span>TSS Status</span><select value={currentTssStatus} onChange={(event) => updateDraft('tssStatus', event.target.value)}>{TSS_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{item.replaceAll('_', ' ')}</option>)}</select></label>
+              <label><span>TSS Status</span><select value={currentTssStatus} onChange={(event) => updateDraft('tssStatus', event.target.value)}><option value="">Not synced</option>{TSS_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{normalizeStatusDisplay(item)}</option>)}</select></label>
             </div>
           </section>
 
@@ -3345,7 +3367,7 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
                 return (
                   <tr
                     key={row.id}
-                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked' : ''} ${selectMode ? 'select-mode-row' : ''} ${['BLOCKED', 'FAILED', 'REJECTED'].includes(tssStatus) ? 'row-needs-attention' : ''}`}
+                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked' : ''} ${selectMode ? 'select-mode-row' : ''} ${statusNeedsAttention(tssStatus) || statusNeedsAttention(localStatus) ? 'row-needs-attention' : ''}`}
                     onClick={() => handleRowClick(row)}
                     role={selectMode ? 'checkbox' : 'link'}
                     aria-checked={selectMode ? rowChecked : undefined}
@@ -3709,7 +3731,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
                 return (
                   <tr
                     key={row.id}
-                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked' : ''} ${selectMode ? 'select-mode-row' : ''} ${['BLOCKED', 'FAILED', 'REJECTED'].includes(tssStatus) ? 'row-needs-attention' : ''}`}
+                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked' : ''} ${selectMode ? 'select-mode-row' : ''} ${statusNeedsAttention(tssStatus) || statusNeedsAttention(localStatus) ? 'row-needs-attention' : ''}`}
                     onClick={() => handleRowClick(row)}
                     role={selectMode ? 'checkbox' : 'link'}
                     aria-checked={selectMode ? rowChecked : undefined}
