@@ -644,7 +644,11 @@ button:disabled { cursor: default; }
   font-size: 24px;
 }
 .action-column h2 {
-  margin: 0 0 4px;
+  min-height: 58px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 24px;
   line-height: 1.2;
   font-weight: 700;
@@ -1976,6 +1980,7 @@ button:disabled { cursor: default; }
   .welcome-title { font-size: 44px; }
   .welcome-title img { width: 220px; height: 112px; }
   .action-panel { grid-template-columns: 1fr; }
+  .action-column h2 { min-height: auto; }
   .consignment-workspace { grid-template-columns: 1fr; }
   .detail-panel { position: static; }
   .settings-workspace { grid-template-columns: 1fr; }
