@@ -761,6 +761,24 @@ function LoadingSpinner({ className = '' }) {
   return <span className={`loading-spinner ${className}`} aria-hidden="true" />;
 }
 
+function BulkModeToggle({ active, group, onToggle, label = 'Select mode' }) {
+  return (
+    <button
+      className={`bulk-mode-toggle ${active ? 'active' : ''}`}
+      type="button"
+      data-bulk-select-toggle=""
+      data-bulk-group={group}
+      data-bulk-inactive-label={label}
+      data-bulk-active-label={label}
+      aria-pressed={active}
+      onClick={onToggle}
+    >
+      <span className="bulk-mode-toggle-switch" aria-hidden="true" />
+      <span data-bulk-toggle-label="">{label}</span>
+    </button>
+  );
+}
+
 function DrawerRow({ icon, label, active = false, danger = false, indent = false, trailing, expanded, onClick }) {
   return (
     <button
@@ -3221,6 +3239,14 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
     });
   }
 
+  function toggleSelectMode() {
+    setSelectMode((current) => {
+      const next = !current;
+      if (!next) setSelectedRows(new Set());
+      return next;
+    });
+  }
+
   function openDetail(row = selected, { syncRoute = true } = {}) {
     setSelectedId(row.id);
     setDetailOpen(true);
@@ -3280,7 +3306,7 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
         })}
       </div>
 
-      <div className="consignments-list-card declarations-list-card">
+      <div className={`consignments-list-card declarations-list-card ${selectMode ? 'is-bulk-selecting' : ''}`} data-bulk-selection="ens-headers">
         <div className="consignment-filter-bar">
           <label className="search-box consignment-search-box">
             <MaterialIcon>search</MaterialIcon>
@@ -3326,10 +3352,8 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
             <button className="outline-action compact-action danger-action" type="button" disabled title="Local delete endpoint is not enabled in V3 yet. TSS records are not cancelled from this view.">
               <MaterialIcon>delete</MaterialIcon><span>Delete</span>
             </button>
-            <button className={`select-mode-toggle ${selectMode ? 'active' : ''}`} type="button" aria-pressed={selectMode} onClick={() => setSelectMode((value) => !value)}>
-              <span className="toggle-dot" aria-hidden="true" />
-              <span>Select mode</span>
-            </button>
+            <BulkModeToggle active={selectMode} group="ens-headers" onToggle={toggleSelectMode} />
+
           </div>
         </div>
 
@@ -3340,7 +3364,7 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
           </div>
         )}
 
-        {(selectMode || selectedRows.size > 0) && (
+        {selectMode && (
           <div className="selection-strip">
             <span>{selectedRows.size} selected</span>
             <button type="button" onClick={() => setSelectedRows(new Set())}>Clear selection</button>
@@ -3352,7 +3376,7 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
           <table className="consignments-table v2-like-consignments-table declarations-table">
             <thead>
               <tr>
-                <th className="select-column"><input type="checkbox" checked={allPageSelected} onChange={togglePageSelection} aria-label="Select all visible declarations" /></th>
+                <th className="select-column"><input type="checkbox" checked={allPageSelected} onChange={togglePageSelection} disabled={!selectMode} data-bulk-select-all="" data-bulk-group="ens-headers" aria-label="Select all visible declarations" /></th>
                 <th>ID</th>
                 <th>ENS Ref</th>
                 <th>Local Status</th>
@@ -3376,14 +3400,14 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
                 return (
                   <tr
                     key={row.id}
-                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked' : ''} ${selectMode ? 'select-mode-row' : ''} ${statusNeedsAttention(tssStatus) || statusNeedsAttention(localStatus) ? 'row-needs-attention' : ''}`}
+                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked bulk-selected-row' : ''} ${selectMode ? 'select-mode-row' : ''} ${statusNeedsAttention(tssStatus) || statusNeedsAttention(localStatus) ? 'row-needs-attention' : ''}`}
                     onClick={() => handleRowClick(row)}
                     role={selectMode ? 'checkbox' : 'link'}
                     aria-checked={selectMode ? rowChecked : undefined}
                     tabIndex={0}
                     onKeyDown={(event) => handleRowKeyDown(row, event)}
                   >
-                    <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} aria-label={`Select declaration ${primaryRef}`} /></td>
+                    <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} disabled={!selectMode} data-bulk-item="" data-bulk-group="ens-headers" aria-label={`Select declaration ${primaryRef}`} /></td>
                     <td className="font-mono">{row.ensHeaderRowId || '-'}</td>
                     <td className="ref-cell"><button type="button" onClick={(event) => { event.stopPropagation(); openDetail(row); }}>{primaryRef}</button><span>{row.movementKey || 'Movement pending'}</span></td>
                     <td><StatusBadge status={localStatus} /></td>
@@ -3585,6 +3609,14 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
     });
   }
 
+  function toggleSelectMode() {
+    setSelectMode((current) => {
+      const next = !current;
+      if (!next) setSelectedRows(new Set());
+      return next;
+    });
+  }
+
   function handleRowClick(row) {
     if (selectMode) {
       toggleRowSelection(row);
@@ -3644,7 +3676,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
         })}
       </div>
 
-      <div className="consignments-list-card">
+      <div className={`consignments-list-card ${selectMode ? 'is-bulk-selecting' : ''}`} data-bulk-selection="consignments">
         <div className="consignment-filter-bar">
           <label className="search-box consignment-search-box">
             <MaterialIcon>search</MaterialIcon>
@@ -3690,10 +3722,8 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
             <button className="outline-action compact-action danger-action" type="button" disabled title="Local delete endpoint is not enabled in V3 yet. TSS records are not cancelled from this view.">
               <MaterialIcon>delete</MaterialIcon><span>Delete</span>
             </button>
-            <button className={`select-mode-toggle ${selectMode ? 'active' : ''}`} type="button" aria-pressed={selectMode} onClick={() => setSelectMode((value) => !value)}>
-              <span className="toggle-dot" aria-hidden="true" />
-              <span>Select mode</span>
-            </button>
+            <BulkModeToggle active={selectMode} group="consignments" onToggle={toggleSelectMode} />
+
           </div>
         </div>
 
@@ -3704,7 +3734,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
           </div>
         )}
 
-        {(selectMode || selectedRows.size > 0) && (
+        {selectMode && (
           <div className="selection-strip">
             <span>{selectedRows.size} selected</span>
             <button type="button" onClick={() => setSelectedRows(new Set())}>Clear selection</button>
@@ -3716,7 +3746,7 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
           <table className="consignments-table v2-like-consignments-table">
             <thead>
               <tr>
-                <th className="select-column"><input type="checkbox" checked={allPageSelected} onChange={togglePageSelection} aria-label="Select all visible consignments" /></th>
+                <th className="select-column"><input type="checkbox" checked={allPageSelected} onChange={togglePageSelection} disabled={!selectMode} data-bulk-select-all="" data-bulk-group="consignments" aria-label="Select all visible consignments" /></th>
                 <th>ID</th>
                 <th>DEC Ref</th>
                 <th>Local Status</th>
@@ -3741,14 +3771,14 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
                 return (
                   <tr
                     key={row.id}
-                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked' : ''} ${selectMode ? 'select-mode-row' : ''} ${statusNeedsAttention(tssStatus) || statusNeedsAttention(localStatus) ? 'row-needs-attention' : ''}`}
+                    className={`${isSelected ? 'selected' : ''} ${rowChecked ? 'selection-checked bulk-selected-row' : ''} ${selectMode ? 'select-mode-row' : ''} ${statusNeedsAttention(tssStatus) || statusNeedsAttention(localStatus) ? 'row-needs-attention' : ''}`}
                     onClick={() => handleRowClick(row)}
                     role={selectMode ? 'checkbox' : 'link'}
                     aria-checked={selectMode ? rowChecked : undefined}
                     tabIndex={0}
                     onKeyDown={(event) => handleRowKeyDown(row, event)}
                   >
-                    <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} aria-label={`Select consignment ${primaryRef}`} /></td>
+                    <td className="select-column"><input type="checkbox" checked={rowChecked} onChange={(event) => toggleRowSelection(row, event)} disabled={!selectMode} data-bulk-item="" data-bulk-group="consignments" aria-label={`Select consignment ${primaryRef}`} /></td>
                     <td className="font-mono">{row.consignmentRowId || '-'}</td>
                     <td className="ref-cell"><button type="button" onClick={(event) => { event.stopPropagation(); openDetail(row); }}>{primaryRef}</button><span>{row.transportDocumentNumber || 'Draft'}</span></td>
                     <td><StatusBadge status={localStatus} /></td>

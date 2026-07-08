@@ -1360,7 +1360,7 @@ button:disabled { cursor: default; }
   padding: 0 10px;
   font-size: 12px;
 }
-.select-mode-toggle {
+.bulk-mode-toggle {
   min-height: 34px;
   border: 1px solid #cbd5e1;
   border-radius: 999px;
@@ -1373,19 +1373,19 @@ button:disabled { cursor: default; }
   font-size: 12px;
   font-weight: 800;
 }
-.select-mode-toggle .toggle-dot {
+.bulk-mode-toggle .bulk-mode-toggle-switch {
   width: 22px;
   height: 22px;
   border-radius: 50%;
   background: #cbd5e1;
   box-shadow: inset 0 0 0 5px #fff;
 }
-.select-mode-toggle.active {
+.bulk-mode-toggle.active {
   border-color: #2563eb;
   color: #1d4ed8;
   background: #eef6ff;
 }
-.select-mode-toggle.active .toggle-dot { background: #2563eb; }
+.bulk-mode-toggle.active .bulk-mode-toggle-switch { background: #2563eb; }
 .selection-strip {
   min-height: 38px;
   display: flex;
@@ -4065,7 +4065,7 @@ button:disabled { cursor: default; }
   .consignment-card-header { align-items: flex-start; flex-direction: column; }
   .consignment-toolbar-actions { width: 100%; }
   .consignment-toolbar-actions select,
-  .select-mode-toggle,
+  .bulk-mode-toggle,
   .compact-action { flex: 1 1 150px; }
   .consignment-pagination { align-items: flex-start; flex-direction: column; }
 }
@@ -4086,7 +4086,7 @@ button:disabled { cursor: default; }
 .app-shell[data-theme="dark"] .consignment-header-metrics div,
 .app-shell[data-theme="dark"] .filter-field,
 .app-shell[data-theme="dark"] .consignment-toolbar-actions select,
-.app-shell[data-theme="dark"] .select-mode-toggle,
+.app-shell[data-theme="dark"] .bulk-mode-toggle,
 .app-shell[data-theme="dark"] .row-action-cell button,
 .app-shell[data-theme="dark"] .consignment-pagination button {
   background: var(--panel);
@@ -4558,12 +4558,12 @@ button:disabled { cursor: default; }
   min-width: 96px;
 }
 
-.consignment-toolbar-actions .select-mode-toggle {
+.consignment-toolbar-actions .bulk-mode-toggle {
   flex: 0 0 auto;
   white-space: nowrap;
 }
 
-.select-mode-toggle {
+.bulk-mode-toggle {
   height: 34px;
   min-height: 34px;
   border: 2px solid #2563eb;
@@ -4575,7 +4575,7 @@ button:disabled { cursor: default; }
   box-shadow: 0 1px 2px rgba(15, 23, 42, .08);
 }
 
-.select-mode-toggle .toggle-dot {
+.bulk-mode-toggle .bulk-mode-toggle-switch {
   position: relative;
   width: 36px;
   height: 20px;
@@ -4585,7 +4585,7 @@ button:disabled { cursor: default; }
   transition: background .16s ease;
 }
 
-.select-mode-toggle .toggle-dot::after {
+.bulk-mode-toggle .bulk-mode-toggle-switch::after {
   content: "";
   position: absolute;
   top: 3px;
@@ -4598,17 +4598,17 @@ button:disabled { cursor: default; }
   transition: transform .16s ease;
 }
 
-.select-mode-toggle.active {
+.bulk-mode-toggle.active {
   border-color: #2563eb;
   background: #fff;
   color: #0f172a;
 }
 
-.select-mode-toggle.active .toggle-dot {
+.bulk-mode-toggle.active .bulk-mode-toggle-switch {
   background: #22c55e;
 }
 
-.select-mode-toggle.active .toggle-dot::after {
+.bulk-mode-toggle.active .bulk-mode-toggle-switch::after {
   transform: translateX(16px);
 }
 
@@ -4631,7 +4631,102 @@ button:disabled { cursor: default; }
 
   .consignment-toolbar-actions select,
   .consignment-toolbar-actions .compact-action,
-  .consignment-toolbar-actions .select-mode-toggle {
+  .consignment-toolbar-actions .bulk-mode-toggle {
     flex: 1 1 150px;
   }
+}
+
+/* V2 BKD bulk select parity */
+[data-bulk-selection] .select-column {
+  display: none;
+}
+
+[data-bulk-selection].is-bulk-selecting .select-column {
+  display: table-cell;
+}
+
+[data-bulk-selection].is-bulk-selecting .v2-like-consignments-table tbody tr[role="checkbox"] {
+  touch-action: none;
+  user-select: none;
+}
+
+[data-bulk-selection] input[data-bulk-item]:disabled,
+[data-bulk-selection] input[data-bulk-select-all]:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.bulk-mode-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: none;
+  color: #1f2937;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 8px;
+  line-height: 1;
+  min-height: 32px;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.bulk-mode-toggle:hover,
+.bulk-mode-toggle:focus-visible {
+  color: #0f57d8;
+}
+
+.bulk-mode-toggle-switch {
+  background: #d1d5db;
+  border-radius: 999px;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, .2);
+  display: inline-block;
+  height: 23px;
+  position: relative;
+  transition: background-color .18s ease, box-shadow .18s ease;
+  width: 41px;
+}
+
+.bulk-mode-toggle-switch::after {
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 2px 5px rgba(15, 23, 42, .25);
+  content: "";
+  height: 18px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform .18s ease;
+  width: 18px;
+}
+
+.bulk-mode-toggle.active {
+  background: transparent;
+  border: 0;
+  color: #0f172a;
+}
+
+.bulk-mode-toggle.active .bulk-mode-toggle-switch {
+  background: #34c759;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, .16);
+}
+
+.bulk-mode-toggle.active .bulk-mode-toggle-switch::after {
+  transform: translateX(18px);
+}
+
+.bulk-mode-toggle:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+
+.app-shell[data-theme="dark"] .bulk-mode-toggle {
+  color: #e5e7eb;
+}
+
+.app-shell[data-theme="dark"] .bulk-mode-toggle:hover,
+.app-shell[data-theme="dark"] .bulk-mode-toggle:focus-visible {
+  color: #bfdbfe;
 }
