@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color-scheme: light;
   --drawer-width: 220px;
   --appbar-height: 80px;
@@ -4734,4 +4734,158 @@ button:disabled { cursor: default; }
 [data-bulk-selection].is-bulk-dragging,
 [data-bulk-selection].is-bulk-dragging .v2-like-consignments-table tbody tr {
   cursor: cell;
+}
+
+/* Operational ENS / DEC / SFD / SD navigation */
+.dashboard-core-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.workflow-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0 0 10px;
+  border-bottom: 1px solid #dbe4f0;
+  overflow-x: auto;
+}
+
+.workflow-tabs button {
+  min-width: 112px;
+  min-height: 42px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.workflow-tabs button .material-symbols-outlined {
+  font-size: 20px;
+}
+
+.workflow-tabs button small {
+  display: none;
+}
+
+.workflow-tabs button:hover,
+.workflow-tabs button:focus-visible {
+  border-color: rgba(37, 99, 235, .25);
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, .06);
+}
+
+.workflow-tabs button.active {
+  border-color: rgba(37, 99, 235, .36);
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, .24);
+}
+
+.downstream-placeholder-card {
+  min-height: 220px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 28px;
+}
+
+.downstream-placeholder-card > .material-symbols-outlined {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background: rgba(37, 99, 235, .1);
+  color: #2563eb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+}
+
+.downstream-placeholder-card span {
+  color: #64748b;
+  display: block;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.downstream-placeholder-card strong {
+  color: #0f172a;
+  display: block;
+  font-size: 20px;
+  margin-top: 6px;
+}
+
+.downstream-placeholder-card p {
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 700;
+  margin: 8px 0 0;
+}
+
+.app-shell[data-theme="dark"] .workflow-tabs {
+  border-color: var(--border);
+}
+
+.app-shell[data-theme="dark"] .workflow-tabs button {
+  color: var(--muted);
+}
+
+.app-shell[data-theme="dark"] .workflow-tabs button:hover,
+.app-shell[data-theme="dark"] .workflow-tabs button:focus-visible {
+  background: rgba(96, 165, 250, .12);
+  border-color: rgba(147, 197, 253, .28);
+  color: #bfdbfe;
+}
+
+.app-shell[data-theme="dark"] .workflow-tabs button.active {
+  background: #2563eb;
+  border-color: rgba(147, 197, 253, .42);
+  color: #fff;
+}
+
+.app-shell[data-theme="dark"] .downstream-placeholder-card {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.app-shell[data-theme="dark"] .downstream-placeholder-card strong {
+  color: var(--text);
+}
+
+.app-shell[data-theme="dark"] .downstream-placeholder-card span,
+.app-shell[data-theme="dark"] .downstream-placeholder-card p {
+  color: var(--muted);
+}
+
+@media (max-width: 1100px) {
+  .dashboard-core-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .workflow-tabs button {
+    min-width: 86px;
+    padding: 0 10px;
+  }
+
+  .downstream-placeholder-card {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 20px;
+  }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getAdminSettings, getApiDocsUrl, getConsignmentDetail, getConsignments, getControlTower, getDashboard, getDeclarations, getSession, getTssConnections, getValidationDiagnostics, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings, validateConsignmentPreview, testTssConnection } from './api';
 
 const DEFAULT_SESSION = {
@@ -119,7 +119,14 @@ function isSynoviaSession(session) {
 }
 
 const PORTAL_SESSION_STORAGE_KEY = 'fusion_portal_session_v1';
-const PERSISTABLE_VIEWS = new Set(['dashboard', 'declarations', 'upload', 'consignments', 'controlTower', 'masterLive', 'settings']);
+const PERSISTABLE_VIEWS = new Set(['dashboard', 'declarations', 'upload', 'consignments', 'sfd', 'sd', 'controlTower', 'masterLive', 'settings']);
+const WORKFLOW_VIEWS = new Set(['declarations', 'consignments', 'sfd', 'sd']);
+const WORKFLOW_TABS = [
+  { view: 'declarations', label: 'ENS', icon: 'description', helper: 'Declarations' },
+  { view: 'consignments', label: 'DEC', icon: 'deployed_code', helper: 'Consignments' },
+  { view: 'sfd', label: 'SFD', icon: 'fact_check', helper: 'Prepared' },
+  { view: 'sd', label: 'SD', icon: 'assignment', helper: 'Prepared' },
+];
 
 function getPortalSessionStorage() {
   if (typeof window === 'undefined') return null;
@@ -173,7 +180,9 @@ function portalRouteFromLocation(location = typeof window !== 'undefined' ? wind
   if (route === 'dashboard') return { view: 'dashboard' };
   if (route === 'upload') return { view: 'upload' };
   if (route === 'declarations' || route === 'ens') return { view: 'declarations', declarationId: parts[1] || '' };
-  if (route === 'consignments') return { view: 'consignments', consignmentId: parts[1] || '' };
+  if (route === 'consignments' || route === 'dec') return { view: 'consignments', consignmentId: parts[1] || '' };
+  if (route === 'sfd') return { view: 'sfd' };
+  if (route === 'sd' || route === 'sdi') return { view: 'sd' };
   if (route === 'control-tower' || route === 'controltower') return { view: 'controlTower' };
   if (route === 'master-live' || route === 'masterlive') return { view: 'masterLive' };
   if (route === 'settings') {
@@ -189,12 +198,14 @@ function portalPathForRoute(view, options = {}) {
   if (view === 'upload') return '/#/upload';
   if (view === 'declarations') {
     const token = String(options.declarationId || '').trim();
-    return token ? `/#/declarations/${encodeURIComponent(token)}` : '/#/declarations';
+    return token ? `/#/ens/${encodeURIComponent(token)}` : '/#/ens';
   }
   if (view === 'consignments') {
     const token = String(options.consignmentId || '').trim();
-    return token ? `/#/consignments/${encodeURIComponent(token)}` : '/#/consignments';
+    return token ? `/#/dec/${encodeURIComponent(token)}` : '/#/dec';
   }
+  if (view === 'sfd') return '/#/sfd';
+  if (view === 'sd') return '/#/sd';
   if (view === 'controlTower') return '/#/control-tower';
   if (view === 'masterLive') return '/#/master-live';
   if (view === 'settings') return `/#/settings/${encodeURIComponent(options.settingsSection || SETTINGS_NAV_SECTIONS[0].id)}`;
@@ -958,9 +969,8 @@ function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [
         <DrawerRow icon="home" label="Home" active={view === 'dashboard'} onClick={() => onNavigate(isAuthenticated ? 'dashboard' : 'login')} />
         {isAuthenticated && (
           <>
-            <DrawerRow icon="fact_check" label="ENS / Declarations" active={view === 'declarations'} onClick={() => onNavigate('declarations')} />
             <DrawerRow icon="upload_file" label="Upload Consignments" active={view === 'upload'} onClick={() => onNavigate('upload')} />
-            <DrawerRow icon="list_alt" label="View Consignments" active={view === 'consignments'} onClick={() => onNavigate('consignments')} />
+            <DrawerRow icon="list_alt" label="View Consignments" active={WORKFLOW_VIEWS.has(view)} onClick={() => onNavigate('consignments')} />
             <DrawerRow icon="hub" label="Control Tower" active={view === 'controlTower'} onClick={() => onNavigate('controlTower')} />
             <DrawerRow icon="table_view" label="Master Live" active={view === 'masterLive'} onClick={() => onNavigate('masterLive')} />
           </>
@@ -1161,6 +1171,23 @@ function OperationalContextPanel({ activeClientCode, onClientChange, isDemoAdmin
   );
 }
 
+function OperationalWorkflowTabs({ activeView, onNavigate }) {
+  return (
+    <nav className="workflow-tabs" aria-label="TSS workflow views">
+      {WORKFLOW_TABS.map((tab) => {
+        const active = tab.view === activeView;
+        return (
+          <button key={tab.view} className={active ? 'active' : ''} type="button" aria-current={active ? 'page' : undefined} onClick={() => onNavigate(tab.view)}>
+            <MaterialIcon>{tab.icon}</MaterialIcon>
+            <span>{tab.label}</span>
+            <small>{tab.helper}</small>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function DashboardPage({ onNavigate, connection, activeClientCode, onClientChange, isDemoAdmin }) {
   return (
     <section className="dashboard-page" aria-label="Dashboard">
@@ -1173,15 +1200,7 @@ function DashboardPage({ onNavigate, connection, activeClientCode, onClientChang
       </div>
       <OperationalContextPanel activeClientCode={activeClientCode} onClientChange={onClientChange} isDemoAdmin={isDemoAdmin} />
       <TssConnectionStrip connection={connection} />
-      <div className="action-panel" aria-label="Workflow actions">
-        <div className="action-column">
-          <MaterialIcon className="action-icon">fact_check</MaterialIcon>
-          <h2>ENS / Declarations</h2>
-          <button className="primary-action blue" type="button" onClick={() => onNavigate('declarations')}>
-            <MaterialIcon>fact_check</MaterialIcon>
-            <span>View Declarations</span>
-          </button>
-        </div>
+      <div className="action-panel dashboard-core-actions" aria-label="Workflow actions">
         <div className="action-column">
           <MaterialIcon className="action-icon">upload_file</MaterialIcon>
           <h2>Create or Upload Consignments</h2>
@@ -2576,6 +2595,32 @@ function ControlTowerTable({ columns, rows, emptyText, loading = false, loadingT
   );
 }
 
+function DownstreamPlaceholderPage({ kind, onBack, activeView, onWorkflowNavigate }) {
+  const isSfd = kind === 'SFD';
+  return (
+    <section className="consignments-page downstream-placeholder-page" aria-label={`${kind} workspace`}>
+      <div className="consignments-header consignment-list-header">
+        <button className="back-button" type="button" onClick={onBack}>
+          <MaterialIcon>arrow_back</MaterialIcon>
+          <span>Back</span>
+        </button>
+        <div>
+          <h1>{kind}</h1>
+          <p>{isSfd ? 'SFD tracking is prepared for the next downstream cut.' : 'SD tracking is prepared for the SupDec phase.'}</p>
+        </div>
+      </div>
+      <OperationalWorkflowTabs activeView={activeView} onNavigate={onWorkflowNavigate} />
+      <div className="downstream-placeholder-card">
+        <MaterialIcon>{isSfd ? 'fact_check' : 'assignment'}</MaterialIcon>
+        <div>
+          <span>{kind} not enabled yet</span>
+          <strong>{isSfd ? 'SFD will appear here once the PRS/STG flow has real SFD records.' : 'SD will appear here when the SupDec flow is in scope.'}</strong>
+          <p>No fake rows, no live calls, and no extra tables are created from this placeholder.</p>
+        </div>
+      </div>
+    </section>
+  );
+}
 function ControlTowerPage({ onBack, clientCode, connection }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [refreshToken, setRefreshToken] = useState(0);
@@ -3164,7 +3209,7 @@ function DeclarationDetailModal({ row, onClose, onOpenConsignments }) {
         <footer className="consignment-detail-footer">
           <button className="outline-action" type="button" onClick={onClose}>Close</button>
           <button className="primary-action blue" type="button" disabled={!canOpenConsignments} onClick={() => onOpenConsignments?.(row)}>
-            <MaterialIcon>list_alt</MaterialIcon><span>View Consignments</span>
+            <MaterialIcon>list_alt</MaterialIcon><span>Open DEC</span>
           </button>
         </footer>
       </section>
@@ -3172,7 +3217,7 @@ function DeclarationDetailModal({ row, onClose, onOpenConsignments }) {
   );
 }
 
-function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_VOCABULARY_FALLBACK, routeDeclarationId = '', onDetailRoute, onClearDetailRoute, onOpenConsignments, onRefresh }) {
+function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_VOCABULARY_FALLBACK, routeDeclarationId = '', onDetailRoute, onClearDetailRoute, onOpenConsignments, onRefresh, activeView = 'declarations', onWorkflowNavigate }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
   const [dateMonth, setDateMonth] = useState('');
@@ -3386,6 +3431,8 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
         </div>
       </div>
 
+      <OperationalWorkflowTabs activeView={activeView} onNavigate={onWorkflowNavigate} />
+
       <div className="consignment-status-tabs" role="tablist" aria-label="Declaration status filters">
         {statusTabs.map((item) => {
           const count = item === 'ALL' ? sourceRows.length : statusCounts[item] || 0;
@@ -3539,7 +3586,7 @@ function DeclarationsPage({ onBack, rows, clientCode, statusVocabulary = STATUS_
     </section>
   );
 }
-function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVocabulary = STATUS_VOCABULARY_FALLBACK, routeConsignmentId = '', onDetailRoute, onClearDetailRoute, onQueueForTss, onUpdateConsignment, onRefresh }) {
+function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVocabulary = STATUS_VOCABULARY_FALLBACK, routeConsignmentId = '', onDetailRoute, onClearDetailRoute, onQueueForTss, onUpdateConsignment, onRefresh, activeView = 'consignments', onWorkflowNavigate }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('ALL');
   const [dateMonth, setDateMonth] = useState('');
@@ -3752,8 +3799,8 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
           <span>Back</span>
         </button>
         <div>
-          <h1>View Consignments</h1>
-          <p>PRS consignments with linked ENS context, SFD/SDI references, and TSS status mirror.</p>
+          <h1>DEC / Consignments</h1>
+          <p>PRS consignments with linked ENS context, SFD/SD references, and TSS status context.</p>
         </div>
         <div className="page-actions consignment-page-actions">
           <button className="outline-action compact-action" type="button" onClick={refreshRows} disabled={isRefreshing} aria-busy={isRefreshing}>
@@ -3762,6 +3809,8 @@ function ViewConsignmentsPage({ onBack, rows, clientCode, connection, statusVoca
           </button>
         </div>
       </div>
+
+      <OperationalWorkflowTabs activeView={activeView} onNavigate={onWorkflowNavigate} />
 
       <div className="consignment-status-tabs" role="tablist" aria-label="Consignment status filters">
         {statusTabs.map((item) => {
@@ -4219,9 +4268,11 @@ export default function App() {
       <main className={mainClass}>
         {!isAuthenticated && <LoginCard onLogin={handleLogin} />}
         {isAuthenticated && view === 'dashboard' && <DashboardPage onNavigate={navigate} connection={connection} activeClientCode={activeClientCode} onClientChange={setActiveClientCode} isDemoAdmin={isSynoviaSession(session)} />}
-        {isAuthenticated && view === 'declarations' && <DeclarationsPage onBack={() => navigate('dashboard')} rows={declarationRows} clientCode={activeClientCode} statusVocabulary={statusVocabulary} routeDeclarationId={routeDeclarationId} onDetailRoute={(declarationId) => navigate('declarations', { declarationId })} onClearDetailRoute={() => navigate('declarations', { replace: true })} onOpenConsignments={() => navigate('consignments')} onRefresh={() => refreshDeclarations(activeClientCode)} />}
+        {isAuthenticated && view === 'declarations' && <DeclarationsPage onBack={() => navigate('dashboard')} rows={declarationRows} clientCode={activeClientCode} statusVocabulary={statusVocabulary} routeDeclarationId={routeDeclarationId} onDetailRoute={(declarationId) => navigate('declarations', { declarationId })} onClearDetailRoute={() => navigate('declarations', { replace: true })} onOpenConsignments={() => navigate('consignments')} onRefresh={() => refreshDeclarations(activeClientCode)} activeView={view} onWorkflowNavigate={navigate} />}
         {isAuthenticated && view === 'upload' && <UploadConsignmentPage onBack={() => navigate('dashboard')} onPreviewUpload={handlePreviewUpload} connection={connection} activeClientCode={activeClientCode} environmentMode={environmentMode} forceDemoMode={environmentMode === 'DEMO'} />}
-        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} statusVocabulary={statusVocabulary} routeConsignmentId={routeConsignmentId} onDetailRoute={(consignmentId) => navigate('consignments', { consignmentId })} onClearDetailRoute={() => navigate('consignments', { replace: true })} onQueueForTss={handleQueueForTss} onUpdateConsignment={handleConsignmentUpdate} onRefresh={() => refreshConsignments(activeClientCode)} />}
+        {isAuthenticated && view === 'consignments' && <ViewConsignmentsPage onBack={() => navigate('dashboard')} rows={consignmentRows} clientCode={activeClientCode} connection={connection} statusVocabulary={statusVocabulary} routeConsignmentId={routeConsignmentId} onDetailRoute={(consignmentId) => navigate('consignments', { consignmentId })} onClearDetailRoute={() => navigate('consignments', { replace: true })} onQueueForTss={handleQueueForTss} onUpdateConsignment={handleConsignmentUpdate} onRefresh={() => refreshConsignments(activeClientCode)} activeView={view} onWorkflowNavigate={navigate} />}
+        {isAuthenticated && view === 'sfd' && <DownstreamPlaceholderPage kind="SFD" onBack={() => navigate('dashboard')} activeView={view} onWorkflowNavigate={navigate} />}
+        {isAuthenticated && view === 'sd' && <DownstreamPlaceholderPage kind="SD" onBack={() => navigate('dashboard')} activeView={view} onWorkflowNavigate={navigate} />}
         {isAuthenticated && view === 'controlTower' && <ControlTowerPage onBack={() => navigate('dashboard')} clientCode={activeClientCode} connection={connection} />}
         {isAuthenticated && view === 'settings' && <SettingsPage settings={settingsPayload} activeSection={settingsSection} environmentMode={environmentMode} validationDiagnostics={validationDiagnostics} validationDiagnosticsStatus={validationDiagnosticsStatus} validationDiagnosticsError={validationDiagnosticsError} onSectionChange={navigateSettings} onBack={() => navigate('dashboard')} onSaveSettings={handleSaveSettings} onTestTssApi={handleTestTssApi} onRefreshValidationDiagnostics={() => refreshValidationDiagnostics(activeClientCode)} />}
       </main>
