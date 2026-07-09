@@ -4895,7 +4895,9 @@ button:disabled { cursor: default; }
 /* Detail modal scroll containment */
 .consignment-detail-modal {
   height: min(920px, calc(100vh - var(--appbar-height) - 56px));
+  height: min(920px, calc(100dvh - var(--appbar-height) - 56px));
   max-height: calc(100vh - var(--appbar-height) - 56px);
+  max-height: calc(100dvh - var(--appbar-height) - 56px);
 }
 
 .consignment-detail-modal .preview-modal-header,
@@ -4904,12 +4906,14 @@ button:disabled { cursor: default; }
 }
 
 .consignment-detail-body {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  height: 0;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
 
 .consignment-detail-modal .control-table-wrap {
