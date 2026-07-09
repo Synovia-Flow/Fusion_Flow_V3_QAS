@@ -638,57 +638,153 @@ function localConsignmentStatus(row) {
 }
 
 const CONSIGNMENT_PIPELINE_STAGES = [
-  { key: 'PRS', label: 'PRS', sub: 'Canonical record', icon: 'schema' },
-  { key: 'VALIDATION', label: 'Validation', sub: 'Rules + enrichment', icon: 'rule' },
-  { key: 'STG', label: 'STG', sub: 'Submission-ready', icon: 'inventory_2' },
-  { key: 'ENS', label: 'ENS', sub: 'Header mirror', icon: 'fact_check' },
-  { key: 'CONSIGNMENT', label: 'Consignment', sub: 'TSS consignment', icon: 'package_2' },
-  { key: 'GOODS', label: 'Goods', sub: '99-row batches', icon: 'list_alt' },
-  { key: 'SFD', label: 'SFD', sub: 'Lookup / link', icon: 'travel_explore' },
-  { key: 'SDI', label: 'SDI', sub: 'Supplementary', icon: 'bolt' },
+  { key: 'INGESTED', number: '1', label: 'Ingested', sub: 'ING raw landed' },
+  { key: 'TRANSFORMED', number: '2', label: 'Transformed', sub: 'PRS map + enrich' },
+  { key: 'VALIDATED', number: '3', label: 'Validated', sub: 'rules passed' },
+  { key: 'STAGED', number: '4', label: 'Staged', sub: 'STG materialised' },
+  { key: 'SUBMITTED', number: '5', label: 'Submitted', sub: 'POST /consignments' },
+  { key: 'RECONCILED', number: '6', label: 'Reconciled', sub: 'TSS mirror' },
 ];
 
-function consignmentPipelinePosition(row, goodsItems = []) {
+const CONSIGNMENT_DOWNSTREAM_CALLS = ['Consignment', 'Goods (≤99)', 'Submit consignment', 'SFD lookup', 'GMR', 'Supplementary'];
+
+function consignmentMovementStageIndex(row, goodsItems = []) {
   const tssStatus = normalizeStatusText(deriveTssStatus(row), '');
   const localStatus = normalizeStatusText(row?.status || row?.Status, 'DRAFT');
-  if (row?.sdiReferences) return 7;
-  if (row?.sfdReference || row?.sfdMrn) return 6;
-  if (goodsItems.length || Number(row?.goodsItems || 0) > 0) return 5;
-  if (['CREATED', 'SUBMITTED', 'ACCEPTED', 'PROCESSING', 'AUTHORISED_FOR_MOVEMENT', 'AUTHORIZED_FOR_MOVEMENT', 'ARRIVED'].includes(tssStatus)) return 4;
-  if (row?.declarationNumber || row?.HeaderDeclarationNumber) return 3;
-  if (['READY', 'VALIDATED'].includes(localStatus)) return 2;
+  if (row?.sdiReferences || ['ARRIVED', 'AUTHORISED_FOR_MOVEMENT', 'AUTHORIZED_FOR_MOVEMENT', 'RECONCILED'].includes(tssStatus)) return 5;
+  if (['CREATED', 'SUBMITTED', 'ACCEPTED', 'PROCESSING', 'DRAFT', 'PENDING_TSS'].includes(tssStatus)) return 4;
+  if (row?.declarationNumber || row?.HeaderDeclarationNumber) return 4;
+  if (goodsItems.length || Number(row?.goodsItems || 0) > 0 || ['STAGED', 'READY'].includes(localStatus)) return 3;
+  if (['VALIDATED', 'CONSTRUCTED'].includes(localStatus)) return 2;
+  if (['INGESTED'].includes(localStatus)) return 0;
   return rowValidationMissingCount(row) ? 1 : 2;
 }
 
-function ConsignmentPipelineRail({ row, goodsItems = [] }) {
-  const currentIndex = consignmentPipelinePosition(row, goodsItems);
+function buildConsignmentTransformRows(row, goodsItems, currentTssStatus, ensReference) {
+  const goodsCount = goodsItems.length || Number(row?.goodsItems || row?.GoodsItems || 0) || 0;
+  const consignmentRef = row?.consignmentNumber || row?.ConsignmentNumber || row?.transportDocumentNumber || row?.TransportDocumentNumber || '-';
+  const goodsDescription = row?.goodsDescription || row?.GoodsDescription || '-';
+  const consignee = row?.consigneeName || row?.ConsigneeName || '-';
+  return [
+    { field: 'consignment_number', source: row?.transportDocumentNumber || row?.TransportDocumentNumber || '-', transform: 'PASSTHROUGH', output: consignmentRef, rule: 'PRS.Consignment' },
+    { field: 'declaration_number', source: ensReference || '-', transform: 'MIRROR', output: ensReference || '-', rule: 'STG/API response' },
+    { field: 'goods_description', source: goodsDescription, transform: 'ENRICH', output: goodsDescription, rule: 'CFG + PRS' },
+    { field: 'consignee', source: consignee, transform: 'MASTERDATA', output: consignee, rule: 'CFG partner data' },
+    { field: 'goods_items', source: `${goodsCount}`, transform: 'COUNT', output: `${goodsCount} rows`, rule: 'PRS.Goods_Item' },
+    { field: 'tss_status', source: currentTssStatus || '-', transform: 'MIRROR', output: currentTssStatus || 'Awaiting confirmation', rule: 'API.Call / TSS sync' },
+  ];
+}
+
+function ConsignmentMovementPipeline({
+  row,
+  goodsItems = [],
+  currentTssStatus,
+  ensReference,
+  sfdValue,
+  sdiValue,
+  actionBusy,
+  hasRouteCheck,
+  onSubmitConsignment,
+  onAction,
+}) {
+  const currentIndex = consignmentMovementStageIndex(row, goodsItems);
+  const transformRows = buildConsignmentTransformRows(row, goodsItems, currentTssStatus, ensReference);
+  const tssLayerLabel = ensReference && ensReference !== '-' ? ensReference : 'pending declaration';
+  const tssConfirmation = currentTssStatus ? displayStatusLabel(currentTssStatus) : 'Awaiting confirmation';
+  const primaryAction = currentIndex >= 4
+    ? {
+        label: 'Mirror from TSS →',
+        sub: 'runs SUB_MIRROR_BKD_ENS',
+        onClick: () => onAction('Mirror from TSS', 'TSS sync follows the Modules/Submission mirror flow and keeps the API.Call audit trail.'),
+        disabled: false,
+      }
+    : {
+        label: 'Submit consignment →',
+        sub: 'Build TSS route check',
+        onClick: onSubmitConsignment,
+        disabled: !hasRouteCheck || actionBusy,
+      };
+
   return (
-    <section className="consignment-pipeline-card" aria-label="ENS consignment pipeline">
-      <div className="pipeline-card-heading">
-        <div>
-          <span>Modules path</span>
-          <h3>PRS {'->'} STG {'->'} TSS {'->'} SFD/SDI</h3>
-        </div>
-        <strong>Route A</strong>
-      </div>
-      <div className="consignment-pipeline-rail">
+    <section className="movement-pipeline-workbench" aria-label="Birkdale movement pipeline">
+      <div className="movement-pipeline-eyebrow">Stage progression — click a button to advance</div>
+      <div className="movement-stage-rail">
         {CONSIGNMENT_PIPELINE_STAGES.map((stage, index) => {
           const state = index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'pending';
           return (
-            <div key={stage.key} className={`pipeline-stage ${state}`}>
-              <div className="pipeline-node"><MaterialIcon>{state === 'done' ? 'check' : stage.icon}</MaterialIcon></div>
-              <div className="pipeline-copy">
-                <strong>{stage.label}</strong>
-                <span>{stage.sub}</span>
-              </div>
+            <div key={stage.key} className={`movement-stage ${state}`}>
+              <div className="movement-stage-node">{state === 'done' ? <MaterialIcon>check</MaterialIcon> : stage.number}</div>
+              <strong>{stage.label}</strong>
+              <span>{stage.sub}</span>
             </div>
           );
         })}
       </div>
+
+      <div className="movement-pipeline-actions">
+        <button className="movement-pipeline-action primary" type="button" disabled={primaryAction.disabled} onClick={primaryAction.onClick}>
+          <strong>{primaryAction.label}</strong>
+          <span>{primaryAction.sub}</span>
+        </button>
+        <button className="movement-pipeline-action secondary" type="button" onClick={() => onAction('Edit fields', 'Edit the consignment fields below, then save the detail before submitting again.') }>
+          <strong>Edit fields</strong>
+          <span>POST /api/edit · then Submit</span>
+        </button>
+        <button className="movement-pipeline-action primary" type="button" onClick={() => onAction('Fix arrival & resubmit', 'Reprocess, promote and submit remain gated through Modules/Processing and Modules/Submission.') }>
+          <strong>Fix arrival & resubmit →</strong>
+          <span>reprocess · promote · submit</span>
+        </button>
+        <button className="movement-pipeline-action secondary" type="button" onClick={() => onAction('TSS response', 'Official TSS responses are read from API.Call / submission logs and mirrored back through the existing sync path.') }>
+          <strong>TSS response</strong>
+          <span>API.Response_Document</span>
+        </button>
+      </div>
+      <p className="movement-pipeline-note">Each button runs the mapped job / API call — all tracked in EXC + API.Call.</p>
+
+      <div className="movement-tss-layer">
+        <div>
+          <strong>TSS layer — declaration {tssLayerLabel} · {tssConfirmation}</strong>
+          <span>Update / Cancel unlock once TSS confirms this declaration — run Mirror status check first.</span>
+        </div>
+        <button className="movement-pipeline-action secondary compact" type="button" onClick={() => onAction('Edit fields', 'Edit fields in the detail sections below, then update when TSS allows data changes.') }>
+          <strong>Edit fields</strong>
+          <span>then Update</span>
+        </button>
+      </div>
+
+      <div className="movement-downstream-calls">
+        <strong>Repeatable · next API calls</strong>
+        <div>
+          {CONSIGNMENT_DOWNSTREAM_CALLS.map((item, index) => (
+            <span key={item} className="movement-downstream-chip">{item}{index < CONSIGNMENT_DOWNSTREAM_CALLS.length - 1 ? <em>›</em> : null}</span>
+          ))}
+        </div>
+      </div>
+
+      <div className="movement-transform-panel">
+        <div className="movement-pipeline-eyebrow">ING → PRS transformations ({transformRows.length} fields)</div>
+        <div className="movement-transform-table-wrap">
+          <table className="movement-transform-table">
+            <thead>
+              <tr><th>Field</th><th>ING source</th><th>Transform</th><th>PRS output</th><th>Rule</th></tr>
+            </thead>
+            <tbody>
+              {transformRows.map((item) => (
+                <tr key={item.field}>
+                  <td>{item.field}</td>
+                  <td>{item.source}</td>
+                  <td><span>{item.transform}</span></td>
+                  <td>{item.output}</td>
+                  <td>{item.rule}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   );
 }
-
 function displayStatusLabel(value, vocabularyMap = null) {
   const normalized = normalizeStatusText(value, '');
   const known = vocabularyMap?.get?.(normalized);
@@ -2965,63 +3061,39 @@ function ConsignmentDetailModal({ row, onClose, onSave, onQueueForTss }) {
   const arrivalLabel = formatDateTime(readRecordValue(detailRow, ['HeaderArrivalDateTime', 'arrival_date_time', 'ArrivalDateTime'], row.arrivalDateTime || ''));
   const actionBusy = actionState.status === 'loading';
   const hasRouteCheck = Boolean(onQueueForTss && row?.consignmentRowId);
-
+  const movementClientLabel = readRecordValue(detailRow, ['ClientName', 'client_name'], row.clientName || row.clientCode || 'Birkdale');
+  const movementStageIndex = consignmentMovementStageIndex(pipelineRow, goodsItems);
+  const movementStageLabel = displayStatusLabel(currentTssStatus || row.status || CONSIGNMENT_PIPELINE_STAGES[movementStageIndex]?.label || 'Draft');
   return (
     <div className="preview-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="consignment-detail-modal" role="dialog" aria-modal="true" aria-label="ENS consignment detail">
-        <header className="preview-modal-header consignment-detail-modal-header">
+        <header className="movement-pipeline-modal-header">
           <div>
-            <span className="preview-eyebrow">ENS / PRS Consignment</span>
-            <h2>{draft.consignmentNumber || row.consignmentNumber}</h2>
-            <p>{row.movementKey || 'Movement pending'} / {row.transportDocumentNumber || 'Document pending'}</p>
+            <h2>{movementClientLabel} • Movement pipeline</h2>
+            <p className="movement-pipeline-meta">
+              <span>MK {row.movementKey || 'Movement pending'}</span>
+              <span>ENS {ensReference}</span>
+              <span>Stage <em>{movementStageLabel}</em></span>
+            </p>
           </div>
-          <div className="consignment-modal-status">
-            <span>TSS Status</span>
-            <StatusBadge status={currentTssStatus} />
-          </div>
-          <button className="modal-close-button" type="button" onClick={onClose} aria-label="Close consignment detail">
+          <button className="movement-pipeline-close" type="button" onClick={onClose} aria-label="Close consignment detail">
             <MaterialIcon>close</MaterialIcon>
           </button>
         </header>
 
         <div className="consignment-detail-body">
-          <div className="v2-consignment-status-strip" aria-label="V2 BKD consignment references">
-            <span className="v2-ref-chip local"><strong>Local</strong><StatusBadge status={row.status || 'DRAFT'} /></span>
-            <span className="v2-ref-chip tss"><strong>TSS</strong><StatusBadge status={currentTssStatus} /></span>
-            <span className="v2-ref-chip"><strong>ENS</strong><em>{ensReference}</em></span>
-            <span className="v2-ref-chip"><strong>SFD</strong><em>{sfdValue}</em></span>
-            <span className="v2-ref-chip"><strong>SDI</strong><em>{sdiValue}</em></span>
-          </div>
-
-          <ConsignmentPipelineRail row={pipelineRow} goodsItems={goodsItems} />
-
-          <div className="consignment-action-grid" aria-label="Consignment pipeline actions">
-            <button className="pipeline-action primary" type="button" disabled={!hasRouteCheck || actionBusy} onClick={() => runRouteCheck('Submit consignment')}>
-              {actionBusy ? <LoadingSpinner className="button-spinner" /> : <MaterialIcon>send</MaterialIcon>}
-              <strong>Submit Consignment</strong>
-              <span>Build TSS route check</span>
-            </button>
-            <button className="pipeline-action" type="button" onClick={() => showGatedAction('Sync TSS Now', 'TSS sync follows the Modules/Submission mirror flow and must use the existing API.Call audit path.')}>
-              <MaterialIcon>sync</MaterialIcon>
-              <strong>Sync TSS Now</strong>
-              <span>{currentTssStatus || 'Not synced'}</span>
-            </button>
-            <button className="pipeline-action" type="button" onClick={() => showGatedAction('SFD Lookup', 'SFD lookup follows the V2 BKD downstream flow after the consignment has a valid TSS declaration/consignment reference.')}>
-              <MaterialIcon>travel_explore</MaterialIcon>
-              <strong>SFD Lookup</strong>
-              <span>{sfdValue}</span>
-            </button>
-            <button className="pipeline-action" type="button" onClick={() => showGatedAction('SDI', 'SDI / SupDec remains a downstream phase after SFD/SUP context is resolved; no live write is triggered from this preview action.')}>
-              <MaterialIcon>bolt</MaterialIcon>
-              <strong>SDI</strong>
-              <span>{sdiValue}</span>
-            </button>
-            <button className="pipeline-action" type="button" onClick={() => showGatedAction('TSS Response', 'Official TSS responses are read from API.Call / submission logs and should be mirrored back through the existing sync path.')}>
-              <MaterialIcon>data_object</MaterialIcon>
-              <strong>TSS Response</strong>
-              <span>API.Call audit</span>
-            </button>
-          </div>
+          <ConsignmentMovementPipeline
+            row={pipelineRow}
+            goodsItems={goodsItems}
+            currentTssStatus={currentTssStatus}
+            ensReference={ensReference}
+            sfdValue={sfdValue}
+            sdiValue={sdiValue}
+            actionBusy={actionBusy}
+            hasRouteCheck={hasRouteCheck}
+            onSubmitConsignment={() => runRouteCheck('Submit consignment')}
+            onAction={showGatedAction}
+          />
 
           {actionState.status !== 'idle' && (
             <div className={`action-feedback consignment-detail-action-feedback ${actionState.status === 'error' ? 'is-error' : ''}`}>
