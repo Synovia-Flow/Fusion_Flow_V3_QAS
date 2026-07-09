@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getAdminSettings, getApiDocsUrl, getConsignmentDetail, getConsignments, getControlTower, getDashboard, getDeclarations, getSession, getTssConnections, getValidationDiagnostics, loginPortal, prepareTssConsignmentSubmit, previewConsignmentUpload, saveAdminSettings, validateConsignmentPreview, testTssConnection } from './api';
 
 const DEFAULT_SESSION = {
@@ -194,22 +194,22 @@ function portalRouteFromLocation(location = typeof window !== 'undefined' ? wind
 }
 
 function portalPathForRoute(view, options = {}) {
-  if (view === 'login') return '/#/login';
-  if (view === 'upload') return '/#/upload';
+  if (view === 'login') return '/login';
+  if (view === 'upload') return '/upload';
   if (view === 'declarations') {
     const token = String(options.declarationId || '').trim();
-    return token ? `/#/ens/${encodeURIComponent(token)}` : '/#/ens';
+    return token ? `/ens/${encodeURIComponent(token)}` : '/ens';
   }
   if (view === 'consignments') {
     const token = String(options.consignmentId || '').trim();
-    return token ? `/#/dec/${encodeURIComponent(token)}` : '/#/dec';
+    return token ? `/dec/${encodeURIComponent(token)}` : '/dec';
   }
-  if (view === 'sfd') return '/#/sfd';
-  if (view === 'sd') return '/#/sd';
-  if (view === 'controlTower') return '/#/control-tower';
-  if (view === 'masterLive') return '/#/master-live';
-  if (view === 'settings') return `/#/settings/${encodeURIComponent(options.settingsSection || SETTINGS_NAV_SECTIONS[0].id)}`;
-  return '/#/dashboard';
+  if (view === 'sfd') return '/sfd';
+  if (view === 'sd') return '/sd';
+  if (view === 'controlTower') return '/control-tower';
+  if (view === 'masterLive') return '/master-live';
+  if (view === 'settings') return `/settings/${encodeURIComponent(options.settingsSection || SETTINGS_NAV_SECTIONS[0].id)}`;
+  return '/dashboard';
 }
 
 function updateBrowserRoute(view, options = {}, { replace = false } = {}) {
