@@ -680,8 +680,6 @@ function ConsignmentMovementPipeline({
   goodsItems = [],
   currentTssStatus,
   ensReference,
-  sfdValue,
-  sdiValue,
   actionBusy,
   hasRouteCheck,
   onSubmitConsignment,
@@ -756,7 +754,10 @@ function ConsignmentMovementPipeline({
         <strong>Repeatable · next API calls</strong>
         <div>
           {CONSIGNMENT_DOWNSTREAM_CALLS.map((item, index) => (
-            <span key={item} className="movement-downstream-chip">{item}{index < CONSIGNMENT_DOWNSTREAM_CALLS.length - 1 ? <em>›</em> : null}</span>
+            <React.Fragment key={item}>
+              <span className="movement-downstream-chip">{item}</span>
+              {index < CONSIGNMENT_DOWNSTREAM_CALLS.length - 1 ? <em className="movement-downstream-separator">›</em> : null}
+            </React.Fragment>
           ))}
         </div>
       </div>
@@ -3087,8 +3088,6 @@ function ConsignmentDetailModal({ row, onClose, onSave, onQueueForTss }) {
             goodsItems={goodsItems}
             currentTssStatus={currentTssStatus}
             ensReference={ensReference}
-            sfdValue={sfdValue}
-            sdiValue={sdiValue}
             actionBusy={actionBusy}
             hasRouteCheck={hasRouteCheck}
             onSubmitConsignment={() => runRouteCheck('Submit consignment')}

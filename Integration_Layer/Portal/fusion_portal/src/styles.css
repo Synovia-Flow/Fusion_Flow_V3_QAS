@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: light;
   --drawer-width: 220px;
   --appbar-height: 80px;
@@ -4983,6 +4983,8 @@ button:disabled { cursor: default; }
   justify-content: center;
   cursor: pointer;
 }
+.movement-pipeline-close:hover,
+.movement-pipeline-close:focus-visible { background: rgba(255,255,255,.2); outline: none; }
 .movement-pipeline-close .material-symbols-outlined { font-size: 25px; }
 .movement-pipeline-workbench {
   display: grid;
@@ -5090,6 +5092,12 @@ button:disabled { cursor: default; }
   font-size: 12px;
   font-weight: 800;
 }
+.movement-pipeline-action:hover,
+.movement-pipeline-action:focus-visible {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+  outline: none;
+}
 .movement-pipeline-action.primary {
   border-color: transparent;
   background: #13c4b5;
@@ -5169,10 +5177,10 @@ button:disabled { cursor: default; }
   font-size: 13px;
   font-weight: 900;
 }
-.movement-downstream-chip em {
-  margin-right: -18px;
+.movement-downstream-separator {
   color: #7c8da4;
   font-style: normal;
+  font-weight: 900;
 }
 .movement-transform-panel {
   display: grid;
@@ -5218,6 +5226,63 @@ button:disabled { cursor: default; }
   padding: 3px 8px;
   font-size: 10px;
   font-weight: 900;
+}
+
+.app-shell[data-theme="dark"] .movement-pipeline-workbench {
+  color: #e5edf7;
+}
+.app-shell[data-theme="dark"] .movement-pipeline-eyebrow,
+.app-shell[data-theme="dark"] .movement-tss-layer strong,
+.app-shell[data-theme="dark"] .movement-downstream-calls > strong,
+.app-shell[data-theme="dark"] .movement-stage span,
+.app-shell[data-theme="dark"] .movement-tss-layer span,
+.app-shell[data-theme="dark"] .movement-pipeline-note {
+  color: #9fb0c8;
+}
+.app-shell[data-theme="dark"] .movement-stage strong,
+.app-shell[data-theme="dark"] .movement-pipeline-action strong,
+.app-shell[data-theme="dark"] .movement-pipeline-action span {
+  color: #e5edf7;
+}
+.app-shell[data-theme="dark"] .movement-stage::before {
+  background: #31445f;
+}
+.app-shell[data-theme="dark"] .movement-stage.current::before {
+  background: linear-gradient(90deg, #18d2c2 0 50%, #31445f 50% 100%);
+}
+.app-shell[data-theme="dark"] .movement-stage-node,
+.app-shell[data-theme="dark"] .movement-pipeline-action.secondary,
+.app-shell[data-theme="dark"] .movement-downstream-calls,
+.app-shell[data-theme="dark"] .movement-transform-table-wrap {
+  border-color: #31445f;
+  background: #14253c;
+}
+.app-shell[data-theme="dark"] .movement-pipeline-action:hover,
+.app-shell[data-theme="dark"] .movement-pipeline-action:focus-visible {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+  outline: none;
+}
+
+.app-shell[data-theme="dark"] .movement-downstream-chip,
+.app-shell[data-theme="dark"] .movement-transform-table {
+  border-color: #31445f;
+  background: #0f1f35;
+  color: #d8e2f2;
+}
+.app-shell[data-theme="dark"] .movement-transform-table th {
+  color: #9fb0c8;
+}
+.app-shell[data-theme="dark"] .movement-transform-table td {
+  border-bottom-color: #263951;
+  color: #d8e2f2;
+}
+.app-shell[data-theme="dark"] .movement-transform-table td:first-child {
+  color: #e5edf7;
+}
+.app-shell[data-theme="dark"] .movement-transform-table td span {
+  background: rgba(37, 99, 235, .22);
+  color: #bfdbfe;
 }
 @media (max-width: 980px) {
   .movement-pipeline-modal-header { padding: 22px 18px; }
