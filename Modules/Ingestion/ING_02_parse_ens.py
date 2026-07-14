@@ -250,7 +250,12 @@ def row_from_graph(msg: dict[str, Any], sender: str) -> dict[str, Any]:
 
 def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | None, dry_run: bool) -> int:
     """Scan the mailbox for Birkdale TSS-Details emails, parse the ENS block, and
-    write a timestamped CSV to the client ENS_Source folder. Logs to EXC/LOG."""
+    write a timestamped CSV to the client ENS_Source folder. Logs to EXC/LOG.
+
+    Only NEW mail becomes CSV rows: messages already landed in ING.BKD_Raw_ENS
+    (matched by internetMessageId in SourceFile, then by DedupKey) are skipped,
+    and no CSV is written when nothing new was found - otherwise every run
+    re-parses the whole Fusion_Processed history and re-emits the same data."""
     from ingest import IngestionDb, load_db_config
     import graph_email as G
 
@@ -281,6 +286,15 @@ def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | Non
             db.finish_execution("INGESTED", 0, 0, 0)
             return 0
 
+        # What has already been loaded - so this run only emits NEW movements.
+        try:
+            landed = db._query("SELECT DedupKey, SourceFile FROM ING.BKD_Raw_ENS")
+            seen_msgs = {r["SourceFile"] for r in landed if r.get("SourceFile")}
+            seen_keys = {r["DedupKey"] for r in landed if r.get("DedupKey")}
+        except Exception as error:  # noqa: BLE001 - table missing: parse everything
+            db.log("SCAN", f"Could not read loaded ENS keys ({error}); parsing all mail.", "WARN")
+            seen_msgs, seen_keys = set(), set()
+
         token = G.acquire_token(params.get("GRAPH_AUTHORITY", "https://login.microsoftonline.com/"),
                                 tenant, client_id, G.resolve_client_secret(params),
                                 params.get("GRAPH_SCOPE", "https://graph.microsoft.com/.default"))
@@ -292,7 +306,7 @@ def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | Non
         processed_id = G.ensure_processed_folder(client, mailbox, inbox_id, processed_name, subfolder=client_code)
         targets = [("Inbox", inbox_id), (f"{processed_name}/{client_code}", processed_id)]
 
-        scanned = sender_matched = 0
+        scanned = sender_matched = already_loaded = 0
         for label, fid in targets:
             msgs = client.get_all(
                 f"/users/{mailbox}/mailFolders/{fid}/messages",
@@ -303,15 +317,32 @@ def run_from_graph(client_code: str, ini_path: Path, out_dir_override: str | Non
                 if not sender.endswith("@" + domain):
                     continue
                 sender_matched += 1
+                # Skip messages already landed (no body fetch needed).
+                mid = str(msg.get("internetMessageId") or msg.get("id") or "")
+                if mid in seen_msgs:
+                    already_loaded += 1
+                    continue
                 # Fetch body only for sender-domain matches (few), then detect the ENS block.
                 full = client.get(f"/users/{mailbox}/messages/{msg['id']}", {"$select": "body"})
                 msg["body"] = full.get("body")
                 row = row_from_graph(msg, sender)
                 if row["ParseStatus"] == "no_details_block":
                     continue
+                # A re-forward of an already-loaded movement carries a new message id
+                # but the same DedupKey - skip it too.
+                if row["DedupKey"] in seen_keys:
+                    already_loaded += 1
+                    continue
                 rows.append(row)
                 db.log("ENS", f"{row['DedupKey']} ({row['ParseStatus']}) from {sender} [{label}]")
-        db.log("SCAN", f"scanned={scanned} sender_matched={sender_matched} ens_rows={len(rows)} domain=@{domain}")
+        db.log("SCAN", f"scanned={scanned} sender_matched={sender_matched} "
+                       f"already_loaded={already_loaded} new_rows={len(rows)} domain=@{domain}")
+
+        if not rows:
+            db.finish_execution("INGESTED", 0, 0, 0)
+            db.log("FINISH", "No new ENS mail; CSV not written.", "OK")
+            print(f"{PROCESS}: no new ENS mail; nothing to write.")
+            return 0
 
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         out_path = out_dir / f"ENS_Headers_{stamp}.csv"

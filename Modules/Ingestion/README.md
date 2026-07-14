@@ -50,8 +50,8 @@ documented, not buried in code. The active Birkdale cycle:
 |---|---|---|---|
 | `ING_BKD_CYCLE` | — | Orchestrates the cycle below (one EXC.Execution per step) | `run_ingestion:main` |
 | `ING_BKD_ACQUIRE_EMAIL` | 1 | Download `@birkdalesales.com` attachments via Graph; prefix + move mail to `Fusion_Processed/BKD`; land provenance | `birkdale_sales_orders:run` |
-| `ING_BKD_PARSE_ENS` | 2 | Parse forwarded TSS *Details* mails into the timestamped ENS CSV (dedup on `DetailsDate\|ICR`) | `ens_headers:run_from_graph` |
-| `ING_BKD_LOAD_RAW` | 3 | Load ENS CSV + Sales Order workbooks into `ING.BKD_Raw_*`; move files to Processed | `load_raw:run` |
+| `ING_BKD_PARSE_ENS` | 2 | Parse forwarded TSS *Details* mails into the timestamped ENS CSV (dedup on `DetailsDate\|ICR`). Only NEW mail is emitted — messages/movements already in `ING.BKD_Raw_ENS` are skipped, and no CSV is written when nothing new arrived | `ens_headers:run_from_graph` |
+| `ING_BKD_LOAD_RAW` | 3 | Load ENS CSV + Sales Order workbooks into `ING.BKD_Raw_*`; move files to Processed. Per-file isolation: a bad/locked file is retried, then quarantined to the `FAIL` folder (run continues); non-xlsx files in INBOUND are swept to `Skipped/` | `load_raw:run` |
 
 Registered but **inactive** (modular, future channels): `ING_ACQUIRE_FILE_DROP`,
 `ING_ACQUIRE_SFTP`, `ING_ACQUIRE_AS2`, `ING_ACQUIRE_API`.
