@@ -38,6 +38,20 @@ flowchart TD
 | `04_status_notifications.py` | Event-driven status watcher, failure emails, Authorised for Movement, ENS Movement Pack. | To be ported as a V3 notification module; this script documents the required gate. | `app/ingestion/ens_status_watcher.py`, `app/ingestion/automation_notify.py`, `app/templates/declarations/_email_pack_body.html`. |
 | `05_sdi_autosubmit.py` | SUP discovery, SDI goods/header enrichment, validation, guarded live submit. | To be ported as a V3 Submission/Processing module pair. | `app/ingestion/sdi_autosubmit.py`, `app/sdi_payloads.py`, `scripts/sdi_autosubmit.py`. |
 
+## Current Repository Links
+
+These links connect the clean V3 orchestration scripts to the production code
+that currently performs the work in `Synovia-Digital/Fusion_Flow_V2_BKD`
+branch `prod`.
+
+| V3 automation script | Current V3 file | Current V2 production implementation |
+| --- | --- | --- |
+| Ingest Graph email and source files | [`Automation/01_ingest_graph_email_to_ing.py`](https://github.com/Synovia-Flow/Fusion_Flow_V3_QAS/blob/Master/Automation/01_ingest_graph_email_to_ing.py) | [`scripts/pull_inbound_email.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/scripts/pull_inbound_email.py), [`app/ingestion/graph_mail.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/ingestion/graph_mail.py), [`app/blueprints/ingest/routes.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/blueprints/ingest/routes.py) |
+| Process, enrich and validate | [`Automation/02_process_validate_prs.py`](https://github.com/Synovia-Flow/Fusion_Flow_V3_QAS/blob/Master/Automation/02_process_validate_prs.py) | [`app/ingestion/sales_orders_stage.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/ingestion/sales_orders_stage.py), [`app/pipeline_validation.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/pipeline_validation.py) |
+| Promote, submit and sync TSS | [`Automation/03_promote_submit_sync_tss.py`](https://github.com/Synovia-Flow/Fusion_Flow_V3_QAS/blob/Master/Automation/03_promote_submit_sync_tss.py) | [`app/tss_api.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/tss_api.py), [`scripts/submit_pipeline.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/scripts/submit_pipeline.py), [`scripts/sync_prd_ens_statuses.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/scripts/sync_prd_ens_statuses.py) |
+| Status watcher and notifications | [`Automation/04_status_notifications.py`](https://github.com/Synovia-Flow/Fusion_Flow_V3_QAS/blob/Master/Automation/04_status_notifications.py) | [`app/ingestion/ens_status_watcher.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/ingestion/ens_status_watcher.py), [`app/ingestion/automation_notify.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/ingestion/automation_notify.py), [`app/templates/declarations/_email_pack_body.html`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/templates/declarations/_email_pack_body.html) |
+| SDI / SupDec automation | [`Automation/05_sdi_autosubmit.py`](https://github.com/Synovia-Flow/Fusion_Flow_V3_QAS/blob/Master/Automation/05_sdi_autosubmit.py) | [`app/ingestion/sdi_autosubmit.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/ingestion/sdi_autosubmit.py), [`app/sdi_payloads.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/app/sdi_payloads.py), [`scripts/sdi_autosubmit.py`](https://github.com/Synovia-Digital/Fusion_Flow_V2_BKD/blob/prod/scripts/sdi_autosubmit.py) |
+
 ## End-To-End Flow
 
 ### 01. Ingest email and files
