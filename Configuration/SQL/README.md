@@ -51,6 +51,10 @@ later module phases.
 | 30 | `030_cfg_fetch_json_job.sql` | Registers `SUB_FETCH_JSON_BKD_ENS` + `SUBMISSION_JSON_DIR`. Fed by `fetch_submitted_json.py` — GETs each submitted header back and writes request+response JSON per movement for analysis. |
 | 31 | `031_tss_mirror_widen.sql` | Widens `TSS.BKD_ENS_Header` with the place-of-acceptance/-delivery + carrier address fields so the live mirror holds the full read-back set. |
 | 32 | `032_cfg_activate_update_cancel.sql` | Activates the TSS-layer `SUB_UPDATE_BKD_ENS` (full-replacement update, Rule 16) and `SUB_CANCEL_BKD_ENS` (op_type=cancel) jobs — `Modules/Submission/update_ens.py` / `cancel_ens.py`. Operate on the live declaration by `Declaration_Number`, log to `API.Call`, advance EXC, dry-run safe. |
+| 33 | `033_job_queue.sql` | `EXC.Job_Queue` — the hybrid bridge: the hosted portal enqueues PENDING rows (verb + MovementKey); the on-prem `job_worker.py` claims and runs them locally. |
+| 34 | `034_cfg_job_entrypoints.sql` | Re-points `CFG.Job.EntryPoint` after the module scripts were renamed with sequence prefixes (`ING_`/`PRS_`/`SUB_`/`REF_`/`REP_`). |
+| 35 | `035_api_response_document.sql` | `API.Response_Document` — TSS fetch responses stored in the DB (not files); fed by `SUB_06_fetch_json.py`. |
+| 36 | `036_bpm_business_partner.sql` | **`BPM`** Business Partner Master (Release 4): `Ref_Client` (mirrored from `CFG.Clients`), `Ref_Role` (12 TSS party roles), `Ref_County_Normalisation` (28 variants), `Stg_Customer_Master` landing (+ EXC lineage), `BusinessPartner` master (scheme-typed EORIs, TSS 35/9-char shadow columns + `*_Exceeds` flags), `BusinessPartnerRole` bridge, `BusinessPartnerAuthorisation` (UKIMS/AEO), `vw_BusinessPartner_Load`; registers the (inactive) `BPM_LOAD_CUSTOMER_MASTER` job. Design: `Documentation/Solution_Design/BPM_BusinessPartner_Schema_Design.xlsx` + `BPM_Business_Partner_Module.md`. |
 
 All scripts are **idempotent** — safe to re-run (existence checks + `MERGE`).
 
