@@ -87,6 +87,14 @@ def upload_file(filename: str, content: bytes = CSV_CONTENT) -> UploadFile:
     )
 
 
+class FakeRequest:
+    """Enough of a Starlette request for the best-effort login audit to read."""
+
+    def __init__(self, headers=None, host="127.0.0.1"):
+        self.headers = headers or {}
+        self.client = type("Client", (), {"host": host})()
+
+
 class PortalAuthTests(unittest.TestCase):
     def test_flow_v1_login_returns_synovia_demo_session_not_primeline_tenant(self):
         original_query_one = portal_main.query_one
@@ -97,7 +105,10 @@ class PortalAuthTests(unittest.TestCase):
             os.environ["FLOW_V1_USER"] = "synovia-test"
             os.environ["FLOW_V1_PASSWORD"] = "Password2025!"
 
-            payload = portal_main.auth_login({"username": "synovia-test", "password": "Password2025!"})
+            payload = portal_main.auth_login(
+                FakeRequest(),
+                {"username": "synovia-test", "password": "Password2025!"},
+            )
         finally:
             portal_main.query_one = original_query_one
             if old_user is None:
@@ -198,7 +209,10 @@ class UploadPreviewSelectionTests(unittest.TestCase):
         portal_main.query_all = fake_query_all
         portal_main.object_exists = fake_object_exists
         try:
-            payload = portal_main.consignments(client_code="BKD", status="ALL", q="", limit=100)
+            payload = portal_main.consignments(
+                client_code="BKD", status="ALL", q="", limit=100,
+                page=1, page_size=None, api_date_range="all",
+            )
         finally:
             portal_main.query_all = original_query_all
             portal_main.object_exists = original_object_exists
