@@ -49,9 +49,23 @@ export function getDeclarations({ clientCode, limit = 100 }) {
   return request(`/api/declarations?${params.toString()}`);
 }
 
-export function getConsignments({ clientCode, status = 'ALL', q = '', limit = 100 }) {
+// page/pageSize cut the page in SQL, so a deep page costs what page 1 costs.
+// apiDateRange filters on the TSS arrival date/time and cannot be paged in SQL,
+// so the API scans a bounded window for it and reports pagination.scanTruncated.
+export function getConsignments({ clientCode, status = 'ALL', q = '', limit = 100, page = 1, pageSize, apiDateRange = 'all' }) {
   const params = new URLSearchParams({ client_code: clientCode, status, q, limit: String(limit) });
+  if (page && page > 1) params.set('page', String(page));
+  if (pageSize) params.set('page_size', String(pageSize));
+  if (apiDateRange && apiDateRange !== 'all') params.set('api_date_range', apiDateRange);
   return request(`/api/consignments?${params.toString()}`);
+}
+
+export function logoutPortalSession({ username, clientCode, envCode, authCorrelationId } = {}) {
+  return request('/api/auth/logout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, clientCode, envCode, authCorrelationId }),
+  });
 }
 
 export function getConsignmentDetail(consignmentRowId) {
