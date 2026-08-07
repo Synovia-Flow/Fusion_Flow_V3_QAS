@@ -10,8 +10,9 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,10 +20,12 @@ from fastapi.staticfiles import StaticFiles
 from .config import allowed_origins, config_value
 from .db import DbUnavailable, execute, execute_scalar, query_all, query_one
 from .file_introspection import inspect_upload, summarise_mapping
+from .login_audit import EVENT_LOGIN_FAILURE, EVENT_LOGIN_SUCCESS, EVENT_LOGOUT, record_login_audit
 from .mapping_suggestions import suggest_column_mappings
 from .upload_processing_preview import build_processing_preview, revalidate_processing_preview
 from Modules.Processing.preview_enrichment import PACKAGE_TYPE_RESOLUTION_ORDER, product_master_lookup, product_master_summary
 from Modules.Processing.validation_summary import build_consignment_validation_summary
+from .tss_api_dates import TSS_API_DATE_RANGE_OPTIONS, normalise_tss_api_date_range, tss_api_date_in_range
 from .tss_profiles import fallback_profile, fallback_profiles, normalize_portal_code, portal_code_for_tss_client, required_file_ordinal, select_required_file
 from .tss_submission import build_consignment_submission_plan, post_tss_json
 
@@ -1132,12 +1135,16 @@ def health(check_db: bool = Query(False)) -> dict[str, object]:
 
 
 @app.post("/api/auth/login")
-def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, object]:
+def auth_login(request: Request, payload: Annotated[dict[str, object], Body(...)]) -> dict[str, object]:
     username = str(payload.get("username") or "").strip()
     password = str(payload.get("password") or "")
     if not username or not password:
         raise HTTPException(status_code=422, detail="Username and password are required.")
 
+    # Ported from V2 dev02 (11bc217): every attempt is audited, and the audit is
+    # best-effort so it can never be the reason a login fails. The correlation id
+    # ties the success row to the logout row for the same session.
+    correlation_id = uuid4().hex
     try:
         row = query_one(
             """
@@ -1162,15 +1169,36 @@ def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, ob
                 raise HTTPException(status_code=403, detail="This TSS credential is not mapped to a portal client.")
             profile = load_portal_profile(portal_code)
             profile["preferredEnvCode"] = row["EnvCode"]
+            session = session_payload(profile, username)
+            audit_id = record_login_audit(
+                request,
+                event_type=EVENT_LOGIN_SUCCESS,
+                success=True,
+                username=username,
+                client_code=str(row["ClientCode"]),
+                env_code=str(row["EnvCode"]),
+                correlation_id=correlation_id,
+            )
+            session["authCorrelationId"] = correlation_id
+            if audit_id:
+                session["loginAuditId"] = audit_id
             return {
                 "authenticated": True,
                 "source": "CFG.TSS_Credential",
-                "session": session_payload(profile, username),
+                "session": session,
                 "connection": public_connection_payload(profile, env_code=str(row["EnvCode"])),
             }
 
         if env_app_login_matches(username, password):
             default_profile = load_portal_profile("BKD")
+            record_login_audit(
+                request,
+                event_type=EVENT_LOGIN_SUCCESS,
+                success=True,
+                username=username,
+                client_code="BKD",
+                correlation_id=correlation_id,
+            )
             return {
                 "authenticated": True,
                 "source": "FLOW_V1_USER",
@@ -1180,6 +1208,7 @@ def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, ob
                     "username": username,
                     "role": "CentralAdmin",
                     "mode": "DEMO_ADMIN",
+                    "authCorrelationId": correlation_id,
                 },
                 "connection": public_connection_payload(default_profile),
                 "defaultClientCode": "BKD",
@@ -1190,7 +1219,36 @@ def auth_login(payload: Annotated[dict[str, object], Body(...)]) -> dict[str, ob
     except DbUnavailable as exc:
         raise db_error(exc) from exc
 
+    record_login_audit(
+        request,
+        event_type=EVENT_LOGIN_FAILURE,
+        success=False,
+        username=username,
+        failure_reason="invalid_credentials",
+        correlation_id=correlation_id,
+    )
     raise HTTPException(status_code=401, detail="Invalid username or password.")
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request, payload: Annotated[dict[str, object] | None, Body()] = None) -> dict[str, object]:
+    """Close the audit trail for a session.
+
+    The V3 portal holds its session client-side, so there is nothing server-side
+    to clear; this exists so a logout leaves the same trace it does in V2, paired
+    to the login row by correlation id.
+    """
+    body = payload or {}
+    audit_id = record_login_audit(
+        request,
+        event_type=EVENT_LOGOUT,
+        success=True,
+        username=str(body.get("username") or ""),
+        client_code=str(body.get("clientCode") or body.get("client_code") or "") or None,
+        env_code=str(body.get("envCode") or body.get("env_code") or "") or None,
+        correlation_id=str(body.get("authCorrelationId") or body.get("auth_correlation_id") or "") or None,
+    )
+    return {"loggedOut": True, "loginAuditId": audit_id, "audited": audit_id is not None}
 
 
 @app.get("/api/portal/profiles")
@@ -2243,34 +2301,102 @@ def declarations(
 
     return {"clientCode": code, "declarations": rows, "statusVocabulary": status_vocabulary_rows()}
 
+# The consignment list hydrates every row it returns: two OUTER APPLY blocks, a
+# goods GROUP BY, a second goods query and a per-row validation summary. Ported
+# from V2 dev02 (3b95601), where that shape cost 8,662 ms to render a 20-row
+# page at 23,619 consignments and deep pages timed out outright.
+#
+# OFFSET alone does not fix it: SQL Server still evaluates the per-row work for
+# every row before the offset and then discards it. So the page's ids are picked
+# by a cheap query over PRS.Consignment alone, and only those rows are hydrated.
+# That is what makes the per-row cost proportional to the page rather than to
+# the tenant.
+#
+# The TSS arrival-date range is the one filter that cannot take this path, so it
+# scans instead of paging, bounded by this cap. Truncation is reported back in
+# the response rather than passed off as a complete result.
+CONSIGNMENT_DATE_FILTER_SCAN_CAP = 2000
+
+
+def consignment_list_is_sql_pageable(api_date_range: str) -> bool:
+    """True when the page can be cut in SQL instead of in Python.
+
+    status and q are already SQL predicates on PRS.Consignment, so a page cut in
+    SQL contains exactly the rows the caller asked for. The TSS arrival-date
+    range is applied in Python against the hydrated ArrivalDateTime, so paging in
+    SQL with it active would change which rows appear.
+    """
+    return normalise_tss_api_date_range(api_date_range) == "all"
+
+
 @app.get("/api/consignments")
 def consignments(
     client_code: str = Query("PLE"),
     status: str = Query("ALL"),
     q: str = Query(""),
     limit: int = Query(100, ge=1, le=500),
+    page: int = Query(1, ge=1),
+    page_size: int | None = Query(None, ge=1, le=500),
+    api_date_range: str = Query("all"),
 ) -> dict[str, object]:
     code = client_code_param(client_code)
-    top = safe_limit(limit)
-    where = ["c.ClientCode = ?"]
-    params: list[object] = [code]
-    clean_status = status.strip().upper()
-    if clean_status and clean_status != "ALL":
-        where.append("c.Status = ?")
-        params.append(clean_status)
+    size = safe_limit(page_size if page_size is not None else limit)
+    date_range = normalise_tss_api_date_range(api_date_range)
+    sql_paged = consignment_list_is_sql_pageable(date_range)
+    top = size if sql_paged else CONSIGNMENT_DATE_FILTER_SCAN_CAP
+
+    # Split so the status tab counts can reuse every predicate except the status
+    # one; a tab count that honoured its own filter would always equal the page.
+    base_where = ["c.ClientCode = ?"]
+    base_params: list[object] = [code]
     clean_q = q.strip()
     if clean_q:
         like = f"%{clean_q}%"
-        where.append(
+        base_where.append(
             """(
                 c.consignment_number LIKE ? OR c.trader_reference LIKE ? OR
                 c.transport_document_number LIKE ? OR c.goods_description LIKE ? OR
                 c.consignee_name LIKE ? OR c.MovementKey LIKE ?
             )"""
         )
-        params.extend([like, like, like, like, like, like])
+        base_params.extend([like, like, like, like, like, like])
+
+    where = list(base_where)
+    params = list(base_params)
+    clean_status = status.strip().upper()
+    if clean_status and clean_status != "ALL":
+        where.append("c.Status = ?")
+        params.append(clean_status)
 
     try:
+        # Every predicate and both ORDER BY keys live on PRS.Consignment, so the
+        # id pick needs no join at all and stays a single index-ordered read.
+        page_clause = ""
+        page_params: list[object] = []
+        if sql_paged:
+            page_ids = [
+                row["ConsignmentRowID"]
+                for row in query_all(
+                    f"""
+                    SELECT c.ConsignmentRowID
+                    FROM PRS.Consignment c
+                    WHERE {' AND '.join(where)}
+                    ORDER BY c.UpdatedAt DESC, c.ConsignmentRowID DESC
+                    OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+                    """,
+                    params + [max(0, (page - 1) * size), size],
+                )
+                or []
+            ]
+            if page_ids:
+                page_clause = "\n              AND c.ConsignmentRowID IN ({})".format(
+                    ", ".join("?" for _ in page_ids)
+                )
+                page_params = list(page_ids)
+            else:
+                # Past the last page: ask for nothing rather than for everything.
+                page_clause = "\n              AND 1 = 0"
+
         tracking_join = ""
         tracking_status = "CAST(NULL AS nvarchar(50))"
         tracking_group = ""
@@ -2330,7 +2456,7 @@ def consignments(
             LEFT JOIN PRS.Goods_Item g ON g.ConsignmentRowID = c.ConsignmentRowID
             {tracking_join}
             {staging_join}
-            WHERE {' AND '.join(where)}
+            WHERE {' AND '.join(where)}{page_clause}
             GROUP BY
                 c.ConsignmentRowID, c.EnsHeaderRowID, c.ClientCode, c.Status, h.Status,
                 c.RejectReason, c.MovementKey, c.declaration_number, h.declaration_number,
@@ -2340,9 +2466,53 @@ def consignments(
                 {tracking_group}{staging_group}
             ORDER BY c.UpdatedAt DESC, c.ConsignmentRowID DESC
             """,
-            params,
+            params + page_params,
         )
-        consignment_ids = [row.get("ConsignmentRowID") for row in rows if row.get("ConsignmentRowID")]
+
+        # The status tab counts are derived from every matching row, so a paged
+        # query cannot produce them. This projection carries no join, no OUTER
+        # APPLY and no goods aggregate, which is where the cost of the main query
+        # lives. It groups on c.Status because that is the column the status
+        # filter tests; the list's displayed status falls back to the header, so
+        # a row whose own Status is NULL counts as DRAFT here either way.
+        status_counts: dict[str, int] = {}
+        scan_truncated = False
+        if sql_paged:
+            for count_row in query_all(
+                f"""
+                SELECT COALESCE(c.Status, 'DRAFT') AS Status, COUNT(*) AS Total
+                FROM PRS.Consignment c
+                WHERE {' AND '.join(base_where)}
+                GROUP BY COALESCE(c.Status, 'DRAFT')
+                """,
+                base_params,
+            ) or []:
+                status_counts[str(count_row.get("Status") or "DRAFT")] = int(count_row.get("Total") or 0)
+            filtered_total = (
+                status_counts.get(clean_status, 0)
+                if clean_status and clean_status != "ALL"
+                else sum(status_counts.values())
+            )
+            total_pages = max(1, (filtered_total + size - 1) // size) if filtered_total else 1
+            current_page = min(page, total_pages)
+            # SQL already applied ORDER BY and cut the page, so `rows` is the page.
+            page_rows = rows
+        else:
+            # A TSS arrival-date range cannot be pushed into SQL from here, so
+            # this path scans up to the cap and filters in Python. Counts come
+            # from the scanned set for the same reason.
+            scan_truncated = len(rows) >= CONSIGNMENT_DATE_FILTER_SCAN_CAP
+            filtered = [row for row in rows if tss_api_date_in_range(row.get("ArrivalDateTime"), date_range)]
+            for row in filtered:
+                bucket = str(row.get("Status") or "DRAFT")
+                status_counts[bucket] = status_counts.get(bucket, 0) + 1
+            filtered_total = len(filtered)
+            total_pages = max(1, (filtered_total + size - 1) // size) if filtered_total else 1
+            current_page = min(page, total_pages)
+            page_start = (current_page - 1) * size
+            page_rows = filtered[page_start:page_start + size]
+
+        consignment_ids = [row.get("ConsignmentRowID") for row in page_rows if row.get("ConsignmentRowID")]
         goods_by_consignment: dict[int, list[dict[str, object]]] = {int(row_id): [] for row_id in consignment_ids}
         if consignment_ids:
             placeholders = ", ".join("?" for _ in consignment_ids)
@@ -2363,7 +2533,7 @@ def consignments(
                 parent_id = goods_row.get("ConsignmentRowID")
                 if parent_id is not None:
                     goods_by_consignment.setdefault(int(parent_id), []).append(goods_row)
-        for row in rows:
+        for row in page_rows:
             row_id = row.get("ConsignmentRowID")
             summary = build_consignment_validation_summary(row, goods_by_consignment.get(int(row_id), []) if row_id else [])
             row["ValidationSummary"] = summary
@@ -2375,7 +2545,23 @@ def consignments(
     except DbUnavailable as exc:
         raise db_error(exc) from exc
 
-    return {"clientCode": code, "consignments": rows, "statusVocabulary": status_vocabulary_rows()}
+    return {
+        "clientCode": code,
+        "consignments": page_rows,
+        "statusVocabulary": status_vocabulary_rows(),
+        "statusCounts": status_counts,
+        "apiDateRange": date_range,
+        "apiDateRangeOptions": [{"value": key, "label": label} for key, label in TSS_API_DATE_RANGE_OPTIONS],
+        "pagination": {
+            "page": current_page,
+            "pageSize": size,
+            "totalPages": total_pages,
+            "filteredTotal": filtered_total,
+            "sqlPaged": sql_paged,
+            "scanCap": None if sql_paged else CONSIGNMENT_DATE_FILTER_SCAN_CAP,
+            "scanTruncated": scan_truncated,
+        },
+    }
 
 @app.get("/api/consignments/{consignment_row_id}")
 def consignment_detail(consignment_row_id: int) -> dict[str, object]:
