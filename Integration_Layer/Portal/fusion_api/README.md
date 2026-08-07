@@ -22,12 +22,30 @@ $env:FUSION_FLOW_INI='Z:\Scratch\Fusion_Flow_V3_QAS\Configuration\Fusion_Flow_QA
 
 - `GET /api/health?check_db=true`
 - `POST /api/auth/login` - resolves the portal tenant from username/password using existing `CFG.TSS_Credential` rows, with `FLOW_V1_USER` fallback for local app login. Secrets are never returned.
+- `POST /api/auth/logout` - closes the audit trail for a session. The portal holds its session client-side, so there is nothing server-side to clear.
 - `GET /api/session?client_code=PLE` or `client_code=CWD`
 - `GET /api/dashboard?client_code=PLE` or `client_code=CWD`
-- `GET /api/consignments?client_code=PLE&status=ALL&q=&limit=100` or `client_code=CWD`
+- `GET /api/consignments?client_code=PLE&status=ALL&q=&limit=100&page=1&page_size=100&api_date_range=all` or `client_code=CWD`
 - `GET /api/consignments/{consignment_row_id}`
 - `GET /api/ingestion/files?client_code=PLE&limit=50` or `client_code=CWD`
 - `POST /api/uploads/consignments/preview`
+
+### Consignment list paging (ported from V2 dev02 `3b95601`)
+
+The list hydrates every row it returns - two `OUTER APPLY` blocks, a goods `GROUP BY`, a second goods query and a per-row validation summary - so the cost has to track the page, not the tenant. `page`/`page_size` are cut in SQL by a cheap id-pick over `PRS.Consignment` alone; only those ids are hydrated. `OFFSET` on the big query alone is not enough, because SQL Server still evaluates the per-row work for everything before the offset.
+
+`status` and `q` are SQL predicates on `PRS.Consignment`, so they page safely. `api_date_range` (`all`, `this_week`, `this_month`, `last_6_months`, `last_12_months`, `over_12_months`, from `app/tss_api_dates.py`) filters on the TSS arrival date/time in Python and therefore leaves the SQL-paged path: that request scans up to `CONSIGNMENT_DATE_FILTER_SCAN_CAP` rows instead. The response says which path ran:
+
+```json
+"pagination": { "page": 1, "pageSize": 100, "totalPages": 4, "filteredTotal": 340,
+                "sqlPaged": true, "scanCap": null, "scanTruncated": false }
+```
+
+`scanTruncated: true` means the date-filtered result is incomplete - it is reported rather than passed off as a full result. `statusCounts` honours the search but ignores the active status tab, so the tab counts do not collapse to the current page.
+
+### Login audit (ported from V2 dev02 `11bc217`)
+
+`/api/auth/login` and `/api/auth/logout` record every attempt in `AUTH.LoginAudit`, paired by `CorrelationId`. **The `AUTH` schema does not exist in the V3 QAS database**; the proposed DDL is `Configuration/SQL/036_auth_login_audit.sql` and has not been applied. `app/login_audit.py` checks for the table before every write and records nothing while it is absent, so login behaviour is unchanged until the team deploys it. The audit is best-effort by design: it can never be the reason a login fails.
 
 `preview` intentionally does not write to DB yet. It accepts one or more `files`, selects the portal-required attachment ordinal for the current client, hashes only that selected file, inspects CSV/XLSX headers, proposes safe target mappings for review, and returns the target landing path (`ING.Inbound_File` / `ING.Raw_Record`) so the write path can be added deliberately.
 ### Optional Scanned PDF OCR
