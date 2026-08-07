@@ -408,7 +408,8 @@ button:disabled { cursor: default; }
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  transform: translateX(32px);
+  /* No nudge: .login-main centres the card and .environment-indicator sits on
+     the viewport centre line, so any offset here misaligns the two. */
 }
 
 .flow-logo {
@@ -1991,7 +1992,6 @@ button:disabled { cursor: default; }
   .login-card {
     width: min(640px, calc(100vw - 32px));
     min-height: auto;
-    transform: none;
   }
   .login-main { padding: 24px 16px 0; }
   .environment-indicator { min-width: 126px; padding: 0 8px; }
