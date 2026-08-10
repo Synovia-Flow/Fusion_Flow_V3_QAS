@@ -143,8 +143,10 @@ mapping, add a row with that file's name — it takes precedence.
 - Removed stray `NewFile`, empty `Integration_Layer/`, and `__pycache__/`.
 - Secret scan clean: no leaked DB/TSS/Graph secrets in the tracked tree. Live
   `*.ini` and `tss_credentials.json` remain gitignored (templates only are committed).
-- `Deprecated/` retained intentionally (prior layer kept for reference). `Archive/<stamp>/`
-  snapshots retained as the deploy audit trail.
+- `Deprecated/` removed: it held the prior layout (`Configuration_Layer`,
+  `Integration_Layer/{App,BKD,CWH,PLE}`), superseded and recoverable from git history.
+  `Archive/<stamp>/` snapshots retained as the deploy audit trail — that folder is
+  `deploy.py`'s output target, not a leftover.
 
 ---
 

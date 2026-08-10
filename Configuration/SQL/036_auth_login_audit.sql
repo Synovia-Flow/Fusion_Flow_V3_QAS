@@ -10,7 +10,7 @@
               configuration lives in CFG.Application_Parameters (V2:
               CFG.AppConfiguration).
 
-              Every login attempt against Integration_Layer/Portal/fusion_api
+              Every login attempt against Portal/fusion_api
               (/api/auth/login, /api/auth/logout) is recorded here: who, which
               client/environment, from which address, success or failure and why.
               A success row and its logout row share CorrelationId.

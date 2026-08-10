@@ -96,7 +96,7 @@ Responsibilities:
 - Shared config helpers.
 - Masterdata load/sync utilities when they are not part of one specific run.
 
-### Integration_Layer/Portal
+### Portal
 
 The portal is the UI and control surface.
 
@@ -268,7 +268,8 @@ Examples:
 - Do not use STG as raw ingestion.
 - Do not create new crons/watchers without explicit approval.
 - Do not assume BKD-specific values globally.
-- Do not use `Deprecated/` as the primary direction.
+- The prior layout under `Deprecated/` is gone from the tree; if you need it, read it
+  from git history rather than treating it as the current direction.
 
 ## Current Priority
 

@@ -10,16 +10,18 @@ Working context for Claude/agent sessions on this repo. Read before changing cod
 - Working copy lives on a UNC share: `\\pl-az-sdf-plint\Fusion_Production\Scratch\Fusion_Flow_V3_QAS`.
   Git works but use `git -C "<UNC path>" …`; `cd` + UNC breaks cmd/npx (copy files to a
   local temp dir to run esbuild/node tooling).
-- V2 reference implementation (working prod flow for BKD): `.codex_tmp/Fusion_Flow_V2_BKD_prod/`
-  — has its own CLAUDE.md. Use it to answer "how does the live flow do X", never as a
-  pattern to copy blindly into V3.
+- V2 reference implementation (working prod flow for BKD): the separate checkout at
+  `E:\Desktop\dev\Fusion_Flow_V2_BKD` (branch `dev02`) — has its own CLAUDE.md. Use it
+  to answer "how does the live flow do X", never as a pattern to copy blindly into V3.
+  A stale 89 MB copy used to sit under `.codex_tmp/`; it was removed as redundant, so
+  this path is machine-local and not everyone will have it.
 
 ## Hard rules for Claude in this workspace
 
 1. **Never touch the database.** No DDL/DML, no `deploy.py` runs, no SQL execution.
    Propose SQL as files/docs only.
 2. **Never commit.** Leave all changes in the working tree; the team commits.
-3. Role: support — help Codex with the frontend (`Integration_Layer/Portal`), write
+3. Role: support — help Codex with the frontend (`Portal/`), write
    documentation, review and fix code per-module.
 
 ## Core design principles (user-enforced)
@@ -76,7 +78,7 @@ Schemas: `CFG` config, `CHG` deploy audit, `EXC` execution spine + `EXC.Job_Queu
 
 ## TSS API references
 
-- Postman collections: `.codex_tmp/Fusion_Flow_V2_BKD_prod/docs/api/v2.9.4/` and `v2.9.5/`
+- Postman collections: in the V2 checkout, `docs/api/v2.9.4/` and `v2.9.5/`
   (`TSS-Declaration-API-*.postman_collection.json`). Consignment endpoints under folder
   "2. Consignment"; SFD folder 5; IMMI folder 10; choice downloads folder 12.
 - The operator supplies process-overlay CSVs per declaration type (field name, type,
@@ -114,10 +116,10 @@ Schemas: `CFG` config, `CHG` deploy audit, `EXC` execution spine + `EXC.Job_Queu
 
 - **Stack A — `liveWeb/`**: the operations portal (Flask, single-page + small API).
   Primary. See `liveWeb/README.md`.
-- **Stack B — `Integration_Layer/Portal/`**: `fusion_api` (FastAPI) + `fusion_portal`
+- **Stack B — `Portal/`**: `fusion_api` (FastAPI) + `fusion_portal`
   (Vite/React). This is where Codex works; Claude assists here. Status vocabulary
   contract + modal behaviour documented in
-  `Integration_Layer/Portal/fusion_portal/README.md`. Frontend checks: copy the file to
+  `Portal/fusion_portal/README.md`. Frontend checks: copy the file to
   a local temp dir and run esbuild there (UNC breaks npx).
 
 ## Safety

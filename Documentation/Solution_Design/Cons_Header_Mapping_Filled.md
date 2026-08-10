@@ -14,8 +14,8 @@ Filled version of `COnsignments(Cons_Header_Mapping).csv`, organised by the V3
 | 7. Mirror | `SUB_03_mirror.py` / `SUB_06_fetch_json.py` | Reads TSS responses back (READ-only fields); logs to `API.Call`. |
 
 Cross-checked against the working V2 BKD prod flow
-(`.codex_tmp/Fusion_Flow_V2_BKD_prod/scripts/submit_pipeline.py` `build_consignment_payload`,
-staging in `app/ingestion/sales_orders_stage.py`) and TSS Declaration API v2.9.5 Postman.
+(in the V2 checkout: `scripts/submit_pipeline.py` `build_consignment_payload`, staging in
+`app/ingestion/sales_orders_stage.py`) and TSS Declaration API v2.9.5 Postman.
 
 ## Traceability principle
 

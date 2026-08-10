@@ -219,6 +219,7 @@ never clobber each other's scope.
 | `Configuration/` | connection template + `SQL/` migrations |
 | `Development/` | `Deploy/` (deploy.py, stage_queue.py) + `Review/` tooling |
 | `render.yaml`, `Dockerfile`, `requirements.txt` | deployment |
-| `Integration_Layer/`, `Database_Layer/` | Stack B (fusion_api + Vite portal) from `dev` |
-| `Documentation/`, `Inbound/`, `Branding/`, `assets/` | specs, source samples, brand |
-| `Deprecated/`, `Modules/_retired/` | legacy reference only — not the current architecture |
+| `Portal/` | Stack B — fusion_api (FastAPI) + fusion_portal (Vite), branch `dev` |
+| `Documentation/`, `Inbound/`, `Branding/` | specs, source samples, brand |
+| `Archive/<stamp>/` | applied DDL, written by `deploy.py` — the deploy audit trail |
+| `Modules/_retired/` | legacy reference only — not the current architecture |

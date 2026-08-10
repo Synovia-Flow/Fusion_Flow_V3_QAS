@@ -25,7 +25,7 @@ DEFAULT_INI = REPO_ROOT / "Configuration" / "Fusion_Flow_QAS.ini"
 DEFAULT_OUT = REPO_ROOT / "Documentation"
 # Where to look for table references (both live solutions + tooling).
 SCAN_DIRS = ["Configuration", "Modules", "Development", "liveWeb",
-             "Integration_Layer", "Database_Layer", "Deprecated", "Archive"]
+             "Portal", "Archive"]
 SCAN_EXT = (".sql", ".py")
 
 
