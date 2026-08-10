@@ -6,17 +6,17 @@ Identity assets for Fusion Flow documents, decks and the serve/reporting layer.
 
 | File | Use |
 |------|-----|
-| `synovia_logo.jpg` | Primary Synovia wordmark (on light/white backgrounds). Document headers. |
+| `SynoviaLogoHor.jpg` | Primary Synovia wordmark (on light/white backgrounds). Document headers. |
 | `synovia_logo_white.png` | White logo, transparent — for **dark** backgrounds (covers, dividers). |
 | `synovia-flow-logo.png` | Synovia **Flow** mark (transparent). |
 | `synovia_blue.png` | Synovia mark on brand blue. |
-| `fusion_logo.jpg` | Fusion product mark (light backgrounds). |
+| `FusionLogo.jpg` | Fusion product mark (light backgrounds). |
 | `clients/birkdale.png` | Client — Birkdale (BKD), pilot. |
 | `clients/countrywide.png` | Client — Countrywide (CWD). |
 | `clients/primeline-express.png` | Client — Primeline Express (PLE). |
 | `clients/claritycargologo.png` | Client — Clarity Cargo. |
 
-Backgrounds (route imagery etc.) live in `../assets/backgrounds/`.
+Backgrounds (route imagery etc.) live in `../liveWeb/assets/backgrounds/`.
 
 ## Palette
 

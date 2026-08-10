@@ -207,7 +207,7 @@ Repo: `liveWeb/assets/Branding/` (and canonical `Branding/`).
 | `SynoviaFlowJustLogo.png` | mark only — **favicon** (`<link rel="icon">`) & compact |
 | `SynoviaFlowWhite.png` | white wordmark for dark backgrounds |
 | `FusionLogo.jpg` | Fusion product mark — "Powered by Fusion" |
-| `assets/backgrounds/synovia-route-background.png` | faint splash backdrop (`opacity:.13`, `object-fit:cover`) |
+| `liveWeb/assets/backgrounds/synovia-route-background.png` | faint splash backdrop (`opacity:.13`, `object-fit:cover`) |
 
 Rules: logos placed over navy sit on a **white rounded panel**; product tagline **"Next-Generation Integration"**; "**Powered by Fusion**" pill uses the coral tokens (`rgba(255,122,69,.14)` bg, `--fusion2` text, glowing coral dot).
 

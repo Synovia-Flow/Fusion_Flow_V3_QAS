@@ -2,7 +2,7 @@
 
 Branded presentation deliverables for Fusion Flow R1. Built from the Functional
 Specification and the TSS API Data Model, using the identity in `../../Branding/`
-and backgrounds in `../../assets/`.
+and backgrounds in `../../liveWeb/assets/backgrounds/`.
 
 | File | What it is |
 |------|-----------|

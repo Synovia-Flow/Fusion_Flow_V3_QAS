@@ -21,6 +21,14 @@ node_modules/
 # Python artifacts
 __pycache__/
 *.py[cod]
+.pytest_cache/
+
+# OS clutter. Thumbs.db in particular keeps reappearing: the working copy lives
+# on a Windows share, so Explorer regenerates it in any folder holding images.
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
 
 # Local secrets - keep credentials out of source control. Do not remove.
 .env
@@ -52,7 +60,7 @@ Development/json/
 liveWeb/.env
 
 # Frontend local dev server logs
-Integration_Layer/Portal/fusion_portal/vite-dev.*.log
+Portal/fusion_portal/vite-dev.*.log
 
 # Backend local dev server logs
-Integration_Layer/Portal/fusion_api/uvicorn.*.log
+Portal/fusion_api/uvicorn.*.log
