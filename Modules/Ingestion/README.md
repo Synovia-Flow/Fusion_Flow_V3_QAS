@@ -1,21 +1,26 @@
 # Module 1 - Ingestion
 
-Ingestion is only about getting source data in and proving what arrived.
+Ingestion answers one question:
 
-It should not decide customs values, fix product data, submit to TSS or hide
-bad source data. It lands evidence and lets Processing deal with meaning.
+```text
+What did the customer send us?
+```
 
-## What it does
+It does not decide customs values. It does not submit to TSS. It does not hide bad data.
 
-- read configured mailboxes or file locations,
+It lands evidence.
+
+## What It Does
+
+- read configured mailboxes or folders,
 - classify the message/file,
-- save the original file,
-- capture email metadata, hashes, paths and timestamps,
+- save the original evidence,
+- store email metadata,
+- store hashes and paths,
 - load raw rows into `ING`,
-- create an `EXC.Execution` record for the run,
-- log technical details to `LOG`.
+- create execution/log records.
 
-## Current BKD route
+## BKD Route
 
 | Step | Job | Purpose |
 | --- | --- | --- |
@@ -23,19 +28,17 @@ bad source data. It lands evidence and lets Processing deal with meaning.
 | 2 | `ING_BKD_PARSE_ENS` | Parse `DETAILS FOR...` / `Tss Details` body text into ENS source data. |
 | 3 | `ING_BKD_LOAD_RAW` | Load ENS and Sales Orders rows into `ING`. |
 
-The runner should read active jobs from `CFG.Job`. If the table is not ready,
-the BKD fallback order above is the safe default.
+The runner should read active jobs from `CFG.Job`. If that is not ready, the BKD fallback order above is the safe default.
 
-## Evidence rule
+## Evidence Rule
 
 The customer file is evidence.
 
-Do not rewrite it to make Fusion happier. If we need derived values, store them
-in database rows with provenance. The original file should still be available.
+Do not rewrite it. If Fusion derives a better value, store that derived value separately with provenance.
 
-## Tables involved
+## Typical Tables
 
-Typical V3 target:
+Target V3:
 
 - `ING.Inbound_File`
 - `ING.Raw_Record`
@@ -43,13 +46,7 @@ Typical V3 target:
 - `EXC.Execution`
 - `LOG.Process_Log`
 
-BKD production currently also has:
-
-- `ING.BKD_EmailMessage`
-- `ING.BKD_EmailAttachment`
-- `ING.BKD_SourceFileLog`
-- `ING.BKD_ProcessLog`
-- `ING.BKD_SalesOrderLine`
+BKD production also has older/proven BKD-specific `ING.BKD_*` tables. Use them as behaviour reference, not as an excuse to duplicate structure.
 
 ## Run
 
@@ -57,10 +54,9 @@ BKD production currently also has:
 python Modules\Ingestion\ING_00_run_cycle.py
 ```
 
-The script should take behaviour from config, not from hardcoded tenant logic.
-Use dry-run or a test mailbox first when changing classification rules.
+Use a test mailbox or dry-run style checks when changing classification rules.
 
-## Keep out of this module
+## Keep Out Of Ingestion
 
 - product enrichment,
 - partner matching,
@@ -68,5 +64,3 @@ Use dry-run or a test mailbox first when changing classification rules.
 - PRS/STG writes,
 - TSS API calls,
 - customer notifications.
-
-Those belong to Processing, Submission or Notifications.

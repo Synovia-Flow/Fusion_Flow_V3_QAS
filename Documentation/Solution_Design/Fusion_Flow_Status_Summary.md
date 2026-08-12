@@ -1,46 +1,44 @@
 # Fusion Flow V3 - Status Summary
 
-Short version: V3 has the right shape, but not every production behaviour has
-been moved into that shape yet.
+Plain version: V3 has the right shape. We are still moving proven production behaviour into that shape.
 
-## What is clear
+## The Shape
 
-- The target model is `ING -> PRS -> STG -> API/TSS`.
+```text
+ING -> PRS -> STG -> API/TSS
+```
+
+That means:
+
+- `ING` keeps what arrived.
+- `PRS` keeps what we cleaned and validated.
+- `STG` keeps what is ready to submit.
+- `API` keeps every call.
+- `TSS` mirrors the official TSS answer.
+
+## What Is Clear
+
 - The portal should not own business logic.
-- Jobs should be driven by `CFG`, not hardcoded switches.
-- Raw source data and manual changes need proper audit.
-- The BKD production flow gives us the real behaviours we need to carry across.
+- Jobs should use `CFG`, not hardcoded client switches.
+- Raw source data needs audit.
+- Manual changes need audit.
+- BKD V2 is the proof of behaviour, not the structure to copy blindly.
 
-## Current layer ownership
+## What Still Needs Care
 
-| Layer | Meaning |
-| --- | --- |
-| `ING` | What arrived. Emails, files, raw rows, hashes, paths. |
-| `CFG` | What we trust as config/masterdata/choice values. |
-| `PRS` | What we plan to submit after processing and validation. |
-| `STG` | Operational copy ready for submission. |
-| `API` | TSS request/response evidence. |
-| `TSS` | Local mirror of official TSS state. |
-| `EXC` / `LOG` | Runs, transactions, technical trace and failures. |
-| `CHG` | Deployments and manual changes. |
+- Product lookup must stay SKU-first.
+- Partner/masterdata enrichment must come from `CFG`.
+- Any assumed value must be visible as an assumption.
+- TSS payload values must be formatted how TSS accepts them.
+- Submit/update/cancel must stay gated.
+- Notifications should use official mirrored TSS status.
 
-## What still needs care
+## Practical Order
 
-- Do not copy V2 as-is into V3. Pull the working behaviour into modules.
-- Keep product matching SKU-first.
-- Keep SDI goods mapping stable by source item / SKU / TSS goods id.
-- Keep original files untouched.
-- Keep notification logic based on official TSS status.
-- Keep submit/update/cancel actions gated and auditable.
+1. Ingest the source.
+2. Process and validate.
+3. Promote, submit and sync.
+4. Notify from real status.
+5. Add SD/SupDec once the first flow is stable.
 
-## Practical next step
-
-Use the `Automation/` folder as the working map:
-
-1. ingest,
-2. process + validate,
-3. promote + submit + sync,
-4. notify,
-5. SDI/SupDec automation.
-
-That is the clean path from what works today to where V3 should land.
+That is the clean path.

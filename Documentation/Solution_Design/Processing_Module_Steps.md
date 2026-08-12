@@ -1,67 +1,63 @@
 # Processing Module Steps
 
-Processing is the point where raw data becomes something we would be happy to
-submit.
+Processing is where raw customer data becomes something we can trust.
 
-It should be strict. If the data is not good enough, block it here instead of
-letting TSS reject it later.
+If the data is bad, we stop it here. It is better to fix it in Fusion than let TSS reject it later.
 
-## Input and output
+## Input And Output
 
 ```text
 ING raw rows
-  -> normalise
+  -> clean values
   -> enrich from CFG
-  -> construct PRS records
+  -> build PRS records
   -> validate
-  -> ready for STG promotion
+  -> ready for STG
 ```
 
-## Steps
+## The Steps
 
-| Step | What happens |
+| Step | Plain meaning |
 | --- | --- |
-| 1. Claim source | Pick the raw `ING` rows for the run and open execution trace. |
-| 2. Map | Read the configured source fields for the client/entity. |
-| 3. Normalise | Clean dates, yes/no values, codes, whitespace and obvious formatting. |
-| 4. Enrich | Add approved partner/product/default data from `CFG`. |
-| 5. Construct | Build the PRS ENS/consignment/goods/SDI object. |
-| 6. Validate | Required fields, choice values, dates, EORI/address, weights, values, duplicates. |
-| 7. Mark result | `VALIDATED` if clean, `REJECTED` if not. |
-| 8. Hand off | Only validated rows should move towards `STG` and TSS. |
+| 1. Claim source | Pick the `ING` rows for this run. |
+| 2. Map fields | Work out which source field becomes which target field. |
+| 3. Clean values | Fix dates, yes/no values, codes, spaces and obvious formatting. |
+| 4. Enrich | Add trusted product, partner and default data from `CFG`. |
+| 5. Build records | Create the PRS ENS/DEC/goods/SD records. |
+| 6. Validate | Check required fields, choice values, EORI/address, weights and duplicates. |
+| 7. Mark result | Mark clean rows as `VALIDATED`; mark bad rows as `REJECTED`. |
+| 8. Hand off | Only clean rows move towards `STG` and TSS. |
 
-## What should be config-driven
+## What Must Come From Config
 
-- source column to target field,
+- source field to target field mapping,
 - default values,
-- choice-value mapping,
-- product and partner enrichment,
-- conditional required fields,
-- client-specific rules.
+- product masterdata,
+- partner masterdata,
+- TSS choice values,
+- client-specific rules,
+- required-field rules.
 
-The engine should be reusable. The client differences should live in `CFG`, not
-in copied code.
+Client differences belong in `CFG`, not in copied scripts.
 
-## Rules we need to preserve
+## Rules To Preserve
 
-- Product identity is SKU-first.
-- Goods description is useful text, not a safe primary key.
-- Weights should not be multiplied by `QtyPerUom`.
-- Source files stay untouched.
+- SKU is the product key.
+- Description is helpful, but not a safe key.
+- Original files stay untouched.
 - Every derived/defaulted value needs provenance.
-- SDI goods must map back to the correct source goods.
+- Any assumption must be visible.
+- SD goods must map back to the correct source goods.
 - Known blockers stay local until fixed.
 
-## Audit
+## Minimum Audit
 
-Processing should leave enough trace to answer:
+For any important value, we should be able to answer:
 
-- source row,
-- source file/email,
-- field before,
-- field after,
-- rule/default used,
-- validation result,
-- error reason if rejected.
+- where did it come from?
+- what did we change?
+- what rule changed it?
+- did validation pass?
+- if it failed, why?
 
-That is the minimum standard before we trust an automated submit.
+That is the minimum before automated submit makes sense.

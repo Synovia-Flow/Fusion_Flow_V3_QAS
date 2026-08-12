@@ -1,11 +1,16 @@
 # Fusion Flow V3 Architecture
 
-V3 is a hybrid system.
+This is the short version.
 
-There is one core database. The portal can be hosted, but the heavy work can
-still run locally where the mailbox, file shares and TSS access make sense.
+Fusion Flow V3 has three moving parts:
 
-## Simple version
+1. the portal,
+2. the modules,
+3. the database.
+
+The portal is for people. The modules do the work. The database remembers everything.
+
+## Simple Picture
 
 ```mermaid
 flowchart TB
@@ -29,61 +34,62 @@ flowchart TB
     Jobs --> TSS["TSS API"]
 ```
 
-## Why split it like this?
+## Who Does What?
 
-- The portal is for operators: view, edit, approve, trigger.
-- The modules are for work: ingest, process, validate, submit, mirror.
-- The database is the source of truth.
-- TSS calls should run from the allowed environment, not accidentally from any
-  machine that can open the UI.
-
-## Main layers
-
-| Layer | Job |
+| Part | Job |
 | --- | --- |
-| `ING` | Store source evidence exactly as received. |
-| `PRS` | Build the clean object we intend to submit. |
-| `STG` | Hold the operational submit-ready copy. |
-| `API` | Store every request and response. |
-| `TSS` | Mirror what TSS says now. |
-| `EXC` / `LOG` | Record runs, status, errors and timings. |
-| `CHG` | Record deployments and manual changes. |
+| Portal | Show, review, edit and trigger work. |
+| Modules | Ingest, process, validate, submit and sync. |
+| Database | Store source evidence, clean data, audit and TSS responses. |
+| TSS | Official external system. |
 
-## Portal vs worker
+## Why Not Put Everything In The Portal?
 
-The current hosted portal lives in `Portal/fusion_portal` with its API in `Portal/fusion_api`. `liveWeb` remains the single-service portal shape for the module-first product. The portal can run a small action directly, but the preferred pattern is:
+Because then the portal becomes a big hidden script.
 
-1. operator clicks an action,
-2. portal writes a row to `EXC.Job_Queue`,
-3. local worker claims it,
-4. local worker runs the same module script,
-5. result is written back to the database.
+That is hard to test, hard to audit and easy to break. V3 should keep business work in `Modules/`, with the portal acting as the control surface.
 
-That gives us a hosted UI without moving all execution to the cloud.
+## Main Flow
+
+```text
+ING: what arrived
+CFG: what we trust
+PRS: what we plan to send
+STG: what is ready to submit
+API: what we called
+TSS: what TSS returned
+```
+
+## Portal And Worker
+
+Preferred pattern:
+
+1. operator clicks an action in the portal,
+2. portal writes a job to `EXC.Job_Queue`,
+3. local worker claims the job,
+4. worker runs the module script,
+5. module writes the result back to the DB,
+6. portal reads the result.
+
+That gives us a hosted UI without moving every TSS call into the cloud.
 
 ## Scheduling
 
 Pick one scheduler. Do not run the same job from two places.
 
-Recommended default:
+Default direction:
 
 - local Task Scheduler / SQL Agent runs recurring jobs,
 - local `job_worker.py` handles queued portal actions,
-- hosted portal only reads, edits and enqueues.
+- hosted portal reads, edits and enqueues.
 
-## Safety rules
+No new cron/schedule should be added unless it is approved first.
+
+## Safety Rules
 
 - Dry-run first for submit/update/cancel.
-- Store request/response JSON for TSS calls.
+- Store request and response JSON for TSS calls.
 - Use official TSS status for notifications.
-- Do not treat local status as final truth.
-- Keep secrets in env/ini/secret store, not in git.
+- Keep secrets out of git.
 - Keep manual edits auditable.
-
-## What this architecture avoids
-
-- One-off scripts with no trace.
-- Portal routes doing business logic.
-- Reprocessing without knowing the original source.
-- Submitting data that already failed local validation.
-- Losing the reason why a value was defaulted, changed or blocked.
+- Do not create tables just because a script feels easier that way.

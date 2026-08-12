@@ -1,29 +1,28 @@
 # Solution Design
 
-This folder is for the higher-level V3 material: decks, process notes and design
-summaries.
+This folder explains the V3 shape at a higher level.
 
-Keep it short. The useful thing here is not a long explanation; it is a clear
-view of how the flow is meant to work and what still needs to move from the
-current BKD automation into proper V3 modules.
+Keep these docs short. If someone needs five pages to understand a simple flow, the doc is not doing its job.
 
-## Main files
+## Start Here
 
-| File | Purpose |
+| File | Use it for |
 | --- | --- |
-| `Fusion_Flow_E2E_Solution_Design.pptx` | End-to-end platform view. |
-| `Fusion_Flow_PRS_Processing_Module.pptx` | Processing / PRS module view. |
+| `Fusion_Flow_Status_Summary.md` | Quick status and current direction. |
+| `Processing_Module_Steps.md` | What Processing should do, step by step. |
+| `Fusion_Flow_E2E_Solution_Design.pptx` | End-to-end deck. |
+| `Fusion_Flow_PRS_Processing_Module.pptx` | PRS / Processing deck. |
 | `PRS_Processing_Module_Deck.html` | Browser version of the PRS deck. |
-| `Fusion_Flow_Status_Summary.md` | Short status summary. |
-| `Processing_Module_Steps.md` | Processing steps and ownership. |
 
-## What the docs should make clear
+## The Core Idea
 
-- `ING` is evidence.
-- `CFG` is approved config/masterdata.
-- `PRS` is the clean record before submit.
-- `STG/API/TSS` are the submit and response layers.
-- `EXC/LOG/CHG` are for audit, execution and traceability.
+```text
+ING = what arrived
+CFG = what we trust
+PRS = what we plan to send
+STG = what is ready to submit
+API/TSS = what happened with TSS
+EXC/LOG/CHG = proof and audit
+```
 
-If a document cannot explain where a value came from and where it goes next, it
-needs tightening.
+If a document cannot explain where a value came from and where it goes next, it needs tightening.
