@@ -1,20 +1,29 @@
-# Solution Design — Documents & Decks
+# Solution Design
 
-Branded presentation deliverables for Fusion Flow R1. Built from the Functional
-Specification and the TSS API Data Model, using the identity in `../../Branding/`
-and backgrounds in `../../liveWeb/assets/backgrounds/`.
+This folder is for the higher-level V3 material: decks, process notes and design
+summaries.
 
-| File | What it is |
-|------|-----------|
-| `Fusion_Flow_E2E_Solution_Design.pptx` | **End-to-end Solution Design Document** (17 slides). Architecture (11-schema layer model, end-to-end data flow), process flows (Route A declaration journey + all five modules), data & audit model, critical-rule compliance, delivery status & roadmap. |
-| `Fusion_Flow_PRS_Processing_Module.pptx` | **Module 2 — Data Processing (PRS)** deep-dive (12 slides). NORMALISE → ENRICH → CONSTRUCT → VALIDATE, the BKD QAS rules, the PRS object graph, and a real field-level audit trace. |
-| `PRS_Processing_Module_Deck.html` | The same PRS deep-dive as a self-contained, navigable web deck (← → / dot rail). Open in a browser. |
+Keep it short. The useful thing here is not a long explanation; it is a clear
+view of how the flow is meant to work and what still needs to move from the
+current BKD automation into proper V3 modules.
 
-## Notes
+## Main files
 
-- **Fonts:** Segoe UI (display/body) + Consolas (data/mono) — Windows-native;
-  they substitute cleanly on macOS.
-- **Editable:** the `.pptx` files are native PowerPoint (real text, shapes,
-  images) — fully editable in PowerPoint / Keynote / Google Slides.
-- Regenerate or restyle on request; the decks are generated from the spec +
-  data model so they can be rebuilt as the design evolves.
+| File | Purpose |
+| --- | --- |
+| `Fusion_Flow_E2E_Solution_Design.pptx` | End-to-end platform view. |
+| `Fusion_Flow_PRS_Processing_Module.pptx` | Processing / PRS module view. |
+| `PRS_Processing_Module_Deck.html` | Browser version of the PRS deck. |
+| `Fusion_Flow_Status_Summary.md` | Short status summary. |
+| `Processing_Module_Steps.md` | Processing steps and ownership. |
+
+## What the docs should make clear
+
+- `ING` is evidence.
+- `CFG` is approved config/masterdata.
+- `PRS` is the clean record before submit.
+- `STG/API/TSS` are the submit and response layers.
+- `EXC/LOG/CHG` are for audit, execution and traceability.
+
+If a document cannot explain where a value came from and where it goes next, it
+needs tightening.

@@ -1,73 +1,72 @@
-# Module 1 — Ingestion (SKELETON)
+# Module 1 - Ingestion
 
-Acquires inbound data per client and lands it **verbatim** into `ING`, opening
-one `EXC.Execution` (Transaction_ID) per run with full provenance and dedup
-hashing.
+Ingestion is only about getting source data in and proving what arrived.
 
-> **Status: skeleton.** The orchestration, config loading, EXC/LOG wiring and
-> verbatim-landing helpers are implemented. The per-route fetch/parse logic is
-> **stubbed** because each client/channel differs — implement one class to add a
-> route.
+It should not decide customs values, fix product data, submit to TSS or hide
+bad source data. It lands evidence and lets Processing deal with meaning.
 
-## Channels (routes)
+## What it does
 
-| Class | Name | Status |
-|---|---|---|
-| `EmailGraphChannel` | EMAIL | **Implemented** — Microsoft Graph (`graph_email.py`): scan mailbox, download non-image attachments, land to ING, move to `Fusion_Processed`. Config from `CFG.Application_Parameters` (seeded by `006`). |
-| `FileDropChannel` | FILE_DROP | skeleton — scan client `INBOUND` folder, read files |
-| `SftpChannel` | SFTP | skeleton — SFTP listing + get |
-| `RestChannel` | REST | skeleton — REST pull |
+- read configured mailboxes or file locations,
+- classify the message/file,
+- save the original file,
+- capture email metadata, hashes, paths and timestamps,
+- load raw rows into `ING`,
+- create an `EXC.Execution` record for the run,
+- log technical details to `LOG`.
 
-### EMAIL route (Microsoft Graph)
+## Current BKD route
 
-`graph_email.py` adapts the proven `Inbound/Graph_Inbox_Analyzer.py` flow into
-the CFG/ING/EXC architecture: app-only MSAL token → scan Inbox sub-folders
-(skipping system folders + the processed target) → download every NON-IMAGE file
-attachment → land verbatim into `ING.Inbound_File`/`ING.Raw_Record` (+ provenance
-in `ING.Source_Email`) → move the message into `Inbox/Fusion_Processed`. Every
-step is logged to `EXC.Execution` / `LOG`.
+| Step | Job | Purpose |
+| --- | --- | --- |
+| 1 | `ING_BKD_ACQUIRE_EMAIL` | Pull relevant emails/files from Microsoft Graph. |
+| 2 | `ING_BKD_PARSE_ENS` | Parse `DETAILS FOR...` / `Tss Details` body text into ENS source data. |
+| 3 | `ING_BKD_LOAD_RAW` | Load ENS and Sales Orders rows into `ING`. |
 
-The client **secret is never stored in the DB**: it is resolved at runtime from
-`GRAPH_CLIENT_SECRET` (env) or the `GRAPH_CLIENT_SECRET_REF` Key Vault reference.
-Set `GRAPH_TENANT_ID` in `CFG.Application_Parameters` (it is not in the manifest).
+The runner should read active jobs from `CFG.Job`. If the table is not ready,
+the BKD fallback order above is the safe default.
 
-To implement a route, fill in `discover()`, `fetch()` and `parse_rows()` on its
-class, then replace the SKELETON block in `run()` with the documented landing loop.
+## Evidence rule
 
-## Config (no hardcoding)
+The customer file is evidence.
 
-- **DB connection** → `Configuration/Fusion_Flow_QAS.ini` `[database]` (gitignored).
-- **Parameters** → `CFG.Application_Parameters`.
-- **Routing** → `CFG.Clients`, `CFG.Email_Rules`, `CFG.Folder_Paths`.
+Do not rewrite it to make Fusion happier. If we need derived values, store them
+in database rows with provenance. The original file should still be available.
 
-## Jobs (CFG.Job)
+## Tables involved
 
-The schedulable units of work are registered as data in **`CFG.Job`** (seeded by
-`Configuration/SQL/012_cfg_jobs.sql`), so the job list is authoritative and
-documented, not buried in code. The active Birkdale cycle:
+Typical V3 target:
 
-| JobCode | Step | Purpose | Entry point |
-|---|---|---|---|
-| `ING_BKD_CYCLE` | — | Orchestrates the cycle below (one EXC.Execution per step) | `run_ingestion:main` |
-| `ING_BKD_ACQUIRE_EMAIL` | 1 | Download `@birkdalesales.com` attachments via Graph; prefix + move mail to `Fusion_Processed/BKD`; land provenance | `birkdale_sales_orders:run` |
-| `ING_BKD_PARSE_ENS` | 2 | Parse forwarded TSS *Details* mails into the timestamped ENS CSV (dedup on `DetailsDate\|ICR`) | `ens_headers:run_from_graph` |
-| `ING_BKD_LOAD_RAW` | 3 | Load ENS CSV + Sales Order workbooks into `ING.BKD_Raw_*`; move files to Processed | `load_raw:run` |
+- `ING.Inbound_File`
+- `ING.Raw_Record`
+- `ING.Source_Email`
+- `EXC.Execution`
+- `LOG.Process_Log`
 
-Registered but **inactive** (modular, future channels): `ING_ACQUIRE_FILE_DROP`,
-`ING_ACQUIRE_SFTP`, `ING_ACQUIRE_AS2`, `ING_ACQUIRE_API`.
+BKD production currently also has:
+
+- `ING.BKD_EmailMessage`
+- `ING.BKD_EmailAttachment`
+- `ING.BKD_SourceFileLog`
+- `ING.BKD_ProcessLog`
+- `ING.BKD_SalesOrderLine`
 
 ## Run
 
-The scheduler runs the cycle with **no CLI** — behaviour comes from `CFG.Job` and
-`CFG.Application_Parameters` (`INGESTION_CLIENT`, `INGESTION_DRY_RUN`):
-
-```bash
-python run_ingestion.py        # runs the active CFG.Job steps for INGESTION_CLIENT
+```powershell
+python Modules\Ingestion\ING_00_run_cycle.py
 ```
 
-`ingest.py` remains the per-channel framework (one class per route); fill in
-`discover()`/`fetch()`/`parse_rows()` to activate a new channel, then flip the
-matching `CFG.Job` row to active.
+The script should take behaviour from config, not from hardcoded tenant logic.
+Use dry-run or a test mailbox first when changing classification rules.
 
-Requires `pyodbc` (and `openpyxl` once XLSX parsing is implemented). Lands into
-`ING.Inbound_File` / `ING.Raw_Record` / `ING.Source_Email` (see SQL files 004–005).
+## Keep out of this module
+
+- product enrichment,
+- partner matching,
+- TSS choice validation,
+- PRS/STG writes,
+- TSS API calls,
+- customer notifications.
+
+Those belong to Processing, Submission or Notifications.
