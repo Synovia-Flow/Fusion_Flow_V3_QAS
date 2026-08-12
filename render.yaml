@@ -140,6 +140,8 @@ services:
     envVars:
       - key: DB_CONN_STR
         sync: false
+      - key: DB_CONN_STR_MIRROR
+        sync: false
       - key: FLOW_V1_USER
         sync: false
       - key: FLOW_V1_PASSWORD
