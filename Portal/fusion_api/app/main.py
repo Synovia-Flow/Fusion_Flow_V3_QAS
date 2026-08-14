@@ -1172,6 +1172,50 @@ def auth_login(request: Request, payload: Annotated[dict[str, object], Body(...)
     # best-effort so it can never be the reason a login fails. The correlation id
     # ties the success row to the logout row for the same session.
     correlation_id = uuid4().hex
+
+    # Synovia is the DB-independent demo/admin login. Check it before querying
+    # CFG so operators can still enter the read-only demo when SQL is unavailable
+    # or Render has not yet been given DB_CONN_STR.
+    if env_app_login_matches(username, password):
+        default_profile = fallback_profile("BKD")
+        if not default_profile:
+            raise HTTPException(status_code=503, detail="The Synovia demo profile is not configured.")
+        record_login_audit(
+            request,
+            event_type=EVENT_LOGIN_SUCCESS,
+            success=True,
+            username=username,
+            client_code="BKD",
+            correlation_id=correlation_id,
+        )
+        return {
+            "authenticated": True,
+            "source": "FLOW_V1_USER",
+            "session": {
+                "tenantCode": "SYNOVIA",
+                "tenantName": "Synovia",
+                "username": username,
+                "role": "CentralAdmin",
+                "mode": "DEMO_ADMIN",
+                "authCorrelationId": correlation_id,
+            },
+            "connection": {
+                "portalClientCode": default_profile["portalClientCode"],
+                "clientCode": default_profile["clientCode"],
+                "clientName": default_profile["clientName"],
+                "tssCredentialClientCode": default_profile["tssCredentialClientCode"],
+                "preferredEnvCode": default_profile["preferredEnvCode"],
+                "requiresEnsBeforeSubmit": default_profile["requiresEnsBeforeSubmit"],
+                "fileSelection": default_profile["fileSelection"],
+                "credential": None,
+                "route": fallback_route(default_profile),
+            },
+            "defaultClientCode": "BKD",
+            "demoMode": True,
+            "databaseWrite": False,
+            "tssWrite": False,
+        }
+
     try:
         row = query_one(
             """
@@ -1216,33 +1260,6 @@ def auth_login(request: Request, payload: Annotated[dict[str, object], Body(...)
                 "connection": public_connection_payload(profile, env_code=str(row["EnvCode"])),
             }
 
-        if env_app_login_matches(username, password):
-            default_profile = load_portal_profile("BKD")
-            record_login_audit(
-                request,
-                event_type=EVENT_LOGIN_SUCCESS,
-                success=True,
-                username=username,
-                client_code="BKD",
-                correlation_id=correlation_id,
-            )
-            return {
-                "authenticated": True,
-                "source": "FLOW_V1_USER",
-                "session": {
-                    "tenantCode": "SYNOVIA",
-                    "tenantName": "Synovia",
-                    "username": username,
-                    "role": "CentralAdmin",
-                    "mode": "DEMO_ADMIN",
-                    "authCorrelationId": correlation_id,
-                },
-                "connection": public_connection_payload(default_profile),
-                "defaultClientCode": "BKD",
-                "demoMode": True,
-                "databaseWrite": False,
-                "tssWrite": False,
-            }
     except DbUnavailable as exc:
         raise db_error(exc) from exc
 

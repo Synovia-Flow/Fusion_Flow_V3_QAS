@@ -96,12 +96,14 @@ class FakeRequest:
 
 
 class PortalAuthTests(unittest.TestCase):
-    def test_flow_v1_login_returns_synovia_demo_session_not_primeline_tenant(self):
+    def test_flow_v1_login_returns_synovia_demo_session_without_database(self):
         original_query_one = portal_main.query_one
         old_user = os.environ.get("FLOW_V1_USER")
         old_password = os.environ.get("FLOW_V1_PASSWORD")
         try:
-            portal_main.query_one = lambda *args, **kwargs: None
+            portal_main.query_one = lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("Synovia demo login must not query the database")
+            )
             os.environ["FLOW_V1_USER"] = "synovia-test"
             os.environ["FLOW_V1_PASSWORD"] = "Password2025!"
 
