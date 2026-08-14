@@ -9,6 +9,7 @@ const DEFAULT_SESSION = {
   mode: 'DEMO_ADMIN',
 };
 const DEFAULT_OPERATIONAL_CLIENT_CODE = 'BKD';
+const DEFAULT_AUTHENTICATED_VIEW = 'controlTower';
 const TSS_ENVIRONMENT_DEMO_OPTION = { value: 'DEMO', label: 'Demo' };
 const MASTER_LIVE_URL = 'https://synovia-flow-3-live.onrender.com/';
 const MASTER_LIVE_EMBED_URL = '/master-live/index.html';
@@ -138,7 +139,7 @@ function getPortalSessionStorage() {
 }
 
 function normalizeStoredPortalView(view) {
-  return PERSISTABLE_VIEWS.has(view) ? view : 'dashboard';
+  return PERSISTABLE_VIEWS.has(view) ? view : DEFAULT_AUTHENTICATED_VIEW;
 }
 
 function normalizeStoredSettingsSection(sectionId) {
@@ -1067,12 +1068,12 @@ function Drawer({ open, view, isAuthenticated, isDarkTheme, settingsSections = [
     <aside className={`drawer ${open ? 'is-open' : ''}`} aria-label="Navigation">
       <div className="drawer-brand">SynoviaFlow</div>
       <nav className="drawer-nav">
-        <DrawerRow icon="home" label="Home" active={view === 'dashboard'} onClick={() => onNavigate(isAuthenticated ? 'dashboard' : 'login')} />
+        <DrawerRow icon="dashboard" label="Control Tower" active={view === 'controlTower'} onClick={() => onNavigate(isAuthenticated ? 'controlTower' : 'login')} />
         {isAuthenticated && (
           <>
+            <DrawerRow icon="home" label="Portal Home" active={view === 'dashboard'} onClick={() => onNavigate('dashboard')} />
             <DrawerRow icon="upload_file" label="Upload Consignments" active={view === 'upload'} onClick={() => onNavigate('upload')} />
             <DrawerRow icon="list_alt" label="View Consignments" active={WORKFLOW_VIEWS.has(view)} onClick={() => onNavigate('consignments')} />
-            <DrawerRow icon="hub" label="Control Tower" active={view === 'controlTower'} onClick={() => onNavigate('controlTower')} />
             <DrawerRow icon="table_view" label="Master Live" active={view === 'masterLive'} onClick={() => onNavigate('masterLive')} />
           </>
         )}
@@ -2539,6 +2540,7 @@ const CONTROL_TOWER_TABS = [
   { id: 'trace', label: 'Traceability', icon: 'account_tree' },
   { id: 'jobs', label: 'Jobs', icon: 'conversion_path' },
   { id: 'api', label: 'API / TSS Logs', icon: 'sync_alt' },
+  { id: 'notifications', label: 'Notifications', icon: 'notifications' },
 ];
 
 function controlDisplay(value, fallback = '-') {
@@ -2563,7 +2565,7 @@ function formatDateTime(value) {
 }
 
 function controlRowKey(row, index) {
-  return row.QueueID ?? row.ExecutionID ?? row.CallID ?? row.LogID ?? row.JobCode ?? row.MovementKey ?? row.ParameterKey ?? index;
+  return row.QueueID ?? row.ExecutionID ?? row.CallID ?? row.NotificationID ?? row.LogID ?? row.JobCode ?? row.MovementKey ?? row.ParameterKey ?? index;
 }
 
 const MOVEMENT_COLUMNS = [
@@ -2627,6 +2629,17 @@ const API_CALL_COLUMNS = [
   { key: 'Success', label: 'Success', render: (row) => controlBool(row.Success) },
   { key: 'IsDryRun', label: 'Dry run', render: (row) => controlBool(row.IsDryRun) },
   { key: 'DurationMs', label: 'ms' },
+  { key: 'ErrorMessage', label: 'Error', render: (row) => compactText(row.ErrorMessage) },
+];
+
+const NOTIFICATION_COLUMNS = [
+  { key: 'CreatedAt', label: 'Created', render: (row) => formatDateTime(row.SentAt || row.CreatedAt) },
+  { key: 'EventType', label: 'Event' },
+  { key: 'EntityKind', label: 'Entity' },
+  { key: 'Channel', label: 'Channel' },
+  { key: 'ToRecipients', label: 'Recipients', render: (row) => compactText(row.ToRecipients, 90) },
+  { key: 'Subject', label: 'Subject', render: (row) => compactText(row.Subject, 140) },
+  { key: 'Status', label: 'Status', render: (row) => <StatusBadge status={row.Status} /> },
   { key: 'ErrorMessage', label: 'Error', render: (row) => compactText(row.ErrorMessage) },
 ];
 
@@ -2882,6 +2895,21 @@ function ControlTowerPage({ onBack, clientCode, connection }) {
         <div className="control-sections">
           <ControlPanel title="API.Call" icon="sync_alt">
             <ControlTowerTable columns={API_CALL_COLUMNS} rows={payload.apiCalls || []} emptyText="No API call rows" loading={isInitialControlLoading} loadingText="Loading API/TSS calls..." />
+          </ControlPanel>
+        </div>
+      )}
+
+      {activeTab === 'notifications' && (
+        <div className="control-sections">
+          <div className="control-notification-note">
+            <MaterialIcon>{payload.availability?.['LOG.Notification'] ? 'mark_email_read' : 'info'}</MaterialIcon>
+            <div>
+              <strong>{payload.availability?.['LOG.Notification'] ? 'Notification audit is available' : 'Notification audit is not deployed'}</strong>
+              <span>{payload.availability?.['LOG.Notification'] ? `${formatNumber(counts.notifications || 0)} recorded notifications; ${formatNumber(counts.notificationFailures || 0)} failed.` : 'V3 will not create LOG.Notification from the portal. Settings remain usable and history will appear automatically if the existing table is deployed.'}</span>
+            </div>
+          </div>
+          <ControlPanel title="LOG.Notification" icon="notifications">
+            <ControlTowerTable columns={NOTIFICATION_COLUMNS} rows={payload.notifications || []} emptyText={payload.availability?.['LOG.Notification'] ? 'No notification history for this client' : 'LOG.Notification is not available in this database'} loading={isInitialControlLoading} loadingText="Loading notification history..." />
           </ControlPanel>
         </div>
       )}
@@ -4082,7 +4110,7 @@ export default function App() {
   useEffect(() => {
     function handlePopState() {
       const nextRoute = portalRouteFromLocation();
-      setView(nextRoute.view || (isAuthenticated ? 'dashboard' : 'login'));
+      setView(nextRoute.view || (isAuthenticated ? DEFAULT_AUTHENTICATED_VIEW : 'login'));
       setSettingsSection(nextRoute.settingsSection || SETTINGS_NAV_SECTIONS[0].id);
       setRouteConsignmentId(nextRoute.consignmentId || '');
       setRouteDeclarationId(nextRoute.declarationId || '');
@@ -4224,7 +4252,7 @@ export default function App() {
     setApiStatus('online');
     setEnvironmentMode(nextEnvironmentMode);
     const postLoginRoute = portalRouteFromLocation();
-    const nextView = postLoginRoute.view && postLoginRoute.view !== 'login' ? postLoginRoute.view : 'dashboard';
+    const nextView = postLoginRoute.view && postLoginRoute.view !== 'login' ? postLoginRoute.view : DEFAULT_AUTHENTICATED_VIEW;
     const nextSettingsSection = postLoginRoute.settingsSection || settingsSection;
     const nextConsignmentId = postLoginRoute.consignmentId || '';
     const nextDeclarationId = postLoginRoute.declarationId || '';

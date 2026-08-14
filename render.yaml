@@ -134,8 +134,8 @@ services:
     name: fusion-flow-api
     branch: dev
     runtime: docker
-    dockerfilePath: Portal/fusion_api/Dockerfile
-    dockerContext: Portal/fusion_api
+    dockerfilePath: ./Portal/fusion_api/Dockerfile
+    dockerContext: .
     healthCheckPath: /api/health
     envVars:
       - key: DB_CONN_STR

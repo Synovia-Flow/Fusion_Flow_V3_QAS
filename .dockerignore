@@ -1,0 +1,12 @@
+.git
+**/.git
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+.env
+.env.*
+!.env.example
+.codex_tmp
+logs/_Ignore

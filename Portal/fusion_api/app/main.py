@@ -442,6 +442,9 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
         "GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET", "GRAPH_MAILBOX",
         "GRAPH_PROCESSED_FOLDER", "GRAPH_FORWARDERS", "PROCESSING_CLIENT", "PROCESSING_DRY_RUN",
         "PROCESSING_TRANSACTION_MODE", "ARRIVAL_MAX_FUTURE_DAYS", "API_RATE_LIMIT_SECONDS", "DEFAULT_ENV", "SDI_DEADLINE_DAY",
+        "NOTIFY_ENS_RECEIVED_ENABLED", "NOTIFY_CONSIGNMENTS_RECEIVED_ENABLED",
+        "NOTIFY_STAGING_FAILURES_ENABLED", "NOTIFY_MOVEMENT_AUTHORISED_ENABLED",
+        "NOTIFY_STAGING_FAILURES_TO", "NOTIFY_MOVEMENT_AUTHORISED_TO", "NOTIFY_ENS_PACK_AUTO_TO",
     ]
     params = application_parameter_map(app_keys)
     environments = query_all(
@@ -519,11 +522,13 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
     ]
 
     notification_rows = [
-        settings_row("ENS_RECEIVED_ENABLED", "ENS received", "false", "Sends a notification when an ENS source is received.", "planned_CFG.Notification", "boolean", editable=False),
-        settings_row("CONSIGNMENTS_RECEIVED_ENABLED", "Consignments received", "false", "Sends a notification when a consignment pack is received.", "planned_CFG.Notification", "boolean", editable=False),
-        settings_row("STAGING_FAILURES_ENABLED", "Staging failures", "false", "Sends an operational notification when staging needs manual action.", "planned_CFG.Notification", "boolean", editable=False),
-        settings_row("MOVEMENT_AUTHORISED_ENABLED", "Movement authorised", "false", "Sends the final authorised-for-movement notification.", "planned_CFG.Notification", "boolean", editable=False),
-        settings_row("ENS_PACK_AUTO_TO", "ENS pack recipients", "", "Recipient list for automatic ENS movement pack emails.", "planned_CFG.Notification", editable=False),
+        settings_row("ENS_RECEIVED_ENABLED", "ENS received", parameter_value(params, "NOTIFY_ENS_RECEIVED_ENABLED") or "false", "Notify operators after an ENS source has landed successfully.", "CFG.Application_Parameters", "boolean", parameter_updated_at(params, "NOTIFY_ENS_RECEIVED_ENABLED")),
+        settings_row("CONSIGNMENTS_RECEIVED_ENABLED", "Consignments received", parameter_value(params, "NOTIFY_CONSIGNMENTS_RECEIVED_ENABLED") or "false", "Notify operators after a consignment pack has landed successfully.", "CFG.Application_Parameters", "boolean", parameter_updated_at(params, "NOTIFY_CONSIGNMENTS_RECEIVED_ENABLED")),
+        settings_row("STAGING_FAILURES_ENABLED", "Staging failures", parameter_value(params, "NOTIFY_STAGING_FAILURES_ENABLED") or "false", "Notify operators when staging needs manual action.", "CFG.Application_Parameters", "boolean", parameter_updated_at(params, "NOTIFY_STAGING_FAILURES_ENABLED")),
+        settings_row("MOVEMENT_AUTHORISED_ENABLED", "Movement authorised", parameter_value(params, "NOTIFY_MOVEMENT_AUTHORISED_ENABLED") or "false", "Notify operators after mirrored TSS status confirms authorised for movement.", "CFG.Application_Parameters", "boolean", parameter_updated_at(params, "NOTIFY_MOVEMENT_AUTHORISED_ENABLED")),
+        settings_row("STAGING_FAILURES_TO", "Staging failure recipients", parameter_value(params, "NOTIFY_STAGING_FAILURES_TO"), "Comma-separated operational recipients for staging failures.", "CFG.Application_Parameters", "text", parameter_updated_at(params, "NOTIFY_STAGING_FAILURES_TO")),
+        settings_row("MOVEMENT_AUTHORISED_TO", "Movement authorised recipients", parameter_value(params, "NOTIFY_MOVEMENT_AUTHORISED_TO"), "Comma-separated recipients for authorised movement notices.", "CFG.Application_Parameters", "text", parameter_updated_at(params, "NOTIFY_MOVEMENT_AUTHORISED_TO")),
+        settings_row("ENS_PACK_AUTO_TO", "ENS pack recipients", parameter_value(params, "NOTIFY_ENS_PACK_AUTO_TO"), "Comma-separated recipients for the optional ENS movement pack.", "CFG.Application_Parameters", "text", parameter_updated_at(params, "NOTIFY_ENS_PACK_AUTO_TO")),
     ]
 
     return {
@@ -538,7 +543,7 @@ def admin_settings_payload(profile: dict[str, object]) -> dict[str, object]:
             settings_section("INGEST_AUTO", "Ingestion & Folders", "drive_folder_upload", "Inbound source, attachment-selection and operational folders.", ingestion_rows),
             settings_section("SDI_AUTO", "SDI / SupDec Automation", "bolt", "Supplementary declaration automation controls currently present in CFG.", sdi_rows),
             settings_section("VALIDATION", "Validation Controls", "shield", "Runtime switches that control local validation before TSS.", validation_rows),
-            settings_section("NOTIFY", "Email Automation Notifications", "notifications", "Notification controls prepared for the next automation slice.", notification_rows),
+            settings_section("NOTIFY", "Email Automation Notifications", "notifications", "V2-style notification controls stored in existing CFG parameters. Enabling a switch does not create a scheduler.", notification_rows),
         ],
     }
 
@@ -555,6 +560,13 @@ APP_PARAMETER_WRITE_MAP = {
     ("VALIDATION", "ARRIVAL_MAX_FUTURE_DAYS"): ("ARRIVAL_MAX_FUTURE_DAYS", "INTEGER", "Maximum arrival-date future window accepted by validation."),
     ("VALIDATION", "API_RATE_LIMIT_SECONDS"): ("API_RATE_LIMIT_SECONDS", "INTEGER", "Delay between outbound TSS API calls."),
     ("SDI_AUTO", "SDI_DEADLINE_DAY"): ("SDI_DEADLINE_DAY", "INTEGER", "Day-of-month control used by SDI deadline automation."),
+    ("NOTIFY", "ENS_RECEIVED_ENABLED"): ("NOTIFY_ENS_RECEIVED_ENABLED", "BOOLEAN", "Notify operators after an ENS source lands."),
+    ("NOTIFY", "CONSIGNMENTS_RECEIVED_ENABLED"): ("NOTIFY_CONSIGNMENTS_RECEIVED_ENABLED", "BOOLEAN", "Notify operators after a consignment pack lands."),
+    ("NOTIFY", "STAGING_FAILURES_ENABLED"): ("NOTIFY_STAGING_FAILURES_ENABLED", "BOOLEAN", "Notify operators about staging failures."),
+    ("NOTIFY", "MOVEMENT_AUTHORISED_ENABLED"): ("NOTIFY_MOVEMENT_AUTHORISED_ENABLED", "BOOLEAN", "Notify operators after TSS authorises a movement."),
+    ("NOTIFY", "STAGING_FAILURES_TO"): ("NOTIFY_STAGING_FAILURES_TO", "STRING", "Operational recipients for staging failure notices."),
+    ("NOTIFY", "MOVEMENT_AUTHORISED_TO"): ("NOTIFY_MOVEMENT_AUTHORISED_TO", "STRING", "Recipients for authorised movement notices."),
+    ("NOTIFY", "ENS_PACK_AUTO_TO"): ("NOTIFY_ENS_PACK_AUTO_TO", "STRING", "Recipients for the optional ENS movement pack."),
 }
 SOURCE_BOOLEAN_KEYS = {("GRAPH", "ENABLED"), ("INGEST_AUTO", "ENABLED")}
 SOURCE_CONFIG_KEYS = {
@@ -566,11 +578,6 @@ SECRET_UPDATE_KEYS = {("TSS_API", "PASSWORD"), ("GRAPH", "TENANT_ID"), ("GRAPH",
 READ_ONLY_SETTING_KEYS = {
     ("INGEST_AUTO", "ATTACHMENT_TO_MAP"),
     ("INGEST_AUTO", "TARGET_RAW"),
-    ("NOTIFY", "ENS_RECEIVED_ENABLED"),
-    ("NOTIFY", "CONSIGNMENTS_RECEIVED_ENABLED"),
-    ("NOTIFY", "STAGING_FAILURES_ENABLED"),
-    ("NOTIFY", "MOVEMENT_AUTHORISED_ENABLED"),
-    ("NOTIFY", "ENS_PACK_AUTO_TO"),
 }
 
 
@@ -2023,6 +2030,7 @@ CONTROL_TOWER_OBJECTS = [
     "EXC.Execution",
     "EXC.Job_Queue",
     "LOG.Process_Log",
+    "LOG.Notification",
 ]
 
 
@@ -2049,6 +2057,8 @@ def control_tower(client_code: str = Query("PLE"), limit: int = Query(20, ge=1, 
             "apiErrors": safe_count("API.Call", " WHERE (ClientCode = ? OR ClientCode IS NULL) AND Success = 0 AND IsDryRun = 0", [code]),
             "activeJobs": safe_count("CFG.Job", " WHERE (ClientCode = ? OR ClientCode IS NULL) AND IsActive = 1", [code]),
             "queuePending": safe_count("EXC.Job_Queue", " WHERE Status = 'PENDING'"),
+            "notifications": safe_count("LOG.Notification", " WHERE ClientCode = ?", [code]),
+            "notificationFailures": safe_count("LOG.Notification", " WHERE ClientCode = ? AND Status IN ('FAILED','ERROR')", [code]),
         }
 
         jobs = safe_rows(
@@ -2112,6 +2122,18 @@ def control_tower(client_code: str = Query("PLE"), limit: int = Query(20, ge=1, 
             """,
             [code],
         )
+        notifications = safe_rows(
+            "LOG.Notification",
+            f"""
+            SELECT TOP {top}
+                NotificationID, EventType, EntityKind, EntityId, Channel, Provider,
+                ToRecipients, Subject, Status, HttpStatus, ErrorMessage, CreatedAt, SentAt
+            FROM LOG.Notification
+            WHERE ClientCode = ?
+            ORDER BY CreatedAt DESC, NotificationID DESC
+            """,
+            [code],
+        )
         params = safe_rows(
             "CFG.Application_Parameters",
             """
@@ -2119,7 +2141,9 @@ def control_tower(client_code: str = Query("PLE"), limit: int = Query(20, ge=1, 
             FROM CFG.Application_Parameters
             WHERE ParameterKey IN (
                 'INGESTION_DRY_RUN', 'PROCESSING_DRY_RUN', 'SUBMISSION_DRY_RUN',
-                'SUBMISSION_ENV', 'PROCESSING_MODE', 'PROCESSING_TRANSACTION_MODE'
+                'SUBMISSION_ENV', 'PROCESSING_MODE', 'PROCESSING_TRANSACTION_MODE',
+                'NOTIFY_ENS_RECEIVED_ENABLED', 'NOTIFY_CONSIGNMENTS_RECEIVED_ENABLED',
+                'NOTIFY_STAGING_FAILURES_ENABLED', 'NOTIFY_MOVEMENT_AUTHORISED_ENABLED'
             )
             ORDER BY ParameterKey
             """,
@@ -2193,6 +2217,7 @@ def control_tower(client_code: str = Query("PLE"), limit: int = Query(20, ge=1, 
         "executions": executions,
         "activity": activity,
         "apiCalls": api_calls,
+        "notifications": notifications,
         "params": params,
         "movements": movements,
     }

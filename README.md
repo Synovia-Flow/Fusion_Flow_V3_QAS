@@ -42,6 +42,22 @@ Email / files
 | `Development/Deploy/` | Deployment tooling and change audit. |
 | `Deprecated/` | Old prototypes kept for reference only. |
 
+## Portal and Render
+
+The real React website is in `Portal/fusion_portal`. After login it opens the
+native V3 Control Tower; the simpler portal shortcuts remain available as
+`Portal Home`.
+
+The top-level `fusion_portal/` folder is only a compatibility adapter for the
+existing Render service that still has the old Root Directory saved. It builds
+the real portal and copies its `dist`. New Render services should use
+`Portal/fusion_portal`, as declared in `render.yaml`.
+
+Notification switches and recipients are stored in the existing
+`CFG.Application_Parameters`. Control Tower reads `LOG.Notification` only when
+that table is already deployed. The portal does not create a notification table
+or start a scheduler.
+
 ## Database model
 
 | Schema | Role |
